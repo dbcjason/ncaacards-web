@@ -77,7 +77,7 @@ export default function RosterPage() {
     const data = await res.json();
     if (!data?.ok || !data?.id) {
       setLoading(false);
-      setMessage("Failed to start job");
+      setMessage(`Failed to start job: ${String(data?.error ?? "unknown error")}`);
       return;
     }
     setJobId(data.id);
