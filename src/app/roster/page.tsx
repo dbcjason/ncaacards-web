@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { SEASONS } from "@/lib/ui-options";
+import { ALL_TEAMS, SEASONS, TRANSFER_CANDIDATES, playersForTeamSeason } from "@/lib/ui-options";
 
 type RosterMetric = {
   metric: string;
@@ -28,9 +28,13 @@ export default function RosterPage() {
   const [jobId, setJobId] = useState<string>("");
   const [progress, setProgress] = useState<number>(0);
   const [message, setMessage] = useState<string>("");
-  const [teamOptions, setTeamOptions] = useState<string[]>([]);
-  const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
-  const [allPlayers, setAllPlayers] = useState<string[]>([]);
+  const [teamOptions, setTeamOptions] = useState<string[]>(ALL_TEAMS);
+  const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>(() => {
+    const out: Record<string, string[]> = {};
+    for (const t of ALL_TEAMS) out[t] = playersForTeamSeason(t, 2026);
+    return out;
+  });
+  const [allPlayers, setAllPlayers] = useState<string[]>(TRANSFER_CANDIDATES);
   const [optionsError, setOptionsError] = useState("");
 
   const currentRoster = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
@@ -52,6 +56,7 @@ export default function RosterPage() {
       if (!active) return;
       if (!j?.ok) {
         setOptionsError(String(j?.error ?? "Failed to load options"));
+        if (teamOptions.length === 0) setTeamOptions(ALL_TEAMS);
         return;
       }
       const teams = Array.isArray(j.teams) ? j.teams : [];

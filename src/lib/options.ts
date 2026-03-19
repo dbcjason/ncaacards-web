@@ -41,9 +41,18 @@ function parseCsvLine(line: string): string[] {
   return out;
 }
 
-function findCol(header: string[], name: string): number {
-  const target = name.toLowerCase();
-  return header.findIndex((h) => h.toLowerCase() === target);
+function normalizeColName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function findCol(header: string[], names: string[]): number {
+  const normalized = header.map((h) => normalizeColName(h));
+  const targets = names.map((n) => normalizeColName(n));
+  for (const target of targets) {
+    const idx = normalized.findIndex((h) => h === target);
+    if (idx >= 0) return idx;
+  }
+  return -1;
 }
 
 async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions> {
@@ -55,8 +64,8 @@ async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions
   if (lines.length < 2) throw new Error("Bart CSV returned no rows");
 
   const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
-  const pIdx = findCol(header, "player_name");
-  const tIdx = findCol(header, "team");
+  const pIdx = findCol(header, ["player_name", "player", "name"]);
+  const tIdx = findCol(header, ["team", "school"]);
   if (pIdx < 0 || tIdx < 0) throw new Error("Bart CSV missing player_name/team columns");
 
   const byTeam = new Map<string, Set<string>>();
@@ -91,9 +100,9 @@ async function fetchSeasonOptionsFromGithub(season: number): Promise<SeasonOptio
   if (lines.length < 2) throw new Error("Repo CSV returned no rows");
 
   const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
-  const pIdx = findCol(header, "player_name");
-  const tIdx = findCol(header, "team");
-  const yIdx = findCol(header, "year");
+  const pIdx = findCol(header, ["player_name", "player", "name"]);
+  const tIdx = findCol(header, ["team", "school"]);
+  const yIdx = findCol(header, ["year", "season", "yr"]);
   if (pIdx < 0 || tIdx < 0 || yIdx < 0) {
     throw new Error("Repo CSV missing player_name/team/year columns");
   }

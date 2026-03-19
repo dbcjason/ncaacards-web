@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CONFERENCES, SEASONS } from "@/lib/ui-options";
+import { ALL_TEAMS, CONFERENCES, SEASONS, playersForTeamSeason } from "@/lib/ui-options";
 
 type CardResult = {
   cache?: string;
@@ -20,8 +20,12 @@ export default function CardsPage() {
   const [jobId, setJobId] = useState<string>("");
   const [progress, setProgress] = useState<number>(0);
   const [message, setMessage] = useState<string>("");
-  const [teamOptions, setTeamOptions] = useState<string[]>([]);
-  const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
+  const [teamOptions, setTeamOptions] = useState<string[]>(ALL_TEAMS);
+  const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>(() => {
+    const out: Record<string, string[]> = {};
+    for (const t of ALL_TEAMS) out[t] = playersForTeamSeason(t, 2026);
+    return out;
+  });
   const [optionsError, setOptionsError] = useState("");
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
@@ -35,6 +39,7 @@ export default function CardsPage() {
       if (!active) return;
       if (!j?.ok) {
         setOptionsError(String(j?.error ?? "Failed to load options"));
+        if (teamOptions.length === 0) setTeamOptions(ALL_TEAMS);
         return;
       }
       const teams = Array.isArray(j.teams) ? j.teams : [];
