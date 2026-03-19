@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { ALL_TEAMS, rosterForTeamSeason, SEASONS, TRANSFER_CANDIDATES } from "@/lib/ui-options";
 
 type RosterMetric = {
   metric: string;
@@ -18,21 +19,24 @@ type RosterResult = {
 export default function RosterPage() {
   const [season, setSeason] = useState(2026);
   const [team, setTeam] = useState("UCLA");
-  const [inText, setInText] = useState("Player A, Player B");
-  const [outText, setOutText] = useState("Player C");
+  const [addPick, setAddPick] = useState("");
+  const [removePick, setRemovePick] = useState("");
+  const [addPlayers, setAddPlayers] = useState<string[]>([]);
+  const [removePlayers, setRemovePlayers] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RosterResult | null>(null);
   const [jobId, setJobId] = useState<string>("");
   const [progress, setProgress] = useState<number>(0);
   const [message, setMessage] = useState<string>("");
 
-  const addPlayers = useMemo(
-    () => inText.split(",").map((s) => s.trim()).filter(Boolean),
-    [inText],
+  const currentRoster = useMemo(() => rosterForTeamSeason(team, season), [team, season]);
+  const addOptions = useMemo(
+    () => TRANSFER_CANDIDATES.filter((p) => !addPlayers.includes(p) && !currentRoster.includes(p)),
+    [addPlayers, currentRoster],
   );
-  const removePlayers = useMemo(
-    () => outText.split(",").map((s) => s.trim()).filter(Boolean),
-    [outText],
+  const removeOptions = useMemo(
+    () => currentRoster.filter((p) => !removePlayers.includes(p)),
+    [currentRoster, removePlayers],
   );
 
   async function poll(id: string) {
@@ -96,10 +100,124 @@ export default function RosterPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <input className="rounded bg-zinc-900 p-3" type="number" value={season} onChange={(e) => setSeason(Number(e.target.value))} />
-          <input className="rounded bg-zinc-900 p-3" value={team} onChange={(e) => setTeam(e.target.value)} />
-          <input className="rounded bg-zinc-900 p-3" value={inText} onChange={(e) => setInText(e.target.value)} />
-          <input className="rounded bg-zinc-900 p-3" value={outText} onChange={(e) => setOutText(e.target.value)} />
+          <select
+            className="rounded bg-zinc-900 p-3"
+            value={season}
+            onChange={(e) => {
+              setSeason(Number(e.target.value));
+              setRemovePlayers([]);
+            }}
+          >
+            {SEASONS.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+          <div>
+            <input
+              className="w-full rounded bg-zinc-900 p-3"
+              list="roster-team-options"
+              value={team}
+              onChange={(e) => {
+                setTeam(e.target.value);
+                setRemovePlayers([]);
+              }}
+              placeholder="Search team"
+            />
+            <datalist id="roster-team-options">
+              {ALL_TEAMS.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+          </div>
+          <div className="flex gap-2">
+            <input
+              className="w-full rounded bg-zinc-900 p-3"
+              list="roster-add-options"
+              value={addPick}
+              onChange={(e) => setAddPick(e.target.value)}
+              placeholder="Search player to add"
+            />
+            <button
+              className="rounded bg-zinc-700 px-3 py-2 text-sm"
+              onClick={() => {
+                const v = addPick.trim();
+                if (!v || addPlayers.includes(v)) return;
+                setAddPlayers((prev) => [...prev, v]);
+                setAddPick("");
+              }}
+              type="button"
+            >
+              Add
+            </button>
+            <datalist id="roster-add-options">
+              {addOptions.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+          </div>
+          <div className="flex gap-2">
+            <input
+              className="w-full rounded bg-zinc-900 p-3"
+              list="roster-remove-options"
+              value={removePick}
+              onChange={(e) => setRemovePick(e.target.value)}
+              placeholder="Search player to remove"
+            />
+            <button
+              className="rounded bg-zinc-700 px-3 py-2 text-sm"
+              onClick={() => {
+                const v = removePick.trim();
+                if (!v || removePlayers.includes(v)) return;
+                setRemovePlayers((prev) => [...prev, v]);
+                setRemovePick("");
+              }}
+              type="button"
+            >
+              Remove
+            </button>
+            <datalist id="roster-remove-options">
+              {removeOptions.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="rounded bg-zinc-900 p-3">
+            <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">In</div>
+            <div className="flex flex-wrap gap-2">
+              {addPlayers.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="rounded bg-emerald-700 px-2 py-1 text-xs"
+                  onClick={() => setAddPlayers((prev) => prev.filter((x) => x !== p))}
+                >
+                  {p} ×
+                </button>
+              ))}
+              {!addPlayers.length && <span className="text-sm text-zinc-500">No players added</span>}
+            </div>
+          </div>
+          <div className="rounded bg-zinc-900 p-3">
+            <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">Out</div>
+            <div className="flex flex-wrap gap-2">
+              {removePlayers.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="rounded bg-rose-700 px-2 py-1 text-xs"
+                  onClick={() => setRemovePlayers((prev) => prev.filter((x) => x !== p))}
+                >
+                  {p} ×
+                </button>
+              ))}
+              {!removePlayers.length && <span className="text-sm text-zinc-500">No players removed</span>}
+            </div>
+          </div>
         </div>
 
         <div className="mt-4">

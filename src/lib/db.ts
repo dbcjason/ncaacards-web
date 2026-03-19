@@ -1,6 +1,9 @@
 import { Pool } from "pg";
 
-let pool: any = null;
+type DbQueryResult = { rows: unknown[] };
+type DbPool = { query: (text: string, params?: unknown[]) => Promise<DbQueryResult> };
+
+let pool: DbPool | null = null;
 
 function getPool() {
   if (!process.env.DATABASE_URL) {
