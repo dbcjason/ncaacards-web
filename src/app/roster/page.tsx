@@ -51,26 +51,37 @@ export default function RosterPage() {
     let active = true;
     async function loadOptions() {
       setOptionsError("");
-      const r = await fetch(`/api/options?season=${season}`, { cache: "no-store" });
-      const j = await r.json();
-      if (!active) return;
-      if (!j?.ok) {
-        setOptionsError(String(j?.error ?? "Failed to load options"));
-        if (teamOptions.length === 0) setTeamOptions(ALL_TEAMS);
-        return;
-      }
-      const teams = Array.isArray(j.teams) ? j.teams : [];
-      const pbt = (j.playersByTeam ?? {}) as Record<string, string[]>;
-      const ap = Array.isArray(j.allPlayers) ? j.allPlayers : [];
-      setTeamOptions(teams);
-      setPlayersByTeam(pbt);
-      setAllPlayers(ap);
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          const r = await fetch(`/api/options?season=${season}`, { cache: "no-store" });
+          const j = await r.json();
+          if (!active) return;
+          if (!j?.ok) throw new Error(String(j?.error ?? "Failed to load options"));
 
-      const nextTeam = teams.includes(team) ? team : (teams[0] ?? "");
-      if (nextTeam !== team) {
-        setTeam(nextTeam);
+          const teams = Array.isArray(j.teams) ? j.teams : [];
+          const pbt = (j.playersByTeam ?? {}) as Record<string, string[]>;
+          const ap = Array.isArray(j.allPlayers) ? j.allPlayers : [];
+          if (!teams.length) throw new Error("No teams returned");
+          setTeamOptions(teams);
+          setPlayersByTeam(pbt);
+          setAllPlayers(ap);
+
+          const nextTeam = teams.includes(team) ? team : (teams[0] ?? "");
+          if (nextTeam !== team) {
+            setTeam(nextTeam);
+          }
+          setRemovePlayers([]);
+          setOptionsError("");
+          return;
+        } catch (err) {
+          if (attempt >= 3) {
+            setOptionsError(err instanceof Error ? err.message : "Failed to load options");
+            if (teamOptions.length === 0) setTeamOptions(ALL_TEAMS);
+            return;
+          }
+          await new Promise((res) => setTimeout(res, 700));
+        }
       }
-      setRemovePlayers([]);
     }
     loadOptions();
     return () => {

@@ -20,6 +20,11 @@ export type JobRow = {
 
 const inMemoryJobs = new Map<string, JobRow>();
 let warnedNoDb = false;
+const GH_OWNER = (process.env.GITHUB_OWNER ?? "").trim();
+const GH_REPO = (process.env.GITHUB_REPO ?? "").trim();
+const GH_WORKFLOW = (process.env.GITHUB_WORKFLOW_FILE ?? "").trim();
+const GH_REF = (process.env.GITHUB_REF ?? "main").trim();
+const GH_TOKEN = (process.env.GITHUB_TOKEN ?? "").trim();
 
 function makeMemoryJob(jobType: JobType, request: Record<string, unknown>): JobRow {
   const now = new Date().toISOString();
@@ -65,11 +70,7 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
     payload = null;
   }
 
-  if (!payload) {
-    throw new Error(
-      "Card payload missing for this request. Precompute/load card payloads into DB before running card builder.",
-    );
-  }
+  if (!payload) return null;
 
   await cacheSet(key, payload, 60 * 60 * 24);
   return { ...payload, cache: "miss" };
@@ -109,6 +110,268 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
 
   await cacheSet(key, payload, 60 * 30);
   return { ...payload, cache: "miss" };
+}
+
+function githubReady(): boolean {
+  return Boolean(GH_OWNER && GH_REPO && GH_WORKFLOW && GH_REF && GH_TOKEN);
+}
+
+function safeFilePart(v: string): string {
+  return v
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+async function ghApi(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${GH_TOKEN}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+}
+
+async function dispatchCardWorkflow(input: {
+  year: number;
+  player: string;
+  team: string;
+  mode: string;
+  destinationConference: string;
+  outputFilename: string;
+}) {
+  const body = {
+    ref: GH_REF,
+    inputs: {
+      year: String(input.year),
+      player: input.player,
+      team: input.team,
+      output_filename: input.outputFilename,
+      commit_to_repo: true,
+      include_plays_data: false,
+      transfer_up: input.mode === "transfer",
+      destination_conference: input.mode === "transfer" ? input.destinationConference : "",
+    },
+  };
+  const r = await ghApi(
+    `/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(
+      GH_REPO,
+    )}/actions/workflows/${encodeURIComponent(GH_WORKFLOW)}/dispatches`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Workflow dispatch failed (${r.status}): ${t.slice(0, 300)}`);
+  }
+}
+
+async function findDispatchedRunId(dispatchedAtIso: string): Promise<number | null> {
+  const r = await ghApi(
+    `/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(
+      GH_REPO,
+    )}/actions/workflows/${encodeURIComponent(GH_WORKFLOW)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(
+      GH_REF,
+    )}&per_page=20`,
+  );
+  if (!r.ok) return null;
+  const j = (await r.json()) as { workflow_runs?: Array<{ id: number; created_at: string }> };
+  const runs = Array.isArray(j.workflow_runs) ? j.workflow_runs : [];
+  const cutoff = Date.parse(dispatchedAtIso) - 30_000;
+  for (const run of runs) {
+    const ts = Date.parse(run.created_at);
+    if (Number.isFinite(ts) && ts >= cutoff) return run.id;
+  }
+  return null;
+}
+
+async function getRun(runId: number): Promise<{ status: string; conclusion: string | null } | null> {
+  const r = await ghApi(
+    `/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(GH_REPO)}/actions/runs/${runId}`,
+  );
+  if (!r.ok) return null;
+  const j = (await r.json()) as { status?: string; conclusion?: string | null };
+  return { status: String(j.status ?? ""), conclusion: j.conclusion ?? null };
+}
+
+async function fetchCommittedCardHtml(outputFilename: string): Promise<string> {
+  const path = `player_cards_pipeline/output/${outputFilename}`;
+  const r = await ghApi(
+    `/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(
+      GH_REPO,
+    )}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(GH_REF)}`,
+  );
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Failed to fetch committed HTML (${r.status}): ${t.slice(0, 300)}`);
+  }
+  const j = (await r.json()) as { content?: string; encoding?: string };
+  if (j.encoding !== "base64" || !j.content) throw new Error("Committed HTML content missing");
+  const b64 = j.content.replace(/\s+/g, "");
+  return Buffer.from(b64, "base64").toString("utf-8");
+}
+
+async function upsertCardPayload(payloadKey: {
+  season: number;
+  team: string;
+  player: string;
+  mode: string;
+  destinationConference: string;
+  payload: Record<string, unknown>;
+}) {
+  await dbQuery(
+    `INSERT INTO card_payloads (season, team, player, mode, destination_conference, payload, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
+     ON CONFLICT (season, team, player, mode, destination_conference)
+     DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()`,
+    [
+      payloadKey.season,
+      payloadKey.team,
+      payloadKey.player,
+      payloadKey.mode,
+      payloadKey.destinationConference,
+      JSON.stringify(payloadKey.payload),
+    ],
+  );
+}
+
+async function advanceCardJob(job: JobRow): Promise<JobRow> {
+  const req = { ...(job.request_json ?? {}) } as Record<string, unknown>;
+  const season = Number(req.season ?? 0);
+  const requestedTeam = String(req.team ?? "");
+  const requestedPlayer = String(req.player ?? "");
+  const mode = String(req.mode ?? "draft");
+  const destinationConference = String(req.destinationConference ?? "");
+  const resolved = await resolveTeamPlayerForSeason(season, requestedTeam, requestedPlayer);
+  const team = resolved.team;
+  const player = resolved.player;
+
+  const existing = await getCardPayloadFromStore({
+    ...req,
+    season,
+    team,
+    player,
+    mode,
+    destinationConference,
+  });
+  if (existing) {
+    await updateJob(job.id, {
+      status: "done",
+      progress: 100,
+      message: "Completed",
+      result_json: existing,
+    });
+    return (await loadJob(job.id)) ?? job;
+  }
+
+  if (!githubReady()) {
+    throw new Error("GitHub workflow env vars missing (GITHUB_OWNER/REPO/WORKFLOW_FILE/REF/TOKEN).");
+  }
+
+  const state = (req.__cardState ?? {}) as Record<string, unknown>;
+  const outputFilename =
+    String(state.outputFilename ?? "").trim() ||
+    `web_${season}_${safeFilePart(team)}_${safeFilePart(player)}_${mode}_${safeFilePart(
+      destinationConference || "na",
+    )}.html`;
+
+  let dispatchedAt = String(state.dispatchedAt ?? "").trim();
+  let runId = Number(state.runId ?? 0);
+
+  if (!dispatchedAt) {
+    await dispatchCardWorkflow({
+      year: season,
+      player,
+      team,
+      mode,
+      destinationConference,
+      outputFilename,
+    });
+    dispatchedAt = new Date().toISOString();
+    await updateJob(job.id, {
+      progress: 30,
+      message: "Dispatched GitHub build",
+      request_json: {
+        ...req,
+        team,
+        player,
+        __cardState: { outputFilename, dispatchedAt },
+      },
+    } as Partial<JobRow>);
+    return (await loadJob(job.id)) ?? job;
+  }
+
+  if (!Number.isFinite(runId) || runId <= 0) {
+    const found = await findDispatchedRunId(dispatchedAt);
+    if (!found) {
+      await updateJob(job.id, {
+        progress: 40,
+        message: "Waiting for GitHub run to appear",
+      });
+      return (await loadJob(job.id)) ?? job;
+    }
+    runId = found;
+    await updateJob(job.id, {
+      progress: 50,
+      message: `GitHub run detected (#${runId})`,
+      request_json: {
+        ...req,
+        team,
+        player,
+        __cardState: { outputFilename, dispatchedAt, runId },
+      },
+    } as Partial<JobRow>);
+    return (await loadJob(job.id)) ?? job;
+  }
+
+  const run = await getRun(runId);
+  if (!run) {
+    await updateJob(job.id, { progress: 55, message: "Checking GitHub run status" });
+    return (await loadJob(job.id)) ?? job;
+  }
+  if (run.status !== "completed") {
+    await updateJob(job.id, { progress: 70, message: `GitHub run ${run.status}` });
+    return (await loadJob(job.id)) ?? job;
+  }
+  if (run.conclusion !== "success") {
+    throw new Error(`GitHub run failed (conclusion=${run.conclusion ?? "unknown"})`);
+  }
+
+  await updateJob(job.id, { progress: 85, message: "Fetching generated card" });
+  const cardHtml = await fetchCommittedCardHtml(outputFilename);
+  const payload: Record<string, unknown> = {
+    ok: true,
+    source: "github_action",
+    generatedAt: new Date().toISOString(),
+    input: {
+      season,
+      team,
+      player,
+      mode: mode === "transfer" ? "transfer" : "draft",
+      destinationConference: mode === "transfer" ? destinationConference : "",
+    },
+    cardHtml,
+  };
+  await upsertCardPayload({
+    season,
+    team,
+    player,
+    mode,
+    destinationConference,
+    payload,
+  });
+  const cacheKey = `card:${season}:${team}:${player}:${mode}:${destinationConference}`;
+  await cacheSet(cacheKey, payload, 60 * 60 * 24);
+  await updateJob(job.id, {
+    status: "done",
+    progress: 100,
+    message: "Completed",
+    result_json: { ...payload, cache: "miss" },
+  });
+  return (await loadJob(job.id)) ?? job;
 }
 
 export async function createJob(jobType: JobType, request: Record<string, unknown>) {
@@ -168,27 +431,19 @@ export async function updateJob(id: string, patch: Partial<JobRow>) {
 
 export async function advanceJobIfNeeded(job: JobRow): Promise<JobRow> {
   if (job.status === "done" || job.status === "error") return job;
-  const elapsedMs = Date.now() - new Date(job.created_at).getTime();
 
   if (job.status === "queued") {
-    await updateJob(job.id, { status: "running", progress: 20, message: "Loading payload" });
+    await updateJob(job.id, { status: "running", progress: 15, message: "Loading payload" });
     const next = await loadJob(job.id);
     if (next) return next;
   }
 
-  if (elapsedMs < 1000) {
-    const p = Math.max(20, Math.min(60, Math.floor(elapsedMs / 20)));
-    await updateJob(job.id, { status: "running", progress: p, message: "Computing" });
-    const next = await loadJob(job.id);
-    return next ?? job;
-  }
-
   try {
+    if (job.job_type === "card") {
+      return await advanceCardJob(job);
+    }
     const req = (job.request_json ?? {}) as Record<string, unknown>;
-    const payload =
-      job.job_type === "card"
-        ? await getCardPayloadFromStore(req)
-        : await getRosterPayloadFromStore(req);
+    const payload = await getRosterPayloadFromStore(req);
     await updateJob(job.id, {
       status: "done",
       progress: 100,
