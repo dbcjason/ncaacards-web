@@ -2,6 +2,7 @@ type Json = Record<string, unknown>;
 
 const REDIS_URL = process.env.REDIS_URL ?? "";
 const REDIS_TOKEN = process.env.REDIS_TOKEN ?? "";
+const localCache = new Map<string, unknown>();
 
 function ready() {
   const url = REDIS_URL.trim();
@@ -15,7 +16,10 @@ function ready() {
 }
 
 export async function cacheGet<T = Json>(key: string): Promise<T | null> {
-  if (!ready()) return null;
+  if (!ready()) {
+    const v = localCache.get(key);
+    return (v as T | undefined) ?? null;
+  }
   try {
     const res = await fetch(`${REDIS_URL}/get/${encodeURIComponent(key)}`, {
       headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
@@ -30,7 +34,10 @@ export async function cacheGet<T = Json>(key: string): Promise<T | null> {
 }
 
 export async function cacheSet(key: string, value: unknown, exSeconds = 3600): Promise<void> {
-  if (!ready()) return;
+  if (!ready()) {
+    localCache.set(key, value);
+    return;
+  }
   try {
     await fetch(`${REDIS_URL}/set/${encodeURIComponent(key)}`, {
       method: "POST",

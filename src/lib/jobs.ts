@@ -1,6 +1,5 @@
 import { dbQuery } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/cache";
-import { buildCardPayload } from "@/lib/mock";
 import { resolveTeamPlayerForSeason } from "@/lib/options";
 
 export type JobType = "card" | "roster";
@@ -67,13 +66,9 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
   }
 
   if (!payload) {
-    payload = buildCardPayload({
-      season,
-      team,
-      player,
-      mode: mode === "transfer" ? "transfer" : "draft",
-      destinationConference,
-    }) as Record<string, unknown>;
+    throw new Error(
+      "Card payload missing for this request. Precompute/load card payloads into DB before running card builder.",
+    );
   }
 
   await cacheSet(key, payload, 60 * 60 * 24);

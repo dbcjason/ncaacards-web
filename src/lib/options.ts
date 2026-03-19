@@ -11,9 +11,9 @@ const TTL_MS = 1000 * 60 * 60;
 const DATA_OWNER = process.env.GITHUB_DATA_OWNER || "dbcjason";
 const DATA_REPO = process.env.GITHUB_DATA_REPO || "NCAACards";
 const DATA_REF = process.env.GITHUB_DATA_REF || "main";
-const BT_SEASON_CSV_TEMPLATE =
-  process.env.GITHUB_BT_SEASON_CSV_TEMPLATE ||
-  "player_cards_pipeline/data/bt/trank_by_year/trank_{season}.csv";
+const BT_PLAYERSTAT_JSON_TEMPLATE =
+  process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE ||
+  "player_cards_pipeline/data/bt/raw_playerstat_json/{season}_pbp_playerstat_array.json";
 const BT_CSV_PATH =
   process.env.GITHUB_BT_CSV_PATH ||
   "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv";
@@ -112,13 +112,47 @@ function parseOptionsFromCsvText(
   return { teams, playersByTeam, allPlayers, loadedAt: Date.now() };
 }
 
-async function fetchSeasonOptionsFromGithubSeasonFile(season: number): Promise<SeasonOptions> {
-  const path = BT_SEASON_CSV_TEMPLATE.replace("{season}", String(season));
+function pickJsonKey(obj: Record<string, unknown>, keys: string[]): string | null {
+  const map = new Map<string, string>();
+  for (const k of Object.keys(obj)) map.set(normalizeColName(k), k);
+  for (const k of keys) {
+    const hit = map.get(normalizeColName(k));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number): Promise<SeasonOptions> {
+  const path = BT_PLAYERSTAT_JSON_TEMPLATE.replace("{season}", String(season));
   const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${path}`;
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch repo season CSV (${res.status})`);
+  if (!res.ok) throw new Error(`Failed to fetch repo playerstat JSON (${res.status})`);
   const text = await res.text();
-  return parseOptionsFromCsvText(text, {});
+  const arr = JSON.parse(text) as unknown[];
+  if (!Array.isArray(arr) || arr.length === 0) throw new Error("Playerstat JSON empty");
+
+  const byTeam = new Map<string, Set<string>>();
+  const allPlayersSet = new Set<string>();
+  for (const row of arr) {
+    if (!row || typeof row !== "object") continue;
+    const obj = row as Record<string, unknown>;
+    const playerKey = pickJsonKey(obj, ["player_name", "player", "name"]);
+    const teamKey = pickJsonKey(obj, ["team", "school"]);
+    if (!playerKey || !teamKey) continue;
+    const player = String(obj[playerKey] ?? "").trim();
+    const team = String(obj[teamKey] ?? "").trim();
+    if (!player || !team) continue;
+    if (!byTeam.has(team)) byTeam.set(team, new Set<string>());
+    byTeam.get(team)!.add(player);
+    allPlayersSet.add(player);
+  }
+  const teams = Array.from(byTeam.keys()).sort((a, b) => a.localeCompare(b));
+  const playersByTeam: Record<string, string[]> = {};
+  for (const team of teams) {
+    playersByTeam[team] = Array.from(byTeam.get(team) ?? []).sort((a, b) => a.localeCompare(b));
+  }
+  const allPlayers = Array.from(allPlayersSet).sort((a, b) => a.localeCompare(b));
+  return { teams, playersByTeam, allPlayers, loadedAt: Date.now() };
 }
 
 async function fetchSeasonOptionsFromGithubLargeFile(season: number): Promise<SeasonOptions> {
@@ -137,15 +171,15 @@ export async function getSeasonOptions(season: number): Promise<SeasonOptions> {
     fresh = await fetchSeasonOptionsFromBart(season);
   } catch (bartErr) {
     try {
-      fresh = await fetchSeasonOptionsFromGithubSeasonFile(season);
-    } catch (ghSeasonErr) {
+      fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season);
+    } catch (ghJsonErr) {
       try {
         fresh = await fetchSeasonOptionsFromGithubLargeFile(season);
       } catch (ghLargeErr) {
       const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
-      const gs = ghSeasonErr instanceof Error ? ghSeasonErr.message : String(ghSeasonErr);
+      const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
       const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
-      throw new Error(`Bart failed: ${b} | Repo season failed: ${gs} | Repo all-years failed: ${gl}`);
+      throw new Error(`Bart failed: ${b} | Repo playerstat failed: ${gs} | Repo all-years failed: ${gl}`);
       }
     }
   }
