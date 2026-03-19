@@ -1,8 +1,8 @@
-import { Pool, type QueryResultRow } from "pg";
+import { Pool } from "pg";
 
-let pool: Pool | null = null;
+let pool: any = null;
 
-function getPool(): Pool {
+function getPool() {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is not set");
   }
@@ -16,12 +16,11 @@ function getPool(): Pool {
   return pool;
 }
 
-export async function dbQuery<T extends QueryResultRow = QueryResultRow>(
+export async function dbQuery<T = Record<string, unknown>>(
   text: string,
   params: unknown[] = [],
 ): Promise<T[]> {
   const p = getPool();
-  const res = await p.query<T>(text, params);
+  const res = await p.query(text, params);
   return res.rows;
 }
-

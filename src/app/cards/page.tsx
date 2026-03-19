@@ -119,7 +119,10 @@ export default function CardsPage() {
         {result && (
           <div className="mt-6 space-y-3">
             <div className="text-sm text-zinc-400">Cache: {result.cache}</div>
-            <div className="rounded border border-zinc-800 bg-zinc-900 p-4" dangerouslySetInnerHTML={{ __html: result.cardHtml }} />
+            <div
+              className="rounded border border-zinc-800 bg-zinc-900 p-4"
+              dangerouslySetInnerHTML={{ __html: result.cardHtml ?? "" }}
+            />
           </div>
         )}
       </div>
