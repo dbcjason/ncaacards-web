@@ -114,31 +114,29 @@ export default function RosterPage() {
               </option>
             ))}
           </select>
-          <div>
-            <input
-              className="w-full rounded bg-zinc-900 p-3"
-              list="roster-team-options"
-              value={team}
-              onChange={(e) => {
-                setTeam(e.target.value);
-                setRemovePlayers([]);
-              }}
-              placeholder="Search team"
-            />
-            <datalist id="roster-team-options">
-              {ALL_TEAMS.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-          </div>
+          <select
+            className="rounded bg-zinc-900 p-3"
+            value={team}
+            onChange={(e) => {
+              setTeam(e.target.value);
+              setRemovePlayers([]);
+            }}
+          >
+            {ALL_TEAMS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
           <div className="flex gap-2">
-            <input
-              className="w-full rounded bg-zinc-900 p-3"
-              list="roster-add-options"
-              value={addPick}
-              onChange={(e) => setAddPick(e.target.value)}
-              placeholder="Search player to add"
-            />
+            <select className="w-full rounded bg-zinc-900 p-3" value={addPick} onChange={(e) => setAddPick(e.target.value)}>
+              <option value="">Select player to add</option>
+              {addOptions.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
             <button
               className="rounded bg-zinc-700 px-3 py-2 text-sm"
               onClick={() => {
@@ -151,20 +149,16 @@ export default function RosterPage() {
             >
               Add
             </button>
-            <datalist id="roster-add-options">
-              {addOptions.map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
           </div>
           <div className="flex gap-2">
-            <input
-              className="w-full rounded bg-zinc-900 p-3"
-              list="roster-remove-options"
-              value={removePick}
-              onChange={(e) => setRemovePick(e.target.value)}
-              placeholder="Search player to remove"
-            />
+            <select className="w-full rounded bg-zinc-900 p-3" value={removePick} onChange={(e) => setRemovePick(e.target.value)}>
+              <option value="">Select player to remove</option>
+              {removeOptions.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
             <button
               className="rounded bg-zinc-700 px-3 py-2 text-sm"
               onClick={() => {
@@ -177,11 +171,6 @@ export default function RosterPage() {
             >
               Remove
             </button>
-            <datalist id="roster-remove-options">
-              {removeOptions.map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
           </div>
         </div>
 

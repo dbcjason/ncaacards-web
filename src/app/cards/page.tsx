@@ -105,58 +105,49 @@ export default function CardsPage() {
               </option>
             ))}
           </select>
-          <div>
-            <input
-              className="w-full rounded bg-zinc-900 p-3"
-              list="card-team-options"
-              value={team}
-              onChange={(e) => {
-                const nextTeam = e.target.value;
-                setTeam(nextTeam);
-                const nextPlayers = playersForTeamSeason(nextTeam, season);
-                if (!nextPlayers.includes(player) && nextPlayers[0]) setPlayer(nextPlayers[0]);
-              }}
-              placeholder="Search team"
-            />
-            <datalist id="card-team-options">
-              {ALL_TEAMS.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-          </div>
-          <div>
-            <input
-              className="w-full rounded bg-zinc-900 p-3"
-              list="card-player-options"
-              value={player}
-              onChange={(e) => setPlayer(e.target.value)}
-              placeholder="Search player"
-            />
-            <datalist id="card-player-options">
-              {playerOptions.map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
-          </div>
+          <select
+            className="rounded bg-zinc-900 p-3"
+            value={team}
+            onChange={(e) => {
+              const nextTeam = e.target.value;
+              setTeam(nextTeam);
+              const nextPlayers = playersForTeamSeason(nextTeam, season);
+              if (!nextPlayers.includes(player) && nextPlayers[0]) setPlayer(nextPlayers[0]);
+            }}
+          >
+            {ALL_TEAMS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <select
+            className="rounded bg-zinc-900 p-3"
+            value={player}
+            onChange={(e) => setPlayer(e.target.value)}
+          >
+            {playerOptions.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
           <select className="rounded bg-zinc-900 p-3" value={mode} onChange={(e) => setMode(e.target.value as "draft" | "transfer")}>
             <option value="draft">NBA Draft</option>
             <option value="transfer">Transfer</option>
           </select>
-          <div>
-            <input
-              className="w-full rounded bg-zinc-900 p-3 disabled:opacity-30"
-              list="card-conf-options"
-              value={dest}
-              onChange={(e) => setDest(e.target.value)}
-              disabled={mode !== "transfer"}
-              placeholder="Search conference"
-            />
-            <datalist id="card-conf-options">
-              {CONFERENCES.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </div>
+          <select
+            className="rounded bg-zinc-900 p-3 disabled:opacity-30"
+            value={dest}
+            onChange={(e) => setDest(e.target.value)}
+            disabled={mode !== "transfer"}
+          >
+            {CONFERENCES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="mt-4">

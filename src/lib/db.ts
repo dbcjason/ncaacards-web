@@ -5,13 +5,24 @@ type DbPool = { query: (text: string, params?: unknown[]) => Promise<DbQueryResu
 
 let pool: DbPool | null = null;
 
+function resolveDatabaseUrl(): string {
+  const url =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    "";
+  return String(url).trim();
+}
+
 function getPool(): DbPool {
-  if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL is not set");
+  const dbUrl = resolveDatabaseUrl();
+  if (!dbUrl) {
+    throw new Error("DATABASE_URL is not set (or POSTGRES_URL)");
   }
   if (!pool) {
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: dbUrl,
       ssl: { rejectUnauthorized: false },
       max: 5,
     });
