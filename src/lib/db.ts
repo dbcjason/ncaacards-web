@@ -5,7 +5,7 @@ type DbPool = { query: (text: string, params?: unknown[]) => Promise<DbQueryResu
 
 let pool: DbPool | null = null;
 
-function getPool() {
+function getPool(): DbPool {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is not set");
   }
@@ -16,7 +16,7 @@ function getPool() {
       max: 5,
     });
   }
-  return pool;
+  return pool as DbPool;
 }
 
 export async function dbQuery<T = Record<string, unknown>>(
@@ -25,5 +25,5 @@ export async function dbQuery<T = Record<string, unknown>>(
 ): Promise<T[]> {
   const p = getPool();
   const res = await p.query(text, params);
-  return res.rows;
+  return res.rows as T[];
 }
