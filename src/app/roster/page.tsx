@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ALL_TEAMS, rosterForTeamSeason, SEASONS, TRANSFER_CANDIDATES } from "@/lib/ui-options";
+import { SEASONS } from "@/lib/ui-options";
 
 type RosterMetric = {
   metric: string;
@@ -28,16 +28,50 @@ export default function RosterPage() {
   const [jobId, setJobId] = useState<string>("");
   const [progress, setProgress] = useState<number>(0);
   const [message, setMessage] = useState<string>("");
+  const [teamOptions, setTeamOptions] = useState<string[]>([]);
+  const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
+  const [allPlayers, setAllPlayers] = useState<string[]>([]);
+  const [optionsError, setOptionsError] = useState("");
 
-  const currentRoster = useMemo(() => rosterForTeamSeason(team, season), [team, season]);
+  const currentRoster = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
   const addOptions = useMemo(
-    () => TRANSFER_CANDIDATES.filter((p) => !addPlayers.includes(p) && !currentRoster.includes(p)),
-    [addPlayers, currentRoster],
+    () => allPlayers.filter((p) => !addPlayers.includes(p) && !currentRoster.includes(p)),
+    [addPlayers, currentRoster, allPlayers],
   );
   const removeOptions = useMemo(
     () => currentRoster.filter((p) => !removePlayers.includes(p)),
     [currentRoster, removePlayers],
   );
+
+  useEffect(() => {
+    let active = true;
+    async function loadOptions() {
+      setOptionsError("");
+      const r = await fetch(`/api/options?season=${season}`, { cache: "no-store" });
+      const j = await r.json();
+      if (!active) return;
+      if (!j?.ok) {
+        setOptionsError(String(j?.error ?? "Failed to load options"));
+        return;
+      }
+      const teams = Array.isArray(j.teams) ? j.teams : [];
+      const pbt = (j.playersByTeam ?? {}) as Record<string, string[]>;
+      const ap = Array.isArray(j.allPlayers) ? j.allPlayers : [];
+      setTeamOptions(teams);
+      setPlayersByTeam(pbt);
+      setAllPlayers(ap);
+
+      const nextTeam = teams.includes(team) ? team : (teams[0] ?? "");
+      if (nextTeam !== team) {
+        setTeam(nextTeam);
+      }
+      setRemovePlayers([]);
+    }
+    loadOptions();
+    return () => {
+      active = false;
+    };
+  }, [season]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function poll(id: string) {
     while (true) {
@@ -122,7 +156,7 @@ export default function RosterPage() {
               setRemovePlayers([]);
             }}
           >
-            {ALL_TEAMS.map((t) => (
+            {teamOptions.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -173,6 +207,7 @@ export default function RosterPage() {
             </button>
           </div>
         </div>
+        {optionsError && <div className="mt-2 text-sm text-rose-400">Options error: {optionsError}</div>}
 
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div className="rounded bg-zinc-900 p-3">

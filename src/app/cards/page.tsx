@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ALL_TEAMS, CONFERENCES, playersForTeamSeason, SEASONS } from "@/lib/ui-options";
+import { CONFERENCES, SEASONS } from "@/lib/ui-options";
 
 type CardResult = {
   cache?: string;
@@ -20,7 +20,38 @@ export default function CardsPage() {
   const [jobId, setJobId] = useState<string>("");
   const [progress, setProgress] = useState<number>(0);
   const [message, setMessage] = useState<string>("");
-  const playerOptions = playersForTeamSeason(team, season);
+  const [teamOptions, setTeamOptions] = useState<string[]>([]);
+  const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
+  const [optionsError, setOptionsError] = useState("");
+
+  const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadOptions() {
+      setOptionsError("");
+      const r = await fetch(`/api/options?season=${season}`, { cache: "no-store" });
+      const j = await r.json();
+      if (!active) return;
+      if (!j?.ok) {
+        setOptionsError(String(j?.error ?? "Failed to load options"));
+        return;
+      }
+      const teams = Array.isArray(j.teams) ? j.teams : [];
+      const pbt = (j.playersByTeam ?? {}) as Record<string, string[]>;
+      setTeamOptions(teams);
+      setPlayersByTeam(pbt);
+
+      const nextTeam = teams.includes(team) ? team : (teams[0] ?? "");
+      if (nextTeam !== team) setTeam(nextTeam);
+      const p = pbt[nextTeam] ?? [];
+      if (!p.includes(player) && p[0]) setPlayer(p[0]);
+    }
+    loadOptions();
+    return () => {
+      active = false;
+    };
+  }, [season]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function poll(id: string) {
     while (true) {
@@ -95,7 +126,7 @@ export default function CardsPage() {
             onChange={(e) => {
               const nextSeason = Number(e.target.value);
               setSeason(nextSeason);
-              const nextPlayers = playersForTeamSeason(team, nextSeason);
+              const nextPlayers = playersByTeam[team] ?? [];
               if (!nextPlayers.includes(player) && nextPlayers[0]) setPlayer(nextPlayers[0]);
             }}
           >
@@ -111,11 +142,11 @@ export default function CardsPage() {
             onChange={(e) => {
               const nextTeam = e.target.value;
               setTeam(nextTeam);
-              const nextPlayers = playersForTeamSeason(nextTeam, season);
+              const nextPlayers = playersByTeam[nextTeam] ?? [];
               if (!nextPlayers.includes(player) && nextPlayers[0]) setPlayer(nextPlayers[0]);
             }}
           >
-            {ALL_TEAMS.map((t) => (
+            {teamOptions.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -149,6 +180,7 @@ export default function CardsPage() {
             ))}
           </select>
         </div>
+        {optionsError && <div className="mt-2 text-sm text-rose-400">Options error: {optionsError}</div>}
 
         <div className="mt-4">
           <button className="rounded bg-red-500 px-4 py-2 font-semibold text-white" onClick={run} disabled={loading}>

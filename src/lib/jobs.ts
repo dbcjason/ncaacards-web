@@ -18,6 +18,25 @@ export type JobRow = {
   updated_at: string;
 };
 
+const inMemoryJobs = new Map<string, JobRow>();
+let warnedNoDb = false;
+
+function makeMemoryJob(jobType: JobType, request: Record<string, unknown>): JobRow {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    job_type: jobType,
+    status: "queued",
+    progress: 5,
+    message: "Queued",
+    request_json: request,
+    result_json: null,
+    error_text: null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
 async function getCardPayloadFromStore(req: Record<string, unknown>) {
   const season = Number(req.season ?? 0);
   const team = String(req.team ?? "");
@@ -97,37 +116,58 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
 }
 
 export async function createJob(jobType: JobType, request: Record<string, unknown>) {
-  const rows = await dbQuery<{ id: string }>(
-    `INSERT INTO jobs (job_type, status, progress, message, request_json)
-     VALUES ($1, 'queued', 5, 'Queued', $2::jsonb)
-     RETURNING id`,
-    [jobType, JSON.stringify(request)],
-  );
-  return rows[0].id;
+  try {
+    const rows = await dbQuery<{ id: string }>(
+      `INSERT INTO jobs (job_type, status, progress, message, request_json)
+       VALUES ($1, 'queued', 5, 'Queued', $2::jsonb)
+       RETURNING id`,
+      [jobType, JSON.stringify(request)],
+    );
+    return rows[0].id;
+  } catch {
+    const job = makeMemoryJob(jobType, request);
+    inMemoryJobs.set(job.id, job);
+    if (!warnedNoDb) {
+      console.warn("Falling back to in-memory jobs (DB unavailable)");
+      warnedNoDb = true;
+    }
+    return job.id;
+  }
 }
 
 export async function loadJob(id: string): Promise<JobRow | null> {
-  const rows = await dbQuery<JobRow>(
-    `SELECT id, job_type, status, progress, message, request_json, result_json, error_text, created_at, updated_at
-     FROM jobs
-     WHERE id = $1
-     LIMIT 1`,
-    [id],
-  );
-  return rows[0] ?? null;
+  try {
+    const rows = await dbQuery<JobRow>(
+      `SELECT id, job_type, status, progress, message, request_json, result_json, error_text, created_at, updated_at
+       FROM jobs
+       WHERE id = $1
+       LIMIT 1`,
+      [id],
+    );
+    return rows[0] ?? null;
+  } catch {
+    return inMemoryJobs.get(id) ?? null;
+  }
 }
 
 export async function updateJob(id: string, patch: Partial<JobRow>) {
-  const sets: string[] = [];
-  const vals: unknown[] = [];
-  let idx = 1;
-  for (const [k, v] of Object.entries(patch)) {
-    sets.push(`${k} = $${idx++}`);
-    vals.push(v);
+  try {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    let idx = 1;
+    for (const [k, v] of Object.entries(patch)) {
+      sets.push(`${k} = $${idx++}`);
+      vals.push(v);
+    }
+    if (!sets.length) return;
+    vals.push(id);
+    await dbQuery(`UPDATE jobs SET ${sets.join(", ")}, updated_at = now() WHERE id = $${idx}`, vals);
+  } catch {
+    const cur = inMemoryJobs.get(id);
+    if (!cur) return;
+    const next: JobRow = { ...cur, ...patch, updated_at: new Date().toISOString() };
+    inMemoryJobs.set(id, next);
   }
-  if (!sets.length) return;
-  vals.push(id);
-  await dbQuery(`UPDATE jobs SET ${sets.join(", ")}, updated_at = now() WHERE id = $${idx}`, vals);
 }
 
 export async function advanceJobIfNeeded(job: JobRow): Promise<JobRow> {
@@ -170,4 +210,3 @@ export async function advanceJobIfNeeded(job: JobRow): Promise<JobRow> {
 
   return (await loadJob(job.id)) ?? job;
 }
-
