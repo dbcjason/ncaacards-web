@@ -11,6 +11,9 @@ const TTL_MS = 1000 * 60 * 60;
 const DATA_OWNER = process.env.GITHUB_DATA_OWNER || "dbcjason";
 const DATA_REPO = process.env.GITHUB_DATA_REPO || "NCAACards";
 const DATA_REF = process.env.GITHUB_DATA_REF || "main";
+const BT_SEASON_CSV_TEMPLATE =
+  process.env.GITHUB_BT_SEASON_CSV_TEMPLATE ||
+  "player_cards_pipeline/data/bt/trank_by_year/trank_{season}.csv";
 const BT_CSV_PATH =
   process.env.GITHUB_BT_CSV_PATH ||
   "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv";
@@ -68,11 +71,30 @@ async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions
   const tIdx = findCol(header, ["team", "school"]);
   if (pIdx < 0 || tIdx < 0) throw new Error("Bart CSV missing player_name/team columns");
 
+  return parseOptionsFromCsvText(text, { playerIdx: pIdx, teamIdx: tIdx });
+}
+
+function parseOptionsFromCsvText(
+  text: string,
+  opts: { playerIdx?: number; teamIdx?: number; yearIdx?: number; season?: number },
+): SeasonOptions {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) throw new Error("CSV returned no rows");
+  const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
+  const pIdx =
+    typeof opts.playerIdx === "number" ? opts.playerIdx : findCol(header, ["player_name", "player", "name"]);
+  const tIdx = typeof opts.teamIdx === "number" ? opts.teamIdx : findCol(header, ["team", "school"]);
+  const yIdx = typeof opts.yearIdx === "number" ? opts.yearIdx : findCol(header, ["year", "season", "yr"]);
+  if (pIdx < 0 || tIdx < 0) throw new Error("CSV missing player/team columns");
+
   const byTeam = new Map<string, Set<string>>();
   const allPlayersSet = new Set<string>();
-
   for (let i = 1; i < lines.length; i += 1) {
     const cols = parseCsvLine(lines[i]);
+    if (typeof opts.season === "number" && yIdx >= 0) {
+      const yr = Number((cols[yIdx] ?? "").trim());
+      if (!Number.isFinite(yr) || yr !== opts.season) continue;
+    }
     const player = (cols[pIdx] ?? "").trim();
     const team = (cols[tIdx] ?? "").trim();
     if (!player || !team) continue;
@@ -87,49 +109,24 @@ async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions
     playersByTeam[team] = Array.from(byTeam.get(team) ?? []).sort((a, b) => a.localeCompare(b));
   }
   const allPlayers = Array.from(allPlayersSet).sort((a, b) => a.localeCompare(b));
-
   return { teams, playersByTeam, allPlayers, loadedAt: Date.now() };
 }
 
-async function fetchSeasonOptionsFromGithub(season: number): Promise<SeasonOptions> {
+async function fetchSeasonOptionsFromGithubSeasonFile(season: number): Promise<SeasonOptions> {
+  const path = BT_SEASON_CSV_TEMPLATE.replace("{season}", String(season));
+  const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${path}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to fetch repo season CSV (${res.status})`);
+  const text = await res.text();
+  return parseOptionsFromCsvText(text, {});
+}
+
+async function fetchSeasonOptionsFromGithubLargeFile(season: number): Promise<SeasonOptions> {
   const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${BT_CSV_PATH}`;
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch repo CSV (${res.status})`);
+  if (!res.ok) throw new Error(`Failed to fetch repo all-years CSV (${res.status})`);
   const text = await res.text();
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) throw new Error("Repo CSV returned no rows");
-
-  const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
-  const pIdx = findCol(header, ["player_name", "player", "name"]);
-  const tIdx = findCol(header, ["team", "school"]);
-  const yIdx = findCol(header, ["year", "season", "yr"]);
-  if (pIdx < 0 || tIdx < 0 || yIdx < 0) {
-    throw new Error("Repo CSV missing player_name/team/year columns");
-  }
-
-  const byTeam = new Map<string, Set<string>>();
-  const allPlayersSet = new Set<string>();
-
-  for (let i = 1; i < lines.length; i += 1) {
-    const cols = parseCsvLine(lines[i]);
-    const yearRaw = (cols[yIdx] ?? "").trim();
-    const yr = Number(yearRaw);
-    if (!Number.isFinite(yr) || yr !== season) continue;
-    const player = (cols[pIdx] ?? "").trim();
-    const team = (cols[tIdx] ?? "").trim();
-    if (!player || !team) continue;
-    if (!byTeam.has(team)) byTeam.set(team, new Set<string>());
-    byTeam.get(team)!.add(player);
-    allPlayersSet.add(player);
-  }
-
-  const teams = Array.from(byTeam.keys()).sort((a, b) => a.localeCompare(b));
-  const playersByTeam: Record<string, string[]> = {};
-  for (const team of teams) {
-    playersByTeam[team] = Array.from(byTeam.get(team) ?? []).sort((a, b) => a.localeCompare(b));
-  }
-  const allPlayers = Array.from(allPlayersSet).sort((a, b) => a.localeCompare(b));
-  return { teams, playersByTeam, allPlayers, loadedAt: Date.now() };
+  return parseOptionsFromCsvText(text, { season });
 }
 
 export async function getSeasonOptions(season: number): Promise<SeasonOptions> {
@@ -140,13 +137,32 @@ export async function getSeasonOptions(season: number): Promise<SeasonOptions> {
     fresh = await fetchSeasonOptionsFromBart(season);
   } catch (bartErr) {
     try {
-      fresh = await fetchSeasonOptionsFromGithub(season);
-    } catch (ghErr) {
+      fresh = await fetchSeasonOptionsFromGithubSeasonFile(season);
+    } catch (ghSeasonErr) {
+      try {
+        fresh = await fetchSeasonOptionsFromGithubLargeFile(season);
+      } catch (ghLargeErr) {
       const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
-      const g = ghErr instanceof Error ? ghErr.message : String(ghErr);
-      throw new Error(`Bart failed: ${b} | Repo failed: ${g}`);
+      const gs = ghSeasonErr instanceof Error ? ghSeasonErr.message : String(ghSeasonErr);
+      const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
+      throw new Error(`Bart failed: ${b} | Repo season failed: ${gs} | Repo all-years failed: ${gl}`);
+      }
     }
   }
   seasonCache.set(season, fresh);
   return fresh;
+}
+
+export async function resolveTeamPlayerForSeason(
+  season: number,
+  team: string,
+  player: string,
+): Promise<{ team: string; player: string }> {
+  const opts = await getSeasonOptions(season);
+  const nextTeam = opts.teams.includes(team) ? team : opts.teams.find((t) => t.toLowerCase() === team.toLowerCase()) ?? team;
+  const candidates = opts.playersByTeam[nextTeam] ?? [];
+  if (!candidates.length) return { team: nextTeam, player };
+  const { resolveClosestName } = await import("@/lib/name-match");
+  const nextPlayer = resolveClosestName(player, candidates);
+  return { team: nextTeam, player: nextPlayer };
 }

@@ -1,6 +1,7 @@
 import { dbQuery } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/cache";
-import { buildCardPayload, buildRosterPayload } from "@/lib/mock";
+import { buildCardPayload } from "@/lib/mock";
+import { resolveTeamPlayerForSeason } from "@/lib/options";
 
 export type JobType = "card" | "roster";
 export type JobStatus = "queued" | "running" | "done" | "error";
@@ -39,10 +40,13 @@ function makeMemoryJob(jobType: JobType, request: Record<string, unknown>): JobR
 
 async function getCardPayloadFromStore(req: Record<string, unknown>) {
   const season = Number(req.season ?? 0);
-  const team = String(req.team ?? "");
-  const player = String(req.player ?? "");
+  const requestedTeam = String(req.team ?? "");
+  const requestedPlayer = String(req.player ?? "");
   const mode = String(req.mode ?? "draft");
   const destinationConference = String(req.destinationConference ?? "");
+  const resolved = await resolveTeamPlayerForSeason(season, requestedTeam, requestedPlayer);
+  const team = resolved.team;
+  const player = resolved.player;
   const key = `card:${season}:${team}:${player}:${mode}:${destinationConference}`;
 
   const cached = await cacheGet<Record<string, unknown>>(key);
@@ -103,12 +107,9 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
   }
 
   if (!payload) {
-    payload = buildRosterPayload({
-      season,
-      team,
-      addPlayers,
-      removePlayers,
-    }) as Record<string, unknown>;
+    throw new Error(
+      "Roster payload missing for this request. Precompute/load roster payloads into DB before running simulator.",
+    );
   }
 
   await cacheSet(key, payload, 60 * 30);
