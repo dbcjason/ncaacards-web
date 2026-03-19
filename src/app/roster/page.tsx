@@ -3,13 +3,28 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
+type RosterMetric = {
+  metric: string;
+  current: number;
+  edited: number;
+  delta: number;
+};
+
+type RosterResult = {
+  cache?: string;
+  metrics?: RosterMetric[];
+};
+
 export default function RosterPage() {
   const [season, setSeason] = useState(2026);
   const [team, setTeam] = useState("UCLA");
   const [inText, setInText] = useState("Player A, Player B");
   const [outText, setOutText] = useState("Player C");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<RosterResult | null>(null);
+  const [jobId, setJobId] = useState<string>("");
+  const [progress, setProgress] = useState<number>(0);
+  const [message, setMessage] = useState<string>("");
 
   const addPlayers = useMemo(
     () => inText.split(",").map((s) => s.trim()).filter(Boolean),
@@ -20,16 +35,53 @@ export default function RosterPage() {
     [outText],
   );
 
+  async function poll(id: string) {
+    while (true) {
+      const r = await fetch(`/api/jobs/${id}`, { cache: "no-store" });
+      const j = await r.json();
+      if (!j?.ok) {
+        setLoading(false);
+        setMessage("Failed to load job status");
+        return;
+      }
+      const job = j.job;
+      setProgress(Number(job.progress ?? 0));
+      setMessage(String(job.message ?? ""));
+      if (job.status === "done") {
+        setResult(job.result_json ?? null);
+        setLoading(false);
+        return;
+      }
+      if (job.status === "error") {
+        setMessage(String(job.error_text ?? "Job failed"));
+        setLoading(false);
+        return;
+      }
+      await new Promise((res) => setTimeout(res, 900));
+    }
+  }
+
   async function run() {
     setLoading(true);
     setResult(null);
-    const res = await fetch("/api/roster-sim", {
+    setProgress(5);
+    setMessage("Queued");
+    const res = await fetch("/api/jobs/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ season, team, addPlayers, removePlayers }),
+      body: JSON.stringify({
+        jobType: "roster",
+        request: { season, team, addPlayers, removePlayers },
+      }),
     });
-    setResult(await res.json());
-    setLoading(false);
+    const data = await res.json();
+    if (!data?.ok || !data?.id) {
+      setLoading(false);
+      setMessage("Failed to start job");
+      return;
+    }
+    setJobId(data.id);
+    await poll(data.id);
   }
 
   return (
@@ -56,6 +108,19 @@ export default function RosterPage() {
           </button>
         </div>
 
+        {(loading || progress > 0) && (
+          <div className="mt-4 rounded border border-zinc-800 bg-zinc-900 p-3">
+            <div className="mb-2 flex items-center justify-between text-sm text-zinc-300">
+              <span>{message || "Working..."}</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="h-2 w-full rounded bg-zinc-800">
+              <div className="h-2 rounded bg-red-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
+            </div>
+            {jobId && <div className="mt-2 text-xs text-zinc-500">Job: {jobId}</div>}
+          </div>
+        )}
+
         {result && (
           <div className="mt-6 space-y-3">
             <div className="text-sm text-zinc-400">Cache: {result.cache}</div>
@@ -70,7 +135,7 @@ export default function RosterPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.metrics?.map((m: any) => (
+                  {result.metrics?.map((m: RosterMetric) => (
                     <tr key={m.metric} className="border-t border-zinc-800">
                       <td className="p-2 text-left">{m.metric}</td>
                       <td className="p-2 text-right">{m.current}</td>
@@ -87,4 +152,3 @@ export default function RosterPage() {
     </div>
   );
 }
-
