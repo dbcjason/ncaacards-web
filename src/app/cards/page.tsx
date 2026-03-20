@@ -34,6 +34,7 @@ export default function CardsPage() {
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
   const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
   const [optionsError, setOptionsError] = useState("");
+  const [baseError, setBaseError] = useState("");
   const [optionsLoaded, setOptionsLoaded] = useState(false);
 
   const [basePayload, setBasePayload] = useState<BasePayload | null>(null);
@@ -202,7 +203,7 @@ export default function CardsPage() {
 
   async function run() {
     if (!optionsLoaded) return;
-    setOptionsError("");
+    setBaseError("");
     setLoading(true);
     setMessage("Loading base card data");
     setProgress(0);
@@ -222,7 +223,7 @@ export default function CardsPage() {
       setLoading(false);
       const errMsg = String(j?.error ?? "Failed to load base payload");
       setMessage(errMsg);
-      setOptionsError(errMsg);
+      setBaseError(errMsg);
       return;
     }
     setBasePayload(j.payload as BasePayload);
@@ -300,6 +301,7 @@ export default function CardsPage() {
           </select>
         </div>
         {optionsError && <div className="mt-2 text-sm text-rose-400">Options error: {optionsError}</div>}
+        {baseError && <div className="mt-2 text-sm text-rose-400">Base payload error: {baseError}</div>}
 
         <div className="mt-4">
           <button className="rounded bg-red-500 px-4 py-2 font-semibold text-white disabled:opacity-50" onClick={run} disabled={loading || !optionsLoaded}>
