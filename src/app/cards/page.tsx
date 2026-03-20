@@ -9,11 +9,6 @@ type CardJobResult = {
   cardHtml?: string;
 };
 
-type InlineCard = {
-  styles: string;
-  body: string;
-};
-
 type JobApiResponse = {
   ok: boolean;
   id?: string;
@@ -50,24 +45,10 @@ export default function CardsPage() {
   const [jobId, setJobId] = useState("");
 
   const [resultHtml, setResultHtml] = useState("");
-  const [inlineCard, setInlineCard] = useState<InlineCard>({ styles: "", body: "" });
   const [resultCache, setResultCache] = useState<string>("");
   const [runError, setRunError] = useState("");
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
-
-  function toInlineCard(html: string): InlineCard {
-    try {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const styleBlocks = Array.from(doc.querySelectorAll("style"))
-        .map((s) => s.textContent ?? "")
-        .join("\n");
-      const body = doc.body?.innerHTML?.trim() || html;
-      return { styles: styleBlocks, body };
-    } catch {
-      return { styles: "", body: html };
-    }
-  }
 
   useEffect(() => {
     let active = true;
@@ -180,7 +161,6 @@ export default function CardsPage() {
         throw new Error("Card HTML missing from job result");
       }
       setResultHtml(html);
-      setInlineCard(toInlineCard(html));
       setResultCache(String(out?.cache ?? ""));
       setMessage("Completed");
       setProgress(100);
@@ -313,9 +293,13 @@ export default function CardsPage() {
         )}
 
         {resultHtml ? (
-          <div className="mt-5 rounded border border-zinc-800 bg-zinc-950 p-2">
-            {inlineCard.styles && <style dangerouslySetInnerHTML={{ __html: inlineCard.styles }} />}
-            <div dangerouslySetInnerHTML={{ __html: inlineCard.body }} />
+          <div className="mt-5 rounded border border-zinc-800 bg-zinc-950">
+            <iframe
+              title="Player Card"
+              srcDoc={resultHtml}
+              className="h-[2300px] w-full rounded"
+              sandbox="allow-same-origin allow-scripts"
+            />
           </div>
         ) : (
           <div className="mt-5 rounded border border-zinc-800 bg-zinc-900 p-5 text-zinc-400">
