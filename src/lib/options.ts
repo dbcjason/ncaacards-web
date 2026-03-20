@@ -11,6 +11,8 @@ const TTL_MS = 1000 * 60 * 60;
 const DATA_OWNER = process.env.GITHUB_DATA_OWNER || "dbcjason";
 const DATA_REPO = process.env.GITHUB_DATA_REPO || "NCAACards";
 const DATA_REF = process.env.GITHUB_DATA_REF || "main";
+const STATIC_ROOT =
+  process.env.GITHUB_STATIC_PAYLOAD_ROOT || "player_cards_pipeline/public/cards";
 const BT_PLAYERSTAT_JSON_TEMPLATE =
   process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE ||
   "player_cards_pipeline/data/bt/raw_playerstat_json/{season}_pbp_playerstat_array.json";
@@ -72,6 +74,32 @@ async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions
   if (pIdx < 0 || tIdx < 0) throw new Error("Bart CSV missing player_name/team columns");
 
   return parseOptionsFromCsvText(text, { playerIdx: pIdx, teamIdx: tIdx });
+}
+
+async function fetchSeasonOptionsFromStaticIndex(season: number): Promise<SeasonOptions> {
+  const path = `${STATIC_ROOT}/${season}/index.json`;
+  const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${path}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to fetch static index (${res.status})`);
+  const arr = (await res.json()) as Array<{ player?: string; team?: string }>;
+  if (!Array.isArray(arr) || arr.length === 0) throw new Error("Static index empty");
+  const byTeam = new Map<string, Set<string>>();
+  const allPlayersSet = new Set<string>();
+  for (const row of arr) {
+    const player = String(row?.player ?? "").trim();
+    const team = String(row?.team ?? "").trim();
+    if (!player || !team) continue;
+    if (!byTeam.has(team)) byTeam.set(team, new Set<string>());
+    byTeam.get(team)!.add(player);
+    allPlayersSet.add(player);
+  }
+  const teams = Array.from(byTeam.keys()).sort((a, b) => a.localeCompare(b));
+  const playersByTeam: Record<string, string[]> = {};
+  for (const team of teams) {
+    playersByTeam[team] = Array.from(byTeam.get(team) ?? []).sort((a, b) => a.localeCompare(b));
+  }
+  const allPlayers = Array.from(allPlayersSet).sort((a, b) => a.localeCompare(b));
+  return { teams, playersByTeam, allPlayers, loadedAt: Date.now() };
 }
 
 function parseOptionsFromCsvText(
@@ -168,18 +196,25 @@ export async function getSeasonOptions(season: number): Promise<SeasonOptions> {
   if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached;
   let fresh: SeasonOptions;
   try {
-    fresh = await fetchSeasonOptionsFromBart(season);
-  } catch (bartErr) {
+    fresh = await fetchSeasonOptionsFromStaticIndex(season);
+  } catch (staticErr) {
     try {
-      fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season);
-    } catch (ghJsonErr) {
+      fresh = await fetchSeasonOptionsFromBart(season);
+    } catch (bartErr) {
       try {
-        fresh = await fetchSeasonOptionsFromGithubLargeFile(season);
-      } catch (ghLargeErr) {
-      const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
-      const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
-      const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
-      throw new Error(`Bart failed: ${b} | Repo playerstat failed: ${gs} | Repo all-years failed: ${gl}`);
+        fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season);
+      } catch (ghJsonErr) {
+        try {
+          fresh = await fetchSeasonOptionsFromGithubLargeFile(season);
+        } catch (ghLargeErr) {
+          const s = staticErr instanceof Error ? staticErr.message : String(staticErr);
+          const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
+          const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
+          const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
+          throw new Error(
+            `Static index failed: ${s} | Bart failed: ${b} | Repo playerstat failed: ${gs} | Repo all-years failed: ${gl}`,
+          );
+        }
       }
     }
   }

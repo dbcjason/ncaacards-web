@@ -5,7 +5,7 @@ import type { Dispatch, SetStateAction } from "react";
 import Link from "next/link";
 import { ALL_TEAMS, CONFERENCES, SEASONS, playersForTeamSeason } from "@/lib/ui-options";
 
-type CardResult = {
+type CardJobResult = {
   cache?: string;
   cardHtml?: string;
 };
@@ -25,11 +25,12 @@ export default function CardsPage() {
   const [player, setPlayer] = useState("Mikel Brown");
   const [mode, setMode] = useState<"draft" | "transfer">("draft");
   const [dest, setDest] = useState("SEC");
+
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<CardResult | null>(null);
+  const [message, setMessage] = useState<string>("");
   const [jobId, setJobId] = useState<string>("");
   const [progress, setProgress] = useState<number>(0);
-  const [message, setMessage] = useState<string>("");
+
   const [teamOptions, setTeamOptions] = useState<string[]>(ALL_TEAMS);
   const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>(() => {
     const out: Record<string, string[]> = {};
@@ -40,11 +41,12 @@ export default function CardsPage() {
 
   const [basePayload, setBasePayload] = useState<BasePayload | null>(null);
   const [compsHtml, setCompsHtml] = useState("");
-  const [draftHtml, setDraftHtml] = useState("");
+  const [projHtml, setProjHtml] = useState("");
   const [compsProgress, setCompsProgress] = useState(0);
-  const [draftProgress, setDraftProgress] = useState(0);
+  const [projProgress, setProjProgress] = useState(0);
   const [compsLoading, setCompsLoading] = useState(false);
-  const [draftLoading, setDraftLoading] = useState(false);
+  const [projLoading, setProjLoading] = useState(false);
+  const [projError, setProjError] = useState("");
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
 
@@ -73,7 +75,6 @@ export default function CardsPage() {
         } catch (err) {
           if (attempt >= 3) {
             setOptionsError(err instanceof Error ? err.message : "Failed to load options");
-            if (teamOptions.length === 0) setTeamOptions(ALL_TEAMS);
             return;
           }
           await new Promise((res) => setTimeout(res, 700));
@@ -87,32 +88,6 @@ export default function CardsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [season]);
 
-  async function poll(id: string) {
-    while (true) {
-      const r = await fetch(`/api/jobs/${id}`, { cache: "no-store" });
-      const j = await r.json();
-      if (!j?.ok) {
-        setLoading(false);
-        setMessage("Failed to load job status");
-        return;
-      }
-      const job = j.job;
-      setProgress(Number(job.progress ?? 0));
-      setMessage(String(job.message ?? ""));
-      if (job.status === "done") {
-        setResult(job.result_json ?? null);
-        setLoading(false);
-        return;
-      }
-      if (job.status === "error") {
-        setMessage(String(job.error_text ?? "Job failed"));
-        setLoading(false);
-        return;
-      }
-      await new Promise((res) => setTimeout(res, 900));
-    }
-  }
-
   function startProgressTicker(setter: Dispatch<SetStateAction<number>>) {
     setter(10);
     const id = window.setInterval(() => {
@@ -121,44 +96,120 @@ export default function CardsPage() {
     return () => window.clearInterval(id);
   }
 
-  async function loadHeavyPart(part: "comparisons" | "draft") {
-    if (part === "comparisons") setCompsLoading(true);
-    else setDraftLoading(true);
-    const stop = startProgressTicker(part === "comparisons" ? setCompsProgress : setDraftProgress);
+  function extractTransferSectionHtml(html: string): string {
+    if (!html) return "";
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const all = Array.from(doc.querySelectorAll("*"));
+      const hit = all.find((el) => /transfer projection/i.test((el.textContent ?? "").trim()));
+      if (!hit) return "";
+      let node: Element | null = hit;
+      for (let i = 0; i < 6 && node?.parentElement; i += 1) {
+        const txt = (node.textContent ?? "").trim();
+        if (/transfer projection/i.test(txt) && txt.length > 60) break;
+        node = node.parentElement;
+      }
+      return node?.outerHTML ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  async function loadHeavyComparisons() {
+    setCompsLoading(true);
+    const stop = startProgressTicker(setCompsProgress);
     try {
       const r = await fetch("/api/card/heavy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ season, team, player, part }),
+        body: JSON.stringify({ season, team, player, part: "comparisons" }),
       });
       const j = await r.json();
-      if (!j?.ok) throw new Error(String(j?.error ?? "Heavy section failed"));
-      if (part === "comparisons") setCompsHtml(String(j.html ?? ""));
-      else setDraftHtml(String(j.html ?? ""));
-      if (part === "comparisons") setCompsProgress(100);
-      else setDraftProgress(100);
+      if (!j?.ok) throw new Error(String(j?.error ?? "Comparisons failed"));
+      setCompsHtml(String(j.html ?? ""));
+      setCompsProgress(100);
     } catch {
-      if (part === "comparisons") {
-        setCompsHtml("<div class='text-red-400 text-sm'>Failed to load player comparisons.</div>");
-      } else {
-        setDraftHtml("<div class='text-red-400 text-sm'>Failed to load draft projection.</div>");
-      }
+      setCompsHtml("<div class='text-red-400 text-sm'>Failed to load player comparisons.</div>");
     } finally {
       stop();
-      if (part === "comparisons") setCompsLoading(false);
-      else setDraftLoading(false);
+      setCompsLoading(false);
     }
   }
 
-  async function runDraftBase() {
+  async function pollCardJob(id: string): Promise<CardJobResult | null> {
+    while (true) {
+      const r = await fetch(`/api/jobs/${id}`, { cache: "no-store" });
+      const j = await r.json();
+      if (!j?.ok) return null;
+      const job = j.job;
+      setProgress(Number(job.progress ?? 0));
+      setMessage(String(job.message ?? ""));
+      if (job.status === "done") {
+        return (job.result_json ?? null) as CardJobResult | null;
+      }
+      if (job.status === "error") return null;
+      await new Promise((res) => setTimeout(res, 900));
+    }
+  }
+
+  async function loadProjectionByMode() {
+    setProjLoading(true);
+    setProjError("");
+    const stop = startProgressTicker(setProjProgress);
+    try {
+      if (mode === "draft") {
+        const r = await fetch("/api/card/heavy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ season, team, player, part: "draft" }),
+        });
+        const j = await r.json();
+        if (!j?.ok) throw new Error(String(j?.error ?? "Draft projection failed"));
+        setProjHtml(String(j.html ?? ""));
+      } else {
+        const res = await fetch("/api/jobs/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobType: "card",
+            request: {
+              season,
+              team,
+              player,
+              mode: "transfer",
+              destinationConference: dest,
+            },
+          }),
+        });
+        const data = await res.json();
+        if (!data?.ok || !data?.id) throw new Error(String(data?.error ?? "Failed to start transfer job"));
+        setJobId(data.id);
+        const out = await pollCardJob(data.id);
+        const html = extractTransferSectionHtml(String(out?.cardHtml ?? ""));
+        if (!html) throw new Error("Transfer projection section not found");
+        setProjHtml(html);
+      }
+      setProjProgress(100);
+    } catch (e) {
+      setProjError(e instanceof Error ? e.message : "Projection failed");
+      setProjHtml("<div class='text-red-400 text-sm'>Failed to load projection.</div>");
+    } finally {
+      stop();
+      setProjLoading(false);
+    }
+  }
+
+  async function run() {
     setLoading(true);
     setMessage("Loading base card data");
-    setResult(null);
+    setProgress(0);
     setBasePayload(null);
     setCompsHtml("");
-    setDraftHtml("");
+    setProjHtml("");
     setCompsProgress(0);
-    setDraftProgress(0);
+    setProjProgress(0);
+    setProjError("");
     const r = await fetch("/api/card/base", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -173,45 +224,8 @@ export default function CardsPage() {
     setBasePayload(j.payload as BasePayload);
     setLoading(false);
     setMessage("Base loaded");
-    void loadHeavyPart("comparisons");
-    void loadHeavyPart("draft");
-  }
-
-  async function runTransferJob() {
-    setLoading(true);
-    setResult(null);
-    setBasePayload(null);
-    setCompsHtml("");
-    setDraftHtml("");
-    setProgress(5);
-    setMessage("Queued");
-    const res = await fetch("/api/jobs/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jobType: "card",
-        request: {
-          season,
-          team,
-          player,
-          mode,
-          destinationConference: mode === "transfer" ? dest : "",
-        },
-      }),
-    });
-    const data = await res.json();
-    if (!data?.ok || !data?.id) {
-      setLoading(false);
-      setMessage(`Failed to start job: ${String(data?.error ?? "unknown error")}`);
-      return;
-    }
-    setJobId(data.id);
-    await poll(data.id);
-  }
-
-  async function run() {
-    if (mode === "draft") return runDraftBase();
-    return runTransferJob();
+    void loadHeavyComparisons();
+    void loadProjectionByMode();
   }
 
   const sec = (basePayload?.sections_html ?? {}) as Record<string, string>;
@@ -230,11 +244,7 @@ export default function CardsPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-          <select
-            className="rounded bg-zinc-900 p-3"
-            value={season}
-            onChange={(e) => setSeason(Number(e.target.value))}
-          >
+          <select className="rounded bg-zinc-900 p-3" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
             {SEASONS.map((y) => (
               <option key={y} value={y}>{y}</option>
             ))}
@@ -276,20 +286,20 @@ export default function CardsPage() {
           </button>
         </div>
 
-        {(loading || progress > 0) && mode === "transfer" && (
+        {(loading || projLoading || progress > 0) && (
           <div className="mt-4 rounded border border-zinc-800 bg-zinc-900 p-3">
             <div className="mb-2 flex items-center justify-between text-sm text-zinc-300">
               <span>{message || "Working..."}</span>
-              <span>{progress}%</span>
+              <span>{Math.max(progress, projProgress)}%</span>
             </div>
             <div className="h-2 w-full rounded bg-zinc-800">
-              <div className="h-2 rounded bg-red-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
+              <div className="h-2 rounded bg-red-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, Math.max(progress, projProgress)))}%` }} />
             </div>
             {jobId && <div className="mt-2 text-xs text-zinc-500">Job: {jobId}</div>}
           </div>
         )}
 
-        {mode === "draft" && basePayload && (
+        {basePayload && (
           <div className="mt-6 space-y-4">
             <div className="rounded border border-zinc-800 bg-zinc-900 p-4">
               <div className="text-2xl font-semibold">{basePayload.player} ({basePayload.season})</div>
@@ -337,27 +347,22 @@ export default function CardsPage() {
               </div>
               <div className="rounded border border-zinc-800 bg-zinc-900 p-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <div className="text-lg font-semibold">Statistical NBA Draft Projection</div>
-                  <div className="text-xs text-zinc-400">{draftProgress}%</div>
+                  <div className="text-lg font-semibold">{mode === "transfer" ? "Transfer Projection" : "Statistical NBA Draft Projection"}</div>
+                  <div className="text-xs text-zinc-400">{projProgress}%</div>
                 </div>
-                {draftLoading && (
+                {projLoading && (
                   <div className="mb-3 h-2 w-full rounded bg-zinc-800">
-                    <div className="h-2 rounded bg-red-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, draftProgress))}%` }} />
+                    <div className="h-2 rounded bg-red-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, projProgress))}%` }} />
                   </div>
                 )}
-                <div dangerouslySetInnerHTML={{ __html: draftHtml || "<div class='text-zinc-400 text-sm'>Calculating...</div>" }} />
+                <div dangerouslySetInnerHTML={{ __html: projHtml || "<div class='text-zinc-400 text-sm'>Calculating...</div>" }} />
+                {projError && <div className="mt-2 text-xs text-rose-400">{projError}</div>}
               </div>
             </div>
-          </div>
-        )}
-
-        {mode === "transfer" && result && (
-          <div className="mt-6 space-y-3">
-            <div className="text-sm text-zinc-400">Cache: {result.cache}</div>
-            <div className="rounded border border-zinc-800 bg-zinc-900 p-4" dangerouslySetInnerHTML={{ __html: result.cardHtml ?? "" }} />
           </div>
         )}
       </div>
     </div>
   );
 }
+
