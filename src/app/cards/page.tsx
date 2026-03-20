@@ -38,6 +38,8 @@ export default function CardsPage() {
     return out;
   });
   const [optionsError, setOptionsError] = useState("");
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
+  const [autoBootstrapped, setAutoBootstrapped] = useState(false);
 
   const [basePayload, setBasePayload] = useState<BasePayload | null>(null);
   const [compsHtml, setCompsHtml] = useState("");
@@ -65,6 +67,7 @@ export default function CardsPage() {
           if (!teams.length) throw new Error("No teams returned");
           setTeamOptions(teams);
           setPlayersByTeam(pbt);
+          setOptionsLoaded(true);
 
           const nextTeam = teams.includes(team) ? team : (teams[0] ?? "");
           if (nextTeam !== team) setTeam(nextTeam);
@@ -75,6 +78,7 @@ export default function CardsPage() {
         } catch (err) {
           if (attempt >= 3) {
             setOptionsError(err instanceof Error ? err.message : "Failed to load options");
+            setOptionsLoaded(false);
             return;
           }
           await new Promise((res) => setTimeout(res, 700));
@@ -87,6 +91,14 @@ export default function CardsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [season]);
+
+  useEffect(() => {
+    if (!optionsLoaded || autoBootstrapped) return;
+    if (!team || !player) return;
+    setAutoBootstrapped(true);
+    void run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optionsLoaded, autoBootstrapped, team, player]);
 
   function startProgressTicker(setter: Dispatch<SetStateAction<number>>) {
     setter(10);
@@ -201,6 +213,7 @@ export default function CardsPage() {
   }
 
   async function run() {
+    setOptionsError("");
     setLoading(true);
     setMessage("Loading base card data");
     setProgress(0);
@@ -218,7 +231,9 @@ export default function CardsPage() {
     const j = await r.json();
     if (!j?.ok) {
       setLoading(false);
-      setMessage(String(j?.error ?? "Failed to load base payload"));
+      const errMsg = String(j?.error ?? "Failed to load base payload");
+      setMessage(errMsg);
+      setOptionsError(errMsg);
       return;
     }
     setBasePayload(j.payload as BasePayload);
@@ -365,4 +380,3 @@ export default function CardsPage() {
     </div>
   );
 }
-

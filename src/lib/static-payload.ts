@@ -11,6 +11,7 @@ type CardPayload = {
 const DATA_OWNER = process.env.GITHUB_DATA_OWNER || "dbcjason";
 const DATA_REPO = process.env.GITHUB_DATA_REPO || "NCAACards";
 const DATA_REF = process.env.GITHUB_DATA_REF || "main";
+const GH_TOKEN = process.env.GITHUB_TOKEN || "";
 const STATIC_ROOT =
   process.env.GITHUB_STATIC_PAYLOAD_ROOT || "player_cards_pipeline/public/cards";
 
@@ -28,7 +29,12 @@ function normPlayer(v: string): string {
 
 async function fetchJson<T>(path: string): Promise<T> {
   const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${path}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const headers: Record<string, string> = {};
+  if (GH_TOKEN) {
+    headers.Authorization = `Bearer ${GH_TOKEN}`;
+    headers["X-GitHub-Api-Version"] = "2022-11-28";
+  }
+  const res = await fetch(url, { cache: "no-store", headers });
   if (!res.ok) throw new Error(`Static payload fetch failed (${res.status})`);
   return (await res.json()) as T;
 }
@@ -54,4 +60,3 @@ export async function loadStaticPayload(season: number, team: string, player: st
   const payloadPath = `${STATIC_ROOT}/${season}/${row.path}`;
   return await fetchJson<CardPayload>(payloadPath);
 }
-
