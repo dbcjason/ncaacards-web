@@ -196,23 +196,23 @@ export async function getSeasonOptions(season: number): Promise<SeasonOptions> {
   if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached;
   let fresh: SeasonOptions;
   try {
-    fresh = await fetchSeasonOptionsFromStaticIndex(season);
-  } catch (staticErr) {
+    fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season);
+  } catch (ghJsonErr) {
     try {
-      fresh = await fetchSeasonOptionsFromBart(season);
-    } catch (bartErr) {
+      fresh = await fetchSeasonOptionsFromStaticIndex(season);
+    } catch (staticErr) {
       try {
-        fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season);
-      } catch (ghJsonErr) {
+        fresh = await fetchSeasonOptionsFromBart(season);
+      } catch (bartErr) {
         try {
           fresh = await fetchSeasonOptionsFromGithubLargeFile(season);
         } catch (ghLargeErr) {
+          const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
           const s = staticErr instanceof Error ? staticErr.message : String(staticErr);
           const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
-          const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
           const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
           throw new Error(
-            `Static index failed: ${s} | Bart failed: ${b} | Repo playerstat failed: ${gs} | Repo all-years failed: ${gl}`,
+            `Repo playerstat failed: ${gs} | Static index failed: ${s} | Bart failed: ${b} | Repo all-years failed: ${gl}`,
           );
         }
       }
