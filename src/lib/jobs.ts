@@ -25,6 +25,18 @@ const GH_REPO = (process.env.GITHUB_REPO ?? "").trim();
 const GH_WORKFLOW = (process.env.GITHUB_WORKFLOW_FILE ?? "").trim();
 const GH_REF = (process.env.GITHUB_REF ?? "main").trim();
 const GH_TOKEN = (process.env.GITHUB_TOKEN ?? "").trim();
+const DATA_OWNER = (process.env.GITHUB_DATA_OWNER || "dbcjason").trim();
+const DATA_REPO = (process.env.GITHUB_DATA_REPO || "NCAACards").trim();
+const DATA_REF = (process.env.GITHUB_DATA_REF || "main").trim();
+const DATA_BT_2026_PATH = (
+  process.env.GITHUB_BT_2026_PATH || "player_cards_pipeline/data/bt/bt_advstats_2026.csv"
+).trim();
+const DATA_ENRICHED_MANIFEST_PATH = (
+  process.env.GITHUB_ENRICHED_MANIFEST_PATH ||
+  "player_cards_pipeline/data/manual/enriched_players/manifest.json"
+).trim();
+const seasonVersionMemo = new Map<number, { value: string; ts: number }>();
+const VERSION_TTL_MS = 1000 * 60 * 10;
 
 function makeMemoryJob(jobType: JobType, request: Record<string, unknown>): JobRow {
   const now = new Date().toISOString();
@@ -51,7 +63,8 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
   const resolved = await resolveTeamPlayerForSeason(season, requestedTeam, requestedPlayer);
   const team = resolved.team;
   const player = resolved.player;
-  const key = `card:${season}:${team}:${player}:${mode}:${destinationConference}`;
+  const dataVersion = await getSeasonDataVersion(season);
+  const key = `card:${season}:${team}:${player}:${mode}:${destinationConference}:v=${dataVersion}`;
 
   const cached = await cacheGet<Record<string, unknown>>(key);
   if (cached) return { ...cached, cache: "hit" };
@@ -67,6 +80,14 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
     );
     if (rows[0]?.payload) payload = rows[0].payload;
   } catch {
+    payload = null;
+  }
+
+  if (
+    payload &&
+    season === 2026 &&
+    String((payload as Record<string, unknown>).dataVersion ?? "") !== dataVersion
+  ) {
     payload = null;
   }
 
@@ -238,6 +259,40 @@ async function upsertCardPayload(payloadKey: {
   );
 }
 
+function normalizeEtag(etag: string | null): string {
+  if (!etag) return "";
+  return etag.replace(/^W\//, "").replaceAll('"', "").trim();
+}
+
+async function fetchRawFileEtag(path: string): Promise<string> {
+  const rawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(DATA_OWNER)}/${encodeURIComponent(
+    DATA_REPO,
+  )}/${encodeURIComponent(DATA_REF)}/${path}`;
+  const res = await fetch(rawUrl, { method: "HEAD", cache: "no-store" });
+  if (!res.ok) throw new Error(`HEAD ${path} failed (${res.status})`);
+  return normalizeEtag(res.headers.get("etag"));
+}
+
+async function getSeasonDataVersion(season: number): Promise<string> {
+  if (season !== 2026) return "static";
+  const now = Date.now();
+  const memo = seasonVersionMemo.get(season);
+  if (memo && now - memo.ts < VERSION_TTL_MS) return memo.value;
+  try {
+    const [btTag, enrichedTag] = await Promise.all([
+      fetchRawFileEtag(DATA_BT_2026_PATH),
+      fetchRawFileEtag(DATA_ENRICHED_MANIFEST_PATH),
+    ]);
+    const value = `bt:${btTag}|en:${enrichedTag}`.slice(0, 180);
+    seasonVersionMemo.set(season, { value, ts: now });
+    return value;
+  } catch {
+    const fallback = `day:${new Date().toISOString().slice(0, 10)}`;
+    seasonVersionMemo.set(season, { value: fallback, ts: now });
+    return fallback;
+  }
+}
+
 async function advanceCardJob(job: JobRow): Promise<JobRow> {
   const req = { ...(job.request_json ?? {}) } as Record<string, unknown>;
   const season = Number(req.season ?? 0);
@@ -248,6 +303,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
   const resolved = await resolveTeamPlayerForSeason(season, requestedTeam, requestedPlayer);
   const team = resolved.team;
   const player = resolved.player;
+  const dataVersion = await getSeasonDataVersion(season);
 
   const existing = await getCardPayloadFromStore({
     ...req,
@@ -353,6 +409,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
       mode: mode === "transfer" ? "transfer" : "draft",
       destinationConference: mode === "transfer" ? destinationConference : "",
     },
+    dataVersion,
     cardHtml,
   };
   await upsertCardPayload({
