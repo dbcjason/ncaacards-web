@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import Link from "next/link";
-import { ALL_TEAMS, CONFERENCES, SEASONS, playersForTeamSeason } from "@/lib/ui-options";
+import { CONFERENCES, SEASONS } from "@/lib/ui-options";
 
 type CardJobResult = {
   cache?: string;
@@ -31,15 +31,10 @@ export default function CardsPage() {
   const [jobId, setJobId] = useState<string>("");
   const [progress, setProgress] = useState<number>(0);
 
-  const [teamOptions, setTeamOptions] = useState<string[]>(ALL_TEAMS);
-  const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>(() => {
-    const out: Record<string, string[]> = {};
-    for (const t of ALL_TEAMS) out[t] = playersForTeamSeason(t, 2026);
-    return out;
-  });
+  const [teamOptions, setTeamOptions] = useState<string[]>([]);
+  const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
   const [optionsError, setOptionsError] = useState("");
   const [optionsLoaded, setOptionsLoaded] = useState(false);
-  const [autoBootstrapped, setAutoBootstrapped] = useState(false);
 
   const [basePayload, setBasePayload] = useState<BasePayload | null>(null);
   const [compsHtml, setCompsHtml] = useState("");
@@ -56,6 +51,7 @@ export default function CardsPage() {
     let active = true;
     async function loadOptions() {
       setOptionsError("");
+      setOptionsLoaded(false);
       for (let attempt = 0; attempt < 4; attempt += 1) {
         try {
           const r = await fetch(`/api/options?season=${season}`, { cache: "no-store" });
@@ -91,14 +87,6 @@ export default function CardsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [season]);
-
-  useEffect(() => {
-    if (!optionsLoaded || autoBootstrapped) return;
-    if (!team || !player) return;
-    setAutoBootstrapped(true);
-    void run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [optionsLoaded, autoBootstrapped, team, player]);
 
   function startProgressTicker(setter: Dispatch<SetStateAction<number>>) {
     setter(10);
@@ -213,6 +201,7 @@ export default function CardsPage() {
   }
 
   async function run() {
+    if (!optionsLoaded) return;
     setOptionsError("");
     setLoading(true);
     setMessage("Loading base card data");
@@ -259,29 +248,46 @@ export default function CardsPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-          <select className="rounded bg-zinc-900 p-3" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
-            {SEASONS.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
+          <select
+            className="rounded bg-zinc-900 p-3"
+            value={optionsLoaded ? String(season) : "__loading_year__"}
+            onChange={(e) => setSeason(Number(e.target.value))}
+            disabled={!optionsLoaded}
+          >
+            {!optionsLoaded && <option value="__loading_year__">Year</option>}
+            {optionsLoaded &&
+              SEASONS.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
           </select>
           <select
             className="rounded bg-zinc-900 p-3"
-            value={team}
+            value={optionsLoaded ? team : "__loading_team__"}
             onChange={(e) => {
               const nextTeam = e.target.value;
               setTeam(nextTeam);
               const nextPlayers = playersByTeam[nextTeam] ?? [];
               if (!nextPlayers.includes(player) && nextPlayers[0]) setPlayer(nextPlayers[0]);
             }}
+            disabled={!optionsLoaded}
           >
-            {teamOptions.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
+            {!optionsLoaded && <option value="__loading_team__">Team</option>}
+            {optionsLoaded &&
+              teamOptions.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
           </select>
-          <select className="rounded bg-zinc-900 p-3" value={player} onChange={(e) => setPlayer(e.target.value)}>
-            {playerOptions.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
+          <select
+            className="rounded bg-zinc-900 p-3"
+            value={optionsLoaded ? player : "__loading_player__"}
+            onChange={(e) => setPlayer(e.target.value)}
+            disabled={!optionsLoaded}
+          >
+            {!optionsLoaded && <option value="__loading_player__">Player</option>}
+            {optionsLoaded &&
+              playerOptions.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
           </select>
           <select className="rounded bg-zinc-900 p-3" value={mode} onChange={(e) => setMode(e.target.value as "draft" | "transfer")}>
             <option value="draft">NBA Draft</option>
@@ -296,7 +302,7 @@ export default function CardsPage() {
         {optionsError && <div className="mt-2 text-sm text-rose-400">Options error: {optionsError}</div>}
 
         <div className="mt-4">
-          <button className="rounded bg-red-500 px-4 py-2 font-semibold text-white" onClick={run} disabled={loading}>
+          <button className="rounded bg-red-500 px-4 py-2 font-semibold text-white disabled:opacity-50" onClick={run} disabled={loading || !optionsLoaded}>
             {loading ? "Running..." : "Run Card Build"}
           </button>
         </div>
