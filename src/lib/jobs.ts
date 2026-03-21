@@ -1,6 +1,7 @@
 import { dbQuery } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { resolveTeamPlayerForSeason } from "@/lib/options";
+import { buildRosterPayload } from "@/lib/mock";
 
 export type JobType = "card" | "roster";
 export type JobStatus = "queued" | "running" | "done" | "error";
@@ -124,9 +125,14 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
   }
 
   if (!payload) {
-    throw new Error(
-      "Roster payload missing for this request. Precompute/load roster payloads into DB before running simulator.",
-    );
+    const livePayload = buildRosterPayload({
+      season,
+      team,
+      addPlayers,
+      removePlayers,
+    }) as Record<string, unknown>;
+    await cacheSet(key, livePayload, 60 * 10);
+    return { ...livePayload, cache: "live" };
   }
 
   await cacheSet(key, payload, 60 * 30);

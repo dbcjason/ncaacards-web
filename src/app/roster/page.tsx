@@ -27,6 +27,8 @@ export default function RosterPage() {
   const [team, setTeam] = useState("UCLA");
   const [addPick, setAddPick] = useState("");
   const [removePick, setRemovePick] = useState("");
+  const [addSearch, setAddSearch] = useState("");
+  const [removeSearch, setRemoveSearch] = useState("");
   const [addPlayers, setAddPlayers] = useState<string[]>([]);
   const [removePlayers, setRemovePlayers] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,14 +46,20 @@ export default function RosterPage() {
   const [optionsError, setOptionsError] = useState("");
 
   const currentRoster = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
-  const addOptions = useMemo(
-    () => allPlayers.filter((p) => !addPlayers.includes(p) && !currentRoster.includes(p)),
-    [addPlayers, currentRoster, allPlayers],
-  );
-  const removeOptions = useMemo(
-    () => currentRoster.filter((p) => !removePlayers.includes(p)),
-    [currentRoster, removePlayers],
-  );
+  const addOptions = useMemo(() => {
+    const needle = addSearch.trim().toLowerCase();
+    return allPlayers.filter((p) => {
+      if (addPlayers.includes(p) || currentRoster.includes(p)) return false;
+      return !needle || p.toLowerCase().includes(needle);
+    });
+  }, [addPlayers, currentRoster, allPlayers, addSearch]);
+  const removeOptions = useMemo(() => {
+    const needle = removeSearch.trim().toLowerCase();
+    return currentRoster.filter((p) => {
+      if (removePlayers.includes(p)) return false;
+      return !needle || p.toLowerCase().includes(needle);
+    });
+  }, [currentRoster, removePlayers, removeSearch]);
 
   function fmt(v: number | string | undefined) {
     if (typeof v === "number") return Number.isFinite(v) ? v.toFixed(1) : "N/A";
@@ -209,14 +217,22 @@ export default function RosterPage() {
             ))}
           </select>
           <div className="flex gap-2">
-            <select className="w-full rounded bg-zinc-900 p-3" value={addPick} onChange={(e) => setAddPick(e.target.value)}>
-              <option value="">Select player to add</option>
-              {addOptions.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+            <div className="w-full space-y-2">
+              <input
+                className="w-full rounded bg-zinc-900 p-2 text-sm"
+                placeholder="Search players to add"
+                value={addSearch}
+                onChange={(e) => setAddSearch(e.target.value)}
+              />
+              <select className="w-full rounded bg-zinc-900 p-3" value={addPick} onChange={(e) => setAddPick(e.target.value)}>
+                <option value="">Select player to add</option>
+                {addOptions.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               className="rounded bg-zinc-700 px-3 py-2 text-sm"
               onClick={() => {
@@ -231,14 +247,22 @@ export default function RosterPage() {
             </button>
           </div>
           <div className="flex gap-2">
-            <select className="w-full rounded bg-zinc-900 p-3" value={removePick} onChange={(e) => setRemovePick(e.target.value)}>
-              <option value="">Select player to remove</option>
-              {removeOptions.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+            <div className="w-full space-y-2">
+              <input
+                className="w-full rounded bg-zinc-900 p-2 text-sm"
+                placeholder="Search players to remove"
+                value={removeSearch}
+                onChange={(e) => setRemoveSearch(e.target.value)}
+              />
+              <select className="w-full rounded bg-zinc-900 p-3" value={removePick} onChange={(e) => setRemovePick(e.target.value)}>
+                <option value="">Select player to remove</option>
+                {removeOptions.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               className="rounded bg-zinc-700 px-3 py-2 text-sm"
               onClick={() => {
