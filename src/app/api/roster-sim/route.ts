@@ -1,20 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DATA_OWNER = process.env.GITHUB_DATA_OWNER || "dbcjason";
-const DATA_REPO = process.env.GITHUB_DATA_REPO || "NCAACards";
-const DATA_REF = process.env.GITHUB_DATA_REF || "main";
-const BT_CSV_PATH = process.env.GITHUB_BT_CSV_PATH || "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv";
-const TEAM_MODEL_JSON_PATH =
-  process.env.GITHUB_TEAM_MODEL_JSON_PATH || "player_cards_pipeline/data/models/team_interaction_ridge_v1.json";
-const BART_PREFIX = (process.env.GITHUB_BART_PREFIX || "").trim();
-const BT_CSV_CANDIDATES = [
-  BT_CSV_PATH,
+type Gender = "men" | "women";
+type SourceCfg = {
+  dataOwner: string;
+  dataRepo: string;
+  dataRef: string;
+  btCsvPath: string;
+  teamModelJsonPath: string;
+  bartPrefix: string;
+};
+
+function parseGender(raw?: string): Gender {
+  return String(raw || "").toLowerCase() === "women" ? "women" : "men";
+}
+
+function getSourceCfg(gender: Gender): SourceCfg {
+  if (gender === "women") {
+    return {
+      dataOwner: process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason",
+      dataRepo: process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards",
+      dataRef: process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main",
+      btCsvPath: process.env.GITHUB_BT_CSV_PATH_WOMEN || process.env.GITHUB_BT_CSV_PATH || "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
+      teamModelJsonPath:
+        process.env.GITHUB_TEAM_MODEL_JSON_PATH_WOMEN ||
+        process.env.GITHUB_TEAM_MODEL_JSON_PATH ||
+        "player_cards_pipeline/data/models/team_interaction_ridge_v1.json",
+      bartPrefix: (process.env.GITHUB_BART_PREFIX_WOMEN || "ncaaw").trim(),
+    };
+  }
+  return {
+    dataOwner: process.env.GITHUB_DATA_OWNER || "dbcjason",
+    dataRepo: process.env.GITHUB_DATA_REPO || "NCAACards",
+    dataRef: process.env.GITHUB_DATA_REF || "main",
+    btCsvPath: process.env.GITHUB_BT_CSV_PATH || "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
+    teamModelJsonPath:
+      process.env.GITHUB_TEAM_MODEL_JSON_PATH || "player_cards_pipeline/data/models/team_interaction_ridge_v1.json",
+    bartPrefix: (process.env.GITHUB_BART_PREFIX || "").trim(),
+  };
+}
+
+function btCsvCandidates(cfg: SourceCfg): string[] {
+  return [
+    cfg.btCsvPath,
   "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2019_2025.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2010_2025.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2026.csv",
-];
+  ];
+}
 
 type PlayerRow = {
   player: string;
@@ -93,9 +127,9 @@ type TeamModelBundle = {
   models: Record<string, RidgeModel>;
 };
 
-const seasonCache = new Map<number, SeasonCache>();
-const modelCache = new Map<number, { loadedAt: number; modelByMetric: Record<string, RidgeModel> }>();
-let pretrainedModelCache: { loadedAt: number; bundle: TeamModelBundle | null } | null = null;
+const seasonCache = new Map<string, SeasonCache>();
+const modelCache = new Map<string, { loadedAt: number; modelByMetric: Record<string, RidgeModel> }>();
+const pretrainedModelCache = new Map<string, { loadedAt: number; bundle: TeamModelBundle | null }>();
 const TTL_MS = 1000 * 60 * 20;
 
 const FEATURE_ORDER = [
@@ -239,42 +273,45 @@ function predictRidge(model: RidgeModel, x: number[]): number {
   return model.bias + dot(model.weights, xn);
 }
 
-async function loadPretrainedModelBundle(): Promise<TeamModelBundle | null> {
-  if (pretrainedModelCache && Date.now() - pretrainedModelCache.loadedAt < TTL_MS) {
-    return pretrainedModelCache.bundle;
+async function loadPretrainedModelBundle(cfg: SourceCfg, gender: Gender): Promise<TeamModelBundle | null> {
+  const cacheKey = `${gender}:${cfg.dataOwner}:${cfg.dataRepo}:${cfg.teamModelJsonPath}`;
+  const cached = pretrainedModelCache.get(cacheKey);
+  if (cached && Date.now() - cached.loadedAt < TTL_MS) {
+    return cached.bundle;
   }
-  const url = `https://raw.githubusercontent.com/${encodeURIComponent(DATA_OWNER)}/${encodeURIComponent(
-    DATA_REPO,
-  )}/${encodeURIComponent(DATA_REF)}/${TEAM_MODEL_JSON_PATH}`;
+  const url = `https://raw.githubusercontent.com/${encodeURIComponent(cfg.dataOwner)}/${encodeURIComponent(
+    cfg.dataRepo,
+  )}/${encodeURIComponent(cfg.dataRef)}/${cfg.teamModelJsonPath}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
-    pretrainedModelCache = { loadedAt: Date.now(), bundle: null };
+    pretrainedModelCache.set(cacheKey, { loadedAt: Date.now(), bundle: null });
     return null;
   }
   const obj = (await res.json()) as TeamModelBundle;
   if (!obj || !obj.models || !obj.feature_order || !Array.isArray(obj.feature_order)) {
-    pretrainedModelCache = { loadedAt: Date.now(), bundle: null };
+    pretrainedModelCache.set(cacheKey, { loadedAt: Date.now(), bundle: null });
     return null;
   }
-  pretrainedModelCache = { loadedAt: Date.now(), bundle: obj };
+  pretrainedModelCache.set(cacheKey, { loadedAt: Date.now(), bundle: obj });
   return obj;
 }
 
-async function loadSeasonData(season: number): Promise<SeasonCache> {
-  const cached = seasonCache.get(season);
+async function loadSeasonData(season: number, cfg: SourceCfg, gender: Gender): Promise<SeasonCache> {
+  const cacheKey = `${gender}:${season}`;
+  const cached = seasonCache.get(cacheKey);
   if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached;
 
   async function fetchCsvText(): Promise<string> {
     let lastErr = "";
-    for (const path of BT_CSV_CANDIDATES) {
-      const url = `https://raw.githubusercontent.com/${encodeURIComponent(DATA_OWNER)}/${encodeURIComponent(
-        DATA_REPO,
-      )}/${encodeURIComponent(DATA_REF)}/${path}`;
+    for (const path of btCsvCandidates(cfg)) {
+      const url = `https://raw.githubusercontent.com/${encodeURIComponent(cfg.dataOwner)}/${encodeURIComponent(
+        cfg.dataRepo,
+      )}/${encodeURIComponent(cfg.dataRef)}/${path}`;
       const res = await fetch(url, { cache: "no-store" });
       if (res.ok) return await res.text();
       lastErr = `${path}: ${res.status}`;
     }
-    const prefixes = Array.from(new Set([BART_PREFIX, BART_PREFIX ? "" : "ncaaw"]));
+    const prefixes = Array.from(new Set([cfg.bartPrefix, cfg.bartPrefix ? "" : "ncaaw"]));
     for (const prefix of prefixes) {
       const pref = prefix ? `${prefix}/` : "";
       const url = `https://barttorvik.com/${pref}getadvstats.php?year=${season}&csv=1`;
@@ -389,7 +426,7 @@ async function loadSeasonData(season: number): Promise<SeasonCache> {
   }
 
   const out: SeasonCache = { rows, rosterByTeam, playerDefaults, loadedAt: Date.now() };
-  seasonCache.set(season, out);
+  seasonCache.set(cacheKey, out);
   return out;
 }
 
@@ -569,12 +606,14 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
 }
 
 function buildSeasonModels(
+  gender: Gender,
   season: number,
   allTeams: string[],
   data: SeasonCache,
   currentMapByTeam: Record<string, Record<string, number>>,
 ): Record<string, RidgeModel> {
-  const cached = modelCache.get(season);
+  const cacheKey = `${gender}:${season}`;
+  const cached = modelCache.get(cacheKey);
   if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached.modelByMetric;
 
   const X: number[][] = [];
@@ -607,7 +646,7 @@ function buildSeasonModels(
       modelByMetric[m.key] = trainRidgeGD(X, yByMetric[m.key], 0.08, 450, 0.05);
     }
   }
-  modelCache.set(season, { loadedAt: Date.now(), modelByMetric });
+  modelCache.set(cacheKey, { loadedAt: Date.now(), modelByMetric });
   return modelByMetric;
 }
 
@@ -622,13 +661,15 @@ function rankForMetric(valuesByTeam: Record<string, number>, team: string, highe
 
 export async function GET(req: NextRequest) {
   try {
+    const gender = parseGender(req.nextUrl.searchParams.get("gender") ?? "men");
+    const cfg = getSourceCfg(gender);
     const season = Number(req.nextUrl.searchParams.get("season") ?? "2026");
     const teamRaw = (req.nextUrl.searchParams.get("team") ?? "").trim();
     if (!Number.isFinite(season)) {
       return NextResponse.json({ ok: false, error: "Invalid season" }, { status: 400 });
     }
 
-    const data = await loadSeasonData(season);
+    const data = await loadSeasonData(season, cfg, gender);
     const teams = Object.keys(data.rosterByTeam).sort((a, b) => a.localeCompare(b));
     const team = teamRaw ? normalizeTeamName(teamRaw, teams) : teams[0] ?? "";
     const roster = (data.rosterByTeam[team] ?? []).map((p) => ({ player: p.player, mpg: Number(p.mpg.toFixed(1)) }));
@@ -636,6 +677,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       source: "live_bt",
+      gender,
       season,
       team,
       teams,
@@ -650,6 +692,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
+      gender?: string;
       season: number;
       team: string;
       addPlayers?: string[];
@@ -657,12 +700,14 @@ export async function POST(req: NextRequest) {
       rosterMinutes?: Record<string, number>;
     };
 
+    const gender = parseGender(body.gender ?? "men");
+    const cfg = getSourceCfg(gender);
     const season = Number(body.season ?? 2026);
     const addPlayers = Array.isArray(body.addPlayers) ? body.addPlayers.map(String) : [];
     const removePlayers = new Set(Array.isArray(body.removePlayers) ? body.removePlayers.map(String) : []);
     const rosterMinutesIn = body.rosterMinutes && typeof body.rosterMinutes === "object" ? body.rosterMinutes : {};
 
-    const data = await loadSeasonData(season);
+    const data = await loadSeasonData(season, cfg, gender);
     const allTeams = Object.keys(data.rosterByTeam);
     const team = normalizeTeamName(String(body.team ?? ""), allTeams);
     const teamRows = data.rosterByTeam[team] ?? [];
@@ -705,7 +750,7 @@ export async function POST(req: NextRequest) {
     let modelSource = "live_bt";
     let featureOrder = FEATURE_ORDER;
 
-    const pretrained = await loadPretrainedModelBundle();
+    const pretrained = await loadPretrainedModelBundle(cfg, gender);
     if (pretrained && pretrained.models && Object.keys(pretrained.models).length > 0) {
       modelByMetric = pretrained.models;
       modelSource = "pretrained_model";
@@ -713,7 +758,7 @@ export async function POST(req: NextRequest) {
         featureOrder = pretrained.feature_order;
       }
     } else {
-      modelByMetric = buildSeasonModels(season, allTeams, data, currentMapByTeam);
+      modelByMetric = buildSeasonModels(gender, season, allTeams, data, currentMapByTeam);
       if (Object.keys(modelByMetric).length > 0) modelSource = "learned_regression";
     }
 
@@ -759,6 +804,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       source: useLearned ? modelSource : "live_bt",
       cache: "live",
+      gender,
       season,
       team,
       metrics,

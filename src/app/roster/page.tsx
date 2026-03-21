@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { SEASONS } from "@/lib/ui-options";
 
 type RosterMetric = {
@@ -32,6 +33,8 @@ type TeamRosterResponse = {
 };
 
 export default function RosterPage() {
+  const searchParams = useSearchParams();
+  const gender = searchParams.get("gender") === "women" ? "women" : "men";
   const [season, setSeason] = useState(2026);
   const [team, setTeam] = useState("");
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
@@ -117,6 +120,7 @@ export default function RosterPage() {
     const qs = new URLSearchParams({ season: String(nextSeason) });
     if (nextTeam) qs.set("team", nextTeam);
 
+    qs.set("gender", gender);
     const res = await fetch(`/api/roster-sim?${qs.toString()}`, { cache: "no-store" });
     const data = (await res.json()) as TeamRosterResponse;
     if (!data.ok) throw new Error(data.error || "Failed to load roster options");
@@ -158,7 +162,7 @@ export default function RosterPage() {
     return () => {
       active = false;
     };
-  }, [season]);
+  }, [season, gender]);
 
   async function run() {
     if (!optionsLoaded || !team) return;
@@ -185,6 +189,7 @@ export default function RosterPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          gender,
           season,
           team,
           addPlayers,
@@ -212,10 +217,10 @@ export default function RosterPage() {
       <div className="mx-auto w-full max-w-7xl px-6 py-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex gap-5 text-sm">
-            <Link href="/cards" className="text-zinc-300">Player Profiles</Link>
-            <Link href="/roster" className="text-red-400">Roster Construction</Link>
+            <Link href={`/cards?gender=${gender}`} className="text-zinc-300">Player Profiles</Link>
+            <Link href={`/roster?gender=${gender}`} className="text-red-400">Roster Construction</Link>
           </div>
-          <Link href="/" className="text-zinc-400">Home</Link>
+          <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">

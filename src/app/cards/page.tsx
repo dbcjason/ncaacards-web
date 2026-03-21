@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
 
 type CardJobResult = {
@@ -29,6 +30,8 @@ type JobPollResponse = {
 };
 
 export default function CardsPage() {
+  const searchParams = useSearchParams();
+  const gender = searchParams.get("gender") === "women" ? "women" : "men";
   const [season, setSeason] = useState(2026);
   const [seasonB, setSeasonB] = useState(2026);
   const [team, setTeam] = useState("");
@@ -54,7 +57,8 @@ export default function CardsPage() {
   const [resultHtmlB, setResultHtmlB] = useState("");
   const [resultCache, setResultCache] = useState<string>("");
   const [runError, setRunError] = useState("");
-  const draftLabel = process.env.NEXT_PUBLIC_DRAFT_LABEL || "NBA Draft";
+  const draftLabel =
+    process.env.NEXT_PUBLIC_DRAFT_LABEL || (gender === "women" ? "WNBA Draft" : "NBA Draft");
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
   const playerOptionsB = useMemo(() => playersByTeamB[teamB] ?? [], [playersByTeamB, teamB]);
@@ -67,7 +71,7 @@ export default function CardsPage() {
 
       for (let attempt = 0; attempt < 4; attempt += 1) {
         try {
-          const r = await fetch(`/api/options?season=${season}`, { cache: "no-store" });
+          const r = await fetch(`/api/options?season=${season}&gender=${gender}`, { cache: "no-store" });
           const j = (await r.json()) as {
             ok?: boolean;
             error?: string;
@@ -109,7 +113,7 @@ export default function CardsPage() {
     return () => {
       active = false;
     };
-  }, [season]);
+  }, [season, gender]);
 
   useEffect(() => {
     let active = true;
@@ -119,7 +123,7 @@ export default function CardsPage() {
 
       for (let attempt = 0; attempt < 4; attempt += 1) {
         try {
-          const r = await fetch(`/api/options?season=${seasonB}`, { cache: "no-store" });
+          const r = await fetch(`/api/options?season=${seasonB}&gender=${gender}`, { cache: "no-store" });
           const j = (await r.json()) as {
             ok?: boolean;
             error?: string;
@@ -161,7 +165,7 @@ export default function CardsPage() {
     return () => {
       active = false;
     };
-  }, [seasonB]);
+  }, [seasonB, gender]);
 
   async function pollJob(id: string, onProgress?: (p: number) => void): Promise<CardJobResult | null> {
     while (true) {
@@ -207,7 +211,8 @@ export default function CardsPage() {
         return data.id;
       };
 
-      const reqA = {
+        const reqA = {
+        gender,
         season,
         team,
         player,
@@ -215,6 +220,7 @@ export default function CardsPage() {
         destinationConference: mode === "transfer" ? dest : "",
       };
       const reqB = {
+        gender,
         season: seasonB,
         team: teamB,
         player: playerB,
@@ -266,14 +272,14 @@ export default function CardsPage() {
       <div className="mx-auto w-full max-w-[1600px] px-6 py-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex gap-5 text-sm">
-            <Link href="/cards" className="text-red-400">
+            <Link href={`/cards?gender=${gender}`} className="text-red-400">
               Player Profiles
             </Link>
-            <Link href="/roster" className="text-zinc-300">
+            <Link href={`/roster?gender=${gender}`} className="text-zinc-300">
               Roster Construction
             </Link>
           </div>
-          <Link href="/" className="text-zinc-400">
+          <Link href={`/?gender=${gender}`} className="text-zinc-400">
             Home
           </Link>
         </div>

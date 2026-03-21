@@ -5,29 +5,70 @@ type SeasonOptions = {
   loadedAt: number;
 };
 
-const seasonCache = new Map<number, SeasonOptions>();
+type Gender = "men" | "women";
+type SourceCfg = {
+  dataOwner: string;
+  dataRepo: string;
+  dataRef: string;
+  staticRoot: string;
+  btPlayerstatJsonTemplate: string;
+  btCsvPath: string;
+  bartPrefix: string;
+};
+
+const seasonCache = new Map<string, SeasonOptions>();
 const TTL_MS = 1000 * 60 * 60;
 
-const DATA_OWNER = process.env.GITHUB_DATA_OWNER || "dbcjason";
-const DATA_REPO = process.env.GITHUB_DATA_REPO || "NCAACards";
-const DATA_REF = process.env.GITHUB_DATA_REF || "main";
-const STATIC_ROOT =
-  process.env.GITHUB_STATIC_PAYLOAD_ROOT || "player_cards_pipeline/public/cards";
-const BT_PLAYERSTAT_JSON_TEMPLATE =
-  process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE ||
-  "player_cards_pipeline/data/bt/raw_playerstat_json/{season}_pbp_playerstat_array.json";
-const BT_CSV_PATH =
-  process.env.GITHUB_BT_CSV_PATH ||
-  "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv";
-const BART_PREFIX = (process.env.GITHUB_BART_PREFIX || "").trim();
-const BT_CSV_CANDIDATES = [
-  BT_CSV_PATH,
+function parseGender(raw?: string): Gender {
+  return String(raw || "").toLowerCase() === "women" ? "women" : "men";
+}
+
+function getSourceCfg(gender: Gender): SourceCfg {
+  if (gender === "women") {
+    return {
+      dataOwner: process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason",
+      dataRepo: process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards",
+      dataRef: process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main",
+      staticRoot:
+        process.env.GITHUB_STATIC_PAYLOAD_ROOT_WOMEN ||
+        process.env.GITHUB_STATIC_PAYLOAD_ROOT ||
+        "player_cards_pipeline/public/cards",
+      btPlayerstatJsonTemplate:
+        process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE_WOMEN ||
+        process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE ||
+        "player_cards_pipeline/data/bt/raw_playerstat_json/{season}_pbp_playerstat_array.json",
+      btCsvPath:
+        process.env.GITHUB_BT_CSV_PATH_WOMEN ||
+        process.env.GITHUB_BT_CSV_PATH ||
+        "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
+      bartPrefix: (process.env.GITHUB_BART_PREFIX_WOMEN || "ncaaw").trim(),
+    };
+  }
+  return {
+    dataOwner: process.env.GITHUB_DATA_OWNER || "dbcjason",
+    dataRepo: process.env.GITHUB_DATA_REPO || "NCAACards",
+    dataRef: process.env.GITHUB_DATA_REF || "main",
+    staticRoot: process.env.GITHUB_STATIC_PAYLOAD_ROOT || "player_cards_pipeline/public/cards",
+    btPlayerstatJsonTemplate:
+      process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE ||
+      "player_cards_pipeline/data/bt/raw_playerstat_json/{season}_pbp_playerstat_array.json",
+    btCsvPath:
+      process.env.GITHUB_BT_CSV_PATH ||
+      "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
+    bartPrefix: (process.env.GITHUB_BART_PREFIX || "").trim(),
+  };
+}
+
+function btCsvCandidates(cfg: SourceCfg): string[] {
+  return [
+    cfg.btCsvPath,
   "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2019_2025.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2010_2025.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2026.csv",
-];
+  ];
+}
 
 function parseCsvLine(line: string): string[] {
   const out: string[] = [];
@@ -89,8 +130,8 @@ function seasonMatchesPrev(rawYear: string, season: number): boolean {
   return v.includes(String(season - 1));
 }
 
-async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions> {
-  const prefixes = Array.from(new Set([BART_PREFIX, BART_PREFIX ? "" : "ncaaw"])).filter((x) => x !== "__none__");
+async function fetchSeasonOptionsFromBart(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
+  const prefixes = Array.from(new Set([cfg.bartPrefix, cfg.bartPrefix ? "" : "ncaaw"])).filter((x) => x !== "__none__");
   let lastErr = "";
   for (const prefix of prefixes) {
     const pref = prefix ? `${prefix}/` : "";
@@ -123,9 +164,9 @@ async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions
   throw new Error(lastErr || "Failed to fetch Bart CSV");
 }
 
-async function fetchSeasonOptionsFromStaticIndex(season: number): Promise<SeasonOptions> {
-  const path = `${STATIC_ROOT}/${season}/index.json`;
-  const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${path}`;
+async function fetchSeasonOptionsFromStaticIndex(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
+  const path = `${cfg.staticRoot}/${season}/index.json`;
+  const url = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to fetch static index (${res.status})`);
   const arr = (await res.json()) as Array<{ player?: string; team?: string }>;
@@ -222,9 +263,9 @@ function pickJsonKey(obj: Record<string, unknown>, keys: string[]): string | nul
   return null;
 }
 
-async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number): Promise<SeasonOptions> {
-  const path = BT_PLAYERSTAT_JSON_TEMPLATE.replace("{season}", String(season));
-  const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${path}`;
+async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
+  const path = cfg.btPlayerstatJsonTemplate.replace("{season}", String(season));
+  const url = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to fetch repo playerstat JSON (${res.status})`);
   const text = await res.text();
@@ -256,10 +297,10 @@ async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number): Promi
   return { teams, playersByTeam, allPlayers, loadedAt: Date.now() };
 }
 
-async function fetchSeasonOptionsFromGithubLargeFile(season: number): Promise<SeasonOptions> {
+async function fetchSeasonOptionsFromGithubLargeFile(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
   let lastErr = "";
-  for (const path of BT_CSV_CANDIDATES) {
-    const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${path}`;
+  for (const path of btCsvCandidates(cfg)) {
+    const url = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) {
       lastErr = `${path}: ${res.status}`;
@@ -273,21 +314,24 @@ async function fetchSeasonOptionsFromGithubLargeFile(season: number): Promise<Se
   throw new Error(`Failed to fetch repo all-years CSV (${lastErr || "no valid path"})`);
 }
 
-export async function getSeasonOptions(season: number): Promise<SeasonOptions> {
-  const cached = seasonCache.get(season);
+export async function getSeasonOptions(season: number, genderRaw?: string): Promise<SeasonOptions> {
+  const gender = parseGender(genderRaw);
+  const cfg = getSourceCfg(gender);
+  const cacheKey = `${gender}:${season}`;
+  const cached = seasonCache.get(cacheKey);
   if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached;
   let fresh: SeasonOptions;
   try {
-    fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season);
+    fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season, cfg);
   } catch (ghJsonErr) {
     try {
-      fresh = await fetchSeasonOptionsFromStaticIndex(season);
+      fresh = await fetchSeasonOptionsFromStaticIndex(season, cfg);
     } catch (staticErr) {
       try {
-        fresh = await fetchSeasonOptionsFromBart(season);
+        fresh = await fetchSeasonOptionsFromBart(season, cfg);
       } catch (bartErr) {
         try {
-          fresh = await fetchSeasonOptionsFromGithubLargeFile(season);
+          fresh = await fetchSeasonOptionsFromGithubLargeFile(season, cfg);
         } catch (ghLargeErr) {
           const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
           const s = staticErr instanceof Error ? staticErr.message : String(staticErr);
@@ -300,7 +344,7 @@ export async function getSeasonOptions(season: number): Promise<SeasonOptions> {
       }
     }
   }
-  seasonCache.set(season, fresh);
+  seasonCache.set(cacheKey, fresh);
   return fresh;
 }
 
@@ -308,8 +352,9 @@ export async function resolveTeamPlayerForSeason(
   season: number,
   team: string,
   player: string,
+  genderRaw?: string,
 ): Promise<{ team: string; player: string }> {
-  const opts = await getSeasonOptions(season);
+  const opts = await getSeasonOptions(season, genderRaw);
   const nextTeam = opts.teams.includes(team) ? team : opts.teams.find((t) => t.toLowerCase() === team.toLowerCase()) ?? team;
   const candidates = opts.playersByTeam[nextTeam] ?? [];
   if (!candidates.length) return { team: nextTeam, player };

@@ -6,15 +6,17 @@ export async function GET(req: NextRequest) {
     const seasonStr = req.nextUrl.searchParams.get("season") ?? "2026";
     const season = Number(seasonStr);
     const team = req.nextUrl.searchParams.get("team") ?? "";
+    const gender = req.nextUrl.searchParams.get("gender") ?? "men";
     if (!Number.isFinite(season) || season < 2000 || season > 2100) {
       return NextResponse.json({ ok: false, error: "Invalid season" }, { status: 400 });
     }
 
-    const data = await getSeasonOptions(season);
+    const data = await getSeasonOptions(season, gender);
     if (team) {
       return NextResponse.json({
         ok: true,
         season,
+        gender,
         team,
         players: data.playersByTeam[team] ?? [],
       });
@@ -22,6 +24,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       season,
+      gender,
       teams: data.teams,
       allPlayers: data.allPlayers,
       playersByTeam: data.playersByTeam,
@@ -33,4 +36,3 @@ export async function GET(req: NextRequest) {
     );
   }
 }
-

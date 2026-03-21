@@ -21,22 +21,53 @@ export type JobRow = {
 
 const inMemoryJobs = new Map<string, JobRow>();
 let warnedNoDb = false;
-const GH_OWNER = (process.env.GITHUB_OWNER ?? "").trim();
-const GH_REPO = (process.env.GITHUB_REPO ?? "").trim();
-const GH_WORKFLOW = (process.env.GITHUB_WORKFLOW_FILE ?? "").trim();
-const GH_REF = (process.env.GITHUB_REF ?? "main").trim();
-const GH_TOKEN = (process.env.GITHUB_TOKEN ?? "").trim();
-const DATA_OWNER = (process.env.GITHUB_DATA_OWNER || "dbcjason").trim();
-const DATA_REPO = (process.env.GITHUB_DATA_REPO || "NCAACards").trim();
-const DATA_REF = (process.env.GITHUB_DATA_REF || "main").trim();
-const DATA_BT_2026_PATH = (
-  process.env.GITHUB_BT_2026_PATH || "player_cards_pipeline/data/bt/bt_advstats_2026.csv"
-).trim();
-const DATA_ENRICHED_MANIFEST_PATH = (
-  process.env.GITHUB_ENRICHED_MANIFEST_PATH ||
-  "player_cards_pipeline/data/manual/enriched_players/manifest.json"
-).trim();
-const seasonVersionMemo = new Map<number, { value: string; ts: number }>();
+type Gender = "men" | "women";
+type RuntimeCfg = {
+  ghOwner: string;
+  ghRepo: string;
+  ghWorkflow: string;
+  ghRef: string;
+  ghToken: string;
+  dataOwner: string;
+  dataRepo: string;
+  dataRef: string;
+  dataBt2026Path: string;
+  dataEnrichedManifestPath: string;
+};
+
+function parseGender(raw?: unknown): Gender {
+  return String(raw ?? "").toLowerCase() === "women" ? "women" : "men";
+}
+
+function runtimeCfg(gender: Gender): RuntimeCfg {
+  if (gender === "women") {
+    return {
+      ghOwner: (process.env.GITHUB_OWNER_WOMEN || process.env.GITHUB_OWNER || "").trim(),
+      ghRepo: (process.env.GITHUB_REPO_WOMEN || "NCAAWCards").trim(),
+      ghWorkflow: (process.env.GITHUB_WORKFLOW_FILE_WOMEN || process.env.GITHUB_WORKFLOW_FILE || "").trim(),
+      ghRef: (process.env.GITHUB_REF_WOMEN || process.env.GITHUB_REF || "main").trim(),
+      ghToken: (process.env.GITHUB_TOKEN_WOMEN || process.env.GITHUB_TOKEN || "").trim(),
+      dataOwner: (process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason").trim(),
+      dataRepo: (process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards").trim(),
+      dataRef: (process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main").trim(),
+      dataBt2026Path: (process.env.GITHUB_BT_2026_PATH_WOMEN || process.env.GITHUB_BT_2026_PATH || "player_cards_pipeline/data/bt/bt_advstats_2026.csv").trim(),
+      dataEnrichedManifestPath: (process.env.GITHUB_ENRICHED_MANIFEST_PATH_WOMEN || process.env.GITHUB_ENRICHED_MANIFEST_PATH || "player_cards_pipeline/data/manual/enriched_players/manifest.json").trim(),
+    };
+  }
+  return {
+    ghOwner: (process.env.GITHUB_OWNER ?? "").trim(),
+    ghRepo: (process.env.GITHUB_REPO ?? "").trim(),
+    ghWorkflow: (process.env.GITHUB_WORKFLOW_FILE ?? "").trim(),
+    ghRef: (process.env.GITHUB_REF ?? "main").trim(),
+    ghToken: (process.env.GITHUB_TOKEN ?? "").trim(),
+    dataOwner: (process.env.GITHUB_DATA_OWNER || "dbcjason").trim(),
+    dataRepo: (process.env.GITHUB_DATA_REPO || "NCAACards").trim(),
+    dataRef: (process.env.GITHUB_DATA_REF || "main").trim(),
+    dataBt2026Path: (process.env.GITHUB_BT_2026_PATH || "player_cards_pipeline/data/bt/bt_advstats_2026.csv").trim(),
+    dataEnrichedManifestPath: (process.env.GITHUB_ENRICHED_MANIFEST_PATH || "player_cards_pipeline/data/manual/enriched_players/manifest.json").trim(),
+  };
+}
+const seasonVersionMemo = new Map<string, { value: string; ts: number }>();
 const VERSION_TTL_MS = 1000 * 60 * 10;
 
 function makeMemoryJob(jobType: JobType, request: Record<string, unknown>): JobRow {
@@ -56,6 +87,8 @@ function makeMemoryJob(jobType: JobType, request: Record<string, unknown>): JobR
 }
 
 async function getCardPayloadFromStore(req: Record<string, unknown>) {
+  const gender = parseGender(req.gender);
+  const cfg = runtimeCfg(gender);
   const season = Number(req.season ?? 0);
   const requestedTeam = String(req.team ?? "");
   const requestedPlayer = String(req.player ?? "");
@@ -64,8 +97,9 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
   const resolved = await resolveTeamPlayerForSeason(season, requestedTeam, requestedPlayer);
   const team = resolved.team;
   const player = resolved.player;
-  const dataVersion = await getSeasonDataVersion(season);
+  const dataVersion = await getSeasonDataVersion(season, cfg);
   const key = cardCacheKey({
+    gender,
     season,
     team,
     player,
@@ -77,7 +111,7 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
   const cached = await cacheGet<Record<string, unknown>>(key);
   if (cached) return { ...cached, cache: "hit" };
   const legacyCached = await cacheGet<Record<string, unknown>>(
-    cardCacheKey({ season, team, player, mode, destinationConference }),
+    cardCacheKey({ gender, season, team, player, mode, destinationConference }),
   );
   if (legacyCached) {
     await cacheSet(key, legacyCached, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
@@ -169,8 +203,8 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
   return { ...payload, cache: "miss" };
 }
 
-function githubReady(): boolean {
-  return Boolean(GH_OWNER && GH_REPO && GH_WORKFLOW && GH_REF && GH_TOKEN);
+function githubReady(cfg: RuntimeCfg): boolean {
+  return Boolean(cfg.ghOwner && cfg.ghRepo && cfg.ghWorkflow && cfg.ghRef && cfg.ghToken);
 }
 
 function safeFilePart(v: string): string {
@@ -181,6 +215,7 @@ function safeFilePart(v: string): string {
 }
 
 function cardCacheKey(input: {
+  gender?: string;
   season: number;
   team: string;
   player: string;
@@ -189,15 +224,16 @@ function cardCacheKey(input: {
   dataVersion?: string;
 }) {
   const suffix = input.dataVersion ? `:v=${input.dataVersion}` : "";
-  return `card:${input.season}:${input.team}:${input.player}:${input.mode}:${input.destinationConference}${suffix}`;
+  const g = parseGender(input.gender);
+  return `card:${g}:${input.season}:${input.team}:${input.player}:${input.mode}:${input.destinationConference}${suffix}`;
 }
 
-async function ghApi(path: string, init?: RequestInit): Promise<Response> {
+async function ghApi(cfg: RuntimeCfg, path: string, init?: RequestInit): Promise<Response> {
   return fetch(`https://api.github.com${path}`, {
     ...init,
     headers: {
       Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${GH_TOKEN}`,
+      Authorization: `Bearer ${cfg.ghToken}`,
       "X-GitHub-Api-Version": "2022-11-28",
       ...(init?.headers ?? {}),
     },
@@ -206,6 +242,7 @@ async function ghApi(path: string, init?: RequestInit): Promise<Response> {
 }
 
 async function dispatchCardWorkflow(input: {
+  cfg: RuntimeCfg;
   year: number;
   player: string;
   team: string;
@@ -214,7 +251,7 @@ async function dispatchCardWorkflow(input: {
   outputFilename: string;
 }) {
   const body = {
-    ref: GH_REF,
+    ref: input.cfg.ghRef,
     inputs: {
       year: String(input.year),
       player: input.player,
@@ -226,9 +263,10 @@ async function dispatchCardWorkflow(input: {
     },
   };
   const r = await ghApi(
-    `/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(
-      GH_REPO,
-    )}/actions/workflows/${encodeURIComponent(GH_WORKFLOW)}/dispatches`,
+    input.cfg,
+    `/repos/${encodeURIComponent(input.cfg.ghOwner)}/${encodeURIComponent(
+      input.cfg.ghRepo,
+    )}/actions/workflows/${encodeURIComponent(input.cfg.ghWorkflow)}/dispatches`,
     { method: "POST", body: JSON.stringify(body) },
   );
   if (!r.ok) {
@@ -237,12 +275,13 @@ async function dispatchCardWorkflow(input: {
   }
 }
 
-async function findDispatchedRunId(dispatchedAtIso: string): Promise<number | null> {
+async function findDispatchedRunId(cfg: RuntimeCfg, dispatchedAtIso: string): Promise<number | null> {
   const r = await ghApi(
-    `/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(
-      GH_REPO,
-    )}/actions/workflows/${encodeURIComponent(GH_WORKFLOW)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(
-      GH_REF,
+    cfg,
+    `/repos/${encodeURIComponent(cfg.ghOwner)}/${encodeURIComponent(
+      cfg.ghRepo,
+    )}/actions/workflows/${encodeURIComponent(cfg.ghWorkflow)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(
+      cfg.ghRef,
     )}&per_page=20`,
   );
   if (!r.ok) return null;
@@ -256,21 +295,23 @@ async function findDispatchedRunId(dispatchedAtIso: string): Promise<number | nu
   return null;
 }
 
-async function getRun(runId: number): Promise<{ status: string; conclusion: string | null } | null> {
+async function getRun(cfg: RuntimeCfg, runId: number): Promise<{ status: string; conclusion: string | null } | null> {
   const r = await ghApi(
-    `/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(GH_REPO)}/actions/runs/${runId}`,
+    cfg,
+    `/repos/${encodeURIComponent(cfg.ghOwner)}/${encodeURIComponent(cfg.ghRepo)}/actions/runs/${runId}`,
   );
   if (!r.ok) return null;
   const j = (await r.json()) as { status?: string; conclusion?: string | null };
   return { status: String(j.status ?? ""), conclusion: j.conclusion ?? null };
 }
 
-async function fetchCommittedCardHtml(outputFilename: string): Promise<string> {
+async function fetchCommittedCardHtml(cfg: RuntimeCfg, outputFilename: string): Promise<string> {
   const path = `player_cards_pipeline/output/${outputFilename}`;
   const r = await ghApi(
-    `/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(
-      GH_REPO,
-    )}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(GH_REF)}`,
+    cfg,
+    `/repos/${encodeURIComponent(cfg.ghOwner)}/${encodeURIComponent(
+      cfg.ghRepo,
+    )}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(cfg.ghRef)}`,
   );
   if (!r.ok) {
     const t = await r.text();
@@ -311,49 +352,53 @@ function normalizeEtag(etag: string | null): string {
   return etag.replace(/^W\//, "").replaceAll('"', "").trim();
 }
 
-async function fetchRawFileEtag(path: string): Promise<string> {
-  const rawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(DATA_OWNER)}/${encodeURIComponent(
-    DATA_REPO,
-  )}/${encodeURIComponent(DATA_REF)}/${path}`;
+async function fetchRawFileEtag(cfg: RuntimeCfg, path: string): Promise<string> {
+  const rawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(cfg.dataOwner)}/${encodeURIComponent(
+    cfg.dataRepo,
+  )}/${encodeURIComponent(cfg.dataRef)}/${path}`;
   const res = await fetch(rawUrl, { method: "HEAD", cache: "no-store" });
   if (!res.ok) throw new Error(`HEAD ${path} failed (${res.status})`);
   return normalizeEtag(res.headers.get("etag"));
 }
 
-async function getSeasonDataVersion(season: number): Promise<string> {
+async function getSeasonDataVersion(season: number, cfg: RuntimeCfg): Promise<string> {
   if (season !== 2026) return "static";
   const now = Date.now();
-  const memo = seasonVersionMemo.get(season);
+  const memoKey = `${cfg.dataOwner}:${cfg.dataRepo}:${season}`;
+  const memo = seasonVersionMemo.get(memoKey);
   if (memo && now - memo.ts < VERSION_TTL_MS) return memo.value;
   try {
     const [btTag, enrichedTag] = await Promise.all([
-      fetchRawFileEtag(DATA_BT_2026_PATH),
-      fetchRawFileEtag(DATA_ENRICHED_MANIFEST_PATH),
+      fetchRawFileEtag(cfg, cfg.dataBt2026Path),
+      fetchRawFileEtag(cfg, cfg.dataEnrichedManifestPath),
     ]);
     const value = `bt:${btTag}|en:${enrichedTag}`.slice(0, 180);
-    seasonVersionMemo.set(season, { value, ts: now });
+    seasonVersionMemo.set(memoKey, { value, ts: now });
     return value;
   } catch {
     const fallback = `day:${new Date().toISOString().slice(0, 10)}`;
-    seasonVersionMemo.set(season, { value: fallback, ts: now });
+    seasonVersionMemo.set(memoKey, { value: fallback, ts: now });
     return fallback;
   }
 }
 
 async function advanceCardJob(job: JobRow): Promise<JobRow> {
   const req = { ...(job.request_json ?? {}) } as Record<string, unknown>;
+  const gender = parseGender(req.gender);
+  const cfg = runtimeCfg(gender);
   const season = Number(req.season ?? 0);
   const requestedTeam = String(req.team ?? "");
   const requestedPlayer = String(req.player ?? "");
   const mode = String(req.mode ?? "draft");
   const destinationConference = String(req.destinationConference ?? "");
-  const resolved = await resolveTeamPlayerForSeason(season, requestedTeam, requestedPlayer);
+  const resolved = await resolveTeamPlayerForSeason(season, requestedTeam, requestedPlayer, gender);
   const team = resolved.team;
   const player = resolved.player;
-  const dataVersion = await getSeasonDataVersion(season);
+  const dataVersion = await getSeasonDataVersion(season, cfg);
 
   const existing = await getCardPayloadFromStore({
     ...req,
+    gender,
     season,
     team,
     player,
@@ -370,7 +415,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
     return (await loadJob(job.id)) ?? job;
   }
 
-  if (!githubReady()) {
+  if (!githubReady(cfg)) {
     throw new Error("GitHub workflow env vars missing (GITHUB_OWNER/REPO/WORKFLOW_FILE/REF/TOKEN).");
   }
 
@@ -386,6 +431,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
 
   if (!dispatchedAt) {
     await dispatchCardWorkflow({
+      cfg,
       year: season,
       player,
       team,
@@ -408,7 +454,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
   }
 
   if (!Number.isFinite(runId) || runId <= 0) {
-    const found = await findDispatchedRunId(dispatchedAt);
+    const found = await findDispatchedRunId(cfg, dispatchedAt);
     if (!found) {
       await updateJob(job.id, {
         progress: 40,
@@ -430,7 +476,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
     return (await loadJob(job.id)) ?? job;
   }
 
-  const run = await getRun(runId);
+  const run = await getRun(cfg, runId);
   if (!run) {
     await updateJob(job.id, { progress: 55, message: "Checking GitHub run status" });
     return (await loadJob(job.id)) ?? job;
@@ -444,12 +490,13 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
   }
 
   await updateJob(job.id, { progress: 85, message: "Fetching generated card" });
-  const cardHtml = await fetchCommittedCardHtml(outputFilename);
+  const cardHtml = await fetchCommittedCardHtml(cfg, outputFilename);
   const payload: Record<string, unknown> = {
     ok: true,
     source: "github_action",
     generatedAt: new Date().toISOString(),
     input: {
+      gender,
       season,
       team,
       player,
@@ -468,6 +515,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
     payload,
   });
   const cacheKey = cardCacheKey({
+    gender,
     season,
     team,
     player,
