@@ -19,6 +19,7 @@ type RosterMetric = {
 
 type RosterResult = {
   cache?: string;
+  source?: string;
   metrics?: RosterMetric[];
 };
 
@@ -31,6 +32,8 @@ export default function RosterPage() {
   const [removeSearch, setRemoveSearch] = useState("");
   const [addPlayers, setAddPlayers] = useState<string[]>([]);
   const [removePlayers, setRemovePlayers] = useState<string[]>([]);
+  const [addMinutes, setAddMinutes] = useState<Record<string, string>>({});
+  const [removeMinutes, setRemoveMinutes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RosterResult | null>(null);
   const [jobId, setJobId] = useState<string>("");
@@ -109,6 +112,8 @@ export default function RosterPage() {
             setTeam(nextTeam);
           }
           setRemovePlayers([]);
+          setAddMinutes({});
+          setRemoveMinutes({});
           setOptionsError("");
           return;
         } catch (err) {
@@ -158,12 +163,23 @@ export default function RosterPage() {
     setResult(null);
     setProgress(5);
     setMessage("Queued");
+    const addMinutesNum: Record<string, number> = {};
+    for (const [k, v] of Object.entries(addMinutes)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= 0) addMinutesNum[k] = n;
+    }
+    const removeMinutesNum: Record<string, number> = {};
+    for (const [k, v] of Object.entries(removeMinutes)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= 0) removeMinutesNum[k] = n;
+    }
+
     const res = await fetch("/api/jobs/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         jobType: "roster",
-        request: { season, team, addPlayers, removePlayers },
+        request: { season, team, addPlayers, removePlayers, addMinutes: addMinutesNum, removeMinutes: removeMinutesNum },
       }),
     });
     const data = await res.json();
@@ -239,6 +255,7 @@ export default function RosterPage() {
                 const v = addPick.trim();
                 if (!v || addPlayers.includes(v)) return;
                 setAddPlayers((prev) => [...prev, v]);
+                setAddMinutes((prev) => ({ ...prev, [v]: prev[v] ?? "" }));
                 setAddPick("");
               }}
               type="button"
@@ -269,6 +286,7 @@ export default function RosterPage() {
                 const v = removePick.trim();
                 if (!v || removePlayers.includes(v)) return;
                 setRemovePlayers((prev) => [...prev, v]);
+                setRemoveMinutes((prev) => ({ ...prev, [v]: prev[v] ?? "" }));
                 setRemovePick("");
               }}
               type="button"
@@ -288,13 +306,40 @@ export default function RosterPage() {
                   key={p}
                   type="button"
                   className="rounded bg-emerald-700 px-2 py-1 text-xs"
-                  onClick={() => setAddPlayers((prev) => prev.filter((x) => x !== p))}
+                  onClick={() => {
+                    setAddPlayers((prev) => prev.filter((x) => x !== p));
+                    setAddMinutes((prev) => {
+                      const next = { ...prev };
+                      delete next[p];
+                      return next;
+                    });
+                  }}
                 >
                   {p} ×
                 </button>
               ))}
               {!addPlayers.length && <span className="text-sm text-zinc-500">No players added</span>}
             </div>
+            {addPlayers.length > 0 && (
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                {addPlayers.map((p) => (
+                  <label key={`in-min-${p}`} className="flex items-center justify-between rounded bg-zinc-800 px-2 py-1 text-xs">
+                    <span className="mr-2 truncate">{p}</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-zinc-400">MPG</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        className="w-16 rounded bg-zinc-900 px-1 py-0.5 text-right text-xs"
+                        value={addMinutes[p] ?? ""}
+                        onChange={(e) => setAddMinutes((prev) => ({ ...prev, [p]: e.target.value }))}
+                      />
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
           <div className="rounded bg-zinc-900 p-3">
             <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">Out</div>
@@ -304,13 +349,40 @@ export default function RosterPage() {
                   key={p}
                   type="button"
                   className="rounded bg-rose-700 px-2 py-1 text-xs"
-                  onClick={() => setRemovePlayers((prev) => prev.filter((x) => x !== p))}
+                  onClick={() => {
+                    setRemovePlayers((prev) => prev.filter((x) => x !== p));
+                    setRemoveMinutes((prev) => {
+                      const next = { ...prev };
+                      delete next[p];
+                      return next;
+                    });
+                  }}
                 >
                   {p} ×
                 </button>
               ))}
               {!removePlayers.length && <span className="text-sm text-zinc-500">No players removed</span>}
             </div>
+            {removePlayers.length > 0 && (
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                {removePlayers.map((p) => (
+                  <label key={`out-min-${p}`} className="flex items-center justify-between rounded bg-zinc-800 px-2 py-1 text-xs">
+                    <span className="mr-2 truncate">{p}</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-zinc-400">MPG</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        className="w-16 rounded bg-zinc-900 px-1 py-0.5 text-right text-xs"
+                        value={removeMinutes[p] ?? ""}
+                        onChange={(e) => setRemoveMinutes((prev) => ({ ...prev, [p]: e.target.value }))}
+                      />
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -336,6 +408,11 @@ export default function RosterPage() {
         {result && (
           <div className="mt-6 space-y-3">
             <div className="text-sm text-zinc-400">Cache: {result.cache}</div>
+            {result.source && (
+              <div className={`text-sm ${result.source === "mock" ? "text-amber-300" : "text-zinc-400"}`}>
+                Source: {result.source}
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
               {result.metrics?.map((m: RosterMetric) => {
                 const curRank = rankText(m, "current");

@@ -103,25 +103,39 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
   const team = String(req.team ?? "");
   const addPlayers = Array.isArray(req.addPlayers) ? req.addPlayers.map(String) : [];
   const removePlayers = Array.isArray(req.removePlayers) ? req.removePlayers.map(String) : [];
+  const addMinutesObj =
+    req.addMinutes && typeof req.addMinutes === "object" ? (req.addMinutes as Record<string, unknown>) : {};
+  const removeMinutesObj =
+    req.removeMinutes && typeof req.removeMinutes === "object" ? (req.removeMinutes as Record<string, unknown>) : {};
+  const normalizeMinutes = (obj: Record<string, unknown>) =>
+    Object.entries(obj)
+      .map(([k, v]) => [String(k), Number(v)] as const)
+      .filter(([, v]) => Number.isFinite(v) && v >= 0)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  const addMinutes = normalizeMinutes(addMinutesObj);
+  const removeMinutes = normalizeMinutes(removeMinutesObj);
+  const minutesHash = `inm=${addMinutes.map(([k, v]) => `${k}:${v}`).join(",")}|outm=${removeMinutes.map(([k, v]) => `${k}:${v}`).join(",")}`;
   const inHash = addPlayers.slice().sort().join("|");
   const outHash = removePlayers.slice().sort().join("|");
-  const key = `roster:${season}:${team}:in=${inHash}:out=${outHash}`;
+  const key = `roster:${season}:${team}:in=${inHash}:out=${outHash}:mins=${minutesHash}`;
 
   const cached = await cacheGet<Record<string, unknown>>(key);
   if (cached) return { ...cached, cache: "hit" };
 
   let payload: Record<string, unknown> | null = null;
-  try {
-    const rows = await dbQuery<{ payload: Record<string, unknown> }>(
-      `SELECT payload
-       FROM roster_payloads
-       WHERE season = $1 AND team = $2 AND add_hash = $3 AND remove_hash = $4
-       LIMIT 1`,
-      [season, team, inHash, outHash],
-    );
-    if (rows[0]?.payload) payload = rows[0].payload;
-  } catch {
-    payload = null;
+  if (!addMinutes.length && !removeMinutes.length) {
+    try {
+      const rows = await dbQuery<{ payload: Record<string, unknown> }>(
+        `SELECT payload
+         FROM roster_payloads
+         WHERE season = $1 AND team = $2 AND add_hash = $3 AND remove_hash = $4
+         LIMIT 1`,
+        [season, team, inHash, outHash],
+      );
+      if (rows[0]?.payload) payload = rows[0].payload;
+    } catch {
+      payload = null;
+    }
   }
 
   if (!payload) {
@@ -130,6 +144,8 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
       team,
       addPlayers,
       removePlayers,
+      addMinutes: Object.fromEntries(addMinutes),
+      removeMinutes: Object.fromEntries(removeMinutes),
     }) as Record<string, unknown>;
     await cacheSet(key, livePayload, 60 * 10);
     return { ...livePayload, cache: "live" };
