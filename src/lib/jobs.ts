@@ -221,7 +221,6 @@ async function dispatchCardWorkflow(input: {
       team: input.team,
       output_filename: input.outputFilename,
       commit_to_repo: true,
-      include_plays_data: false,
       transfer_up: input.mode === "transfer",
       destination_conference: input.mode === "transfer" ? input.destinationConference : "",
     },
