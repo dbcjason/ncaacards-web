@@ -251,6 +251,12 @@ function minuteScale(p: PlayerRow, minutes: Record<string, number>): number {
   return next / base;
 }
 
+function normalizePercentValue(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  // Some feeds use [0..1] while others use [0..100].
+  return v <= 1 ? v * 100 : v;
+}
+
 function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>): Record<string, number> {
   const off = weightedAvg(players, minutes, "ORtg");
   const def = weightedAvg(players, minutes, "drtg");
@@ -262,12 +268,14 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
   let tPM = 0;
   let tPA = 0;
   let fta = 0;
+  let ftm = 0;
   let ast = 0;
   let stl = 0;
   let blk = 0;
   let oreb = 0;
   let dreb = 0;
-  let pts = 0;
+  let tsWeight = 0;
+  let tsWeightedSum = 0;
   for (const p of players) {
     const s = minuteScale(p, minutes);
     if (s <= 0) continue;
@@ -275,20 +283,32 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
     twoPA += p.twoPA * s;
     tPM += p.TPM * s;
     tPA += p.TPA * s;
+    ftm += p.FTM * s;
     fta += p.FTA * s;
     ast += p.ast * s;
     stl += p.stl * s;
     blk += p.blk * s;
     oreb += p.oreb * s;
     dreb += p.dreb * s;
-    pts += p.pts * s;
+    const shotDen = (p.twoPA + p.TPA + 0.44 * p.FTA) * s;
+    if (shotDen > 0) {
+      tsWeight += shotDen;
+      tsWeightedSum += normalizePercentValue(p.TS_per) * shotDen;
+    }
   }
 
+  const pts = 2 * twoPM + 3 * tPM + ftm;
   const fgm = twoPM + tPM;
   const fga = twoPA + tPA;
   const fg = fga > 0 ? (fgm / fga) * 100 : 0;
   const tp = tPA > 0 ? (tPM / tPA) * 100 : 0;
-  const ts = (fga + 0.44 * fta) > 0 ? (pts / (2 * (fga + 0.44 * fta))) * 100 : 0;
+  const tsFromTotals = (fga + 0.44 * fta) > 0 ? (pts / (2 * (fga + 0.44 * fta))) * 100 : 0;
+  const tsFromPlayerWeighted = tsWeight > 0 ? tsWeightedSum / tsWeight : 0;
+  // Prefer formula TS%; fall back if source column units are inconsistent.
+  const ts =
+    tsFromTotals >= 20 && tsFromTotals <= 90
+      ? tsFromTotals
+      : tsFromPlayerWeighted;
 
   const poss = off > 0 ? pts / (off / 100) : 0;
   const ast100 = poss > 0 ? (ast / poss) * 100 : weightedAvg(players, minutes, "AST_per");

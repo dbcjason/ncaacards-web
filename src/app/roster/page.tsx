@@ -362,7 +362,7 @@ export default function RosterPage() {
 
         <div className="mt-4">
           <button className="rounded bg-red-500 px-4 py-2 font-semibold text-white" onClick={run} disabled={loading || !optionsLoaded}>
-            {loading ? "Running..." : "Generate Team Fit Report"}
+            {loading ? "Running..." : "Generate Team Impact Report"}
           </button>
         </div>
 
