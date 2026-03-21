@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
 
@@ -29,6 +30,7 @@ type JobPollResponse = {
 
 export default function CardsPage() {
   const [season, setSeason] = useState(2026);
+  const [seasonB, setSeasonB] = useState(2026);
   const [team, setTeam] = useState("");
   const [player, setPlayer] = useState("");
   const [compare, setCompare] = useState(false);
@@ -39,7 +41,10 @@ export default function CardsPage() {
 
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
   const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
+  const [teamOptionsB, setTeamOptionsB] = useState<string[]>([]);
+  const [playersByTeamB, setPlayersByTeamB] = useState<Record<string, string[]>>({});
   const [optionsLoaded, setOptionsLoaded] = useState(false);
+  const [optionsLoadedB, setOptionsLoadedB] = useState(false);
   const [optionsError, setOptionsError] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -52,7 +57,7 @@ export default function CardsPage() {
   const draftLabel = process.env.NEXT_PUBLIC_DRAFT_LABEL || "NBA Draft";
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
-  const playerOptionsB = useMemo(() => playersByTeam[teamB] ?? [], [playersByTeam, teamB]);
+  const playerOptionsB = useMemo(() => playersByTeamB[teamB] ?? [], [playersByTeamB, teamB]);
 
   useEffect(() => {
     let active = true;
@@ -87,8 +92,6 @@ export default function CardsPage() {
 
           setTeam(selectedTeam);
           setPlayer(selectedPlayer);
-          setTeamB(selectedTeam);
-          setPlayerB(selectedPlayer);
           setOptionsLoaded(true);
           return;
         } catch (err) {
@@ -106,7 +109,59 @@ export default function CardsPage() {
     return () => {
       active = false;
     };
-  }, [season, player, team]);
+  }, [season]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadOptionsB() {
+      setOptionsLoadedB(false);
+      setOptionsError("");
+
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          const r = await fetch(`/api/options?season=${seasonB}`, { cache: "no-store" });
+          const j = (await r.json()) as {
+            ok?: boolean;
+            error?: string;
+            teams?: string[];
+            playersByTeam?: Record<string, string[]>;
+          };
+          if (!active) return;
+          if (!j?.ok) throw new Error(String(j?.error ?? "Failed to load compare options"));
+
+          const teams = Array.isArray(j.teams) ? j.teams : [];
+          const pbt = (j.playersByTeam ?? {}) as Record<string, string[]>;
+          if (!teams.length) throw new Error("No teams returned for compare season");
+
+          setTeamOptionsB(teams);
+          setPlayersByTeamB(pbt);
+
+          const selectedTeam = teams.includes(teamB) ? teamB : teams[0] ?? "";
+          const selectedPlayers = pbt[selectedTeam] ?? [];
+          const selectedPlayer = selectedPlayers.includes(playerB)
+            ? playerB
+            : selectedPlayers[0] ?? "";
+
+          setTeamB(selectedTeam);
+          setPlayerB(selectedPlayer);
+          setOptionsLoadedB(true);
+          return;
+        } catch (err) {
+          if (attempt >= 3) {
+            setOptionsError(err instanceof Error ? err.message : "Failed to load compare options");
+            setOptionsLoadedB(false);
+            return;
+          }
+          await new Promise((res) => setTimeout(res, 700));
+        }
+      }
+    }
+
+    void loadOptionsB();
+    return () => {
+      active = false;
+    };
+  }, [seasonB]);
 
   async function pollJob(id: string, onProgress?: (p: number) => void): Promise<CardJobResult | null> {
     while (true) {
@@ -160,7 +215,7 @@ export default function CardsPage() {
         destinationConference: mode === "transfer" ? dest : "",
       };
       const reqB = {
-        season,
+        season: seasonB,
         team: teamB,
         player: playerB,
         mode,
@@ -316,21 +371,35 @@ export default function CardsPage() {
         </div>
 
         {compare && (
-          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
             <select
               className="rounded bg-zinc-900 p-3"
-              value={optionsLoaded ? teamB : "__loading_team_b__"}
+              value={optionsLoadedB ? String(seasonB) : "__loading_year_b__"}
+              onChange={(e) => setSeasonB(Number(e.target.value))}
+              disabled={!optionsLoadedB}
+            >
+              {!optionsLoadedB && <option value="__loading_year_b__">Year</option>}
+              {optionsLoadedB &&
+                SEASONS.map((y) => (
+                  <option key={`year-b-${y}`} value={y}>
+                    {y}
+                  </option>
+                ))}
+            </select>
+            <select
+              className="rounded bg-zinc-900 p-3"
+              value={optionsLoadedB ? teamB : "__loading_team_b__"}
               onChange={(e) => {
                 const nextTeam = e.target.value;
                 setTeamB(nextTeam);
-                const nextPlayers = playersByTeam[nextTeam] ?? [];
+                const nextPlayers = playersByTeamB[nextTeam] ?? [];
                 setPlayerB(nextPlayers[0] ?? "");
               }}
-              disabled={!optionsLoaded}
+              disabled={!optionsLoadedB}
             >
-              {!optionsLoaded && <option value="__loading_team_b__">Team</option>}
-              {optionsLoaded &&
-                teamOptions.map((t) => (
+              {!optionsLoadedB && <option value="__loading_team_b__">Team</option>}
+              {optionsLoadedB &&
+                teamOptionsB.map((t) => (
                   <option key={`team-b-${t}`} value={t}>
                     {t}
                   </option>
@@ -338,12 +407,12 @@ export default function CardsPage() {
             </select>
             <select
               className="rounded bg-zinc-900 p-3"
-              value={optionsLoaded ? playerB : "__loading_player_b__"}
+              value={optionsLoadedB ? playerB : "__loading_player_b__"}
               onChange={(e) => setPlayerB(e.target.value)}
-              disabled={!optionsLoaded}
+              disabled={!optionsLoadedB}
             >
-              {!optionsLoaded && <option value="__loading_player_b__">Player</option>}
-              {optionsLoaded &&
+              {!optionsLoadedB && <option value="__loading_player_b__">Player</option>}
+              {optionsLoadedB &&
                 playerOptionsB.map((p) => (
                   <option key={`player-b-${p}`} value={p}>
                     {p}
@@ -378,19 +447,25 @@ export default function CardsPage() {
         {resultHtml ? (
           <div className="mt-5 rounded border border-zinc-800 bg-zinc-950 p-1">
             <div className={`grid gap-1 ${compare && resultHtmlB ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1"}`}>
-              <iframe
-                title="Player Card"
-                srcDoc={resultHtml}
-                className="h-[2300px] w-full rounded"
-                sandbox="allow-same-origin allow-scripts"
-              />
-              {compare && resultHtmlB && (
+              <div className={compare && resultHtmlB ? "h-[1500px] overflow-hidden rounded" : "rounded"}>
                 <iframe
-                  title="Player Card B"
-                  srcDoc={resultHtmlB}
-                  className="h-[2300px] w-full rounded"
+                  title="Player Card"
+                  srcDoc={resultHtml}
+                  className={compare && resultHtmlB ? "h-[2300px] w-full rounded" : "h-[2300px] w-full rounded"}
+                  style={compare && resultHtmlB ? ({ zoom: 0.65 } as CSSProperties) : undefined}
                   sandbox="allow-same-origin allow-scripts"
                 />
+              </div>
+              {compare && resultHtmlB && (
+                <div className="h-[1500px] overflow-hidden rounded">
+                  <iframe
+                    title="Player Card B"
+                    srcDoc={resultHtmlB}
+                    className="h-[2300px] w-full rounded"
+                    style={{ zoom: 0.65 } as CSSProperties}
+                    sandbox="allow-same-origin allow-scripts"
+                  />
+                </div>
               )}
             </div>
           </div>
