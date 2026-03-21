@@ -1,4 +1,4 @@
-export const SEASONS = [2021, 2022, 2023, 2024, 2025, 2026] as const;
+export const SEASONS = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026] as const;
 
 export const CONFERENCES = [
   "ACC",
