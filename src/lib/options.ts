@@ -81,6 +81,14 @@ function seasonMatches(rawYear: string, season: number): boolean {
   return false;
 }
 
+function seasonMatchesPrev(rawYear: string, season: number): boolean {
+  const v = String(rawYear ?? "").trim();
+  if (!v) return false;
+  const n = Number(v);
+  if (Number.isFinite(n)) return n === season - 1;
+  return v.includes(String(season - 1));
+}
+
 async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions> {
   const prefixes = Array.from(new Set([BART_PREFIX, BART_PREFIX ? "" : "ncaaw"])).filter((x) => x !== "__none__");
   let lastErr = "";
@@ -161,12 +169,32 @@ function parseOptionsFromCsvText(
 
   const byTeam = new Map<string, Set<string>>();
   const allPlayersSet = new Set<string>();
+  const seasonRows: string[][] = [];
+  const prevSeasonRows: string[][] = [];
+  const noSeasonRows: string[][] = [];
+
   for (let i = 1; i < lines.length; i += 1) {
     const cols = parseCsvLine(lines[i]);
     if (typeof opts.season === "number" && yIdx >= 0) {
       const rawYr = (cols[yIdx] ?? "").trim();
-      if (!seasonMatches(rawYr, opts.season)) continue;
+      if (seasonMatches(rawYr, opts.season)) {
+        seasonRows.push(cols);
+      } else if (seasonMatchesPrev(rawYr, opts.season)) {
+        prevSeasonRows.push(cols);
+      }
+      continue;
     }
+    noSeasonRows.push(cols);
+  }
+
+  const rowsToUse =
+    typeof opts.season === "number" && yIdx >= 0
+      ? seasonRows.length
+        ? seasonRows
+        : prevSeasonRows
+      : noSeasonRows;
+
+  for (const cols of rowsToUse) {
     const player = (cols[pIdx] ?? "").trim();
     const team = (cols[tIdx] ?? "").trim();
     if (!player || !team) continue;

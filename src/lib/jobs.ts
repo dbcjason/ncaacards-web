@@ -65,10 +65,24 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
   const team = resolved.team;
   const player = resolved.player;
   const dataVersion = await getSeasonDataVersion(season);
-  const key = `card:${season}:${team}:${player}:${mode}:${destinationConference}:v=${dataVersion}`;
+  const key = cardCacheKey({
+    season,
+    team,
+    player,
+    mode,
+    destinationConference,
+    dataVersion,
+  });
 
   const cached = await cacheGet<Record<string, unknown>>(key);
   if (cached) return { ...cached, cache: "hit" };
+  const legacyCached = await cacheGet<Record<string, unknown>>(
+    cardCacheKey({ season, team, player, mode, destinationConference }),
+  );
+  if (legacyCached) {
+    await cacheSet(key, legacyCached, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
+    return { ...legacyCached, cache: "hit" };
+  }
 
   let payload: Record<string, unknown> | null = null;
   try {
@@ -94,7 +108,7 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
 
   if (!payload) return null;
 
-  await cacheSet(key, payload, 60 * 60 * 24);
+  await cacheSet(key, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
   return { ...payload, cache: "miss" };
 }
 
@@ -164,6 +178,18 @@ function safeFilePart(v: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function cardCacheKey(input: {
+  season: number;
+  team: string;
+  player: string;
+  mode: string;
+  destinationConference: string;
+  dataVersion?: string;
+}) {
+  const suffix = input.dataVersion ? `:v=${input.dataVersion}` : "";
+  return `card:${input.season}:${input.team}:${input.player}:${input.mode}:${input.destinationConference}${suffix}`;
 }
 
 async function ghApi(path: string, init?: RequestInit): Promise<Response> {
@@ -442,8 +468,15 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
     destinationConference,
     payload,
   });
-  const cacheKey = `card:${season}:${team}:${player}:${mode}:${destinationConference}`;
-  await cacheSet(cacheKey, payload, 60 * 60 * 24);
+  const cacheKey = cardCacheKey({
+    season,
+    team,
+    player,
+    mode,
+    destinationConference,
+    dataVersion,
+  });
+  await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
   await updateJob(job.id, {
     status: "done",
     progress: 100,

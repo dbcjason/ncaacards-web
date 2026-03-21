@@ -47,6 +47,7 @@ export default function CardsPage() {
   const [resultHtml, setResultHtml] = useState("");
   const [resultCache, setResultCache] = useState<string>("");
   const [runError, setRunError] = useState("");
+  const draftLabel = process.env.NEXT_PUBLIC_DRAFT_LABEL || "NBA Draft";
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
 
@@ -246,7 +247,7 @@ export default function CardsPage() {
             value={mode}
             onChange={(e) => setMode(e.target.value as "draft" | "transfer")}
           >
-            <option value="draft">NBA Draft</option>
+            <option value="draft">{draftLabel}</option>
             <option value="transfer">Transfer</option>
           </select>
 
