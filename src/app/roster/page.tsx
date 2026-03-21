@@ -104,8 +104,10 @@ export default function RosterPage() {
   }
 
   function diffColor(m: RosterMetric) {
-    if (m.delta > 0) return "text-emerald-400";
-    if (m.delta < 0) return "text-rose-400";
+    const metric = (m.metric || "").toLowerCase();
+    const lowerIsBetter = metric === "def rtg" || metric === "tov/100";
+    if (m.delta > 0) return lowerIsBetter ? "text-rose-400" : "text-emerald-400";
+    if (m.delta < 0) return lowerIsBetter ? "text-emerald-400" : "text-rose-400";
     return "text-zinc-300";
   }
 

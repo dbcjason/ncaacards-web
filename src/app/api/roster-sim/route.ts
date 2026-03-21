@@ -12,6 +12,18 @@ type PlayerRow = {
   mpg: number;
   ORtg: number;
   drtg: number;
+  FTM: number;
+  FTA: number;
+  twoPM: number;
+  twoPA: number;
+  TPM: number;
+  TPA: number;
+  ast: number;
+  stl: number;
+  blk: number;
+  oreb: number;
+  dreb: number;
+  pts: number;
   AST_per: number;
   TO_per: number;
   stl_per: number;
@@ -104,7 +116,35 @@ async function loadSeasonData(season: number): Promise<SeasonCache> {
 
   const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
   const idx = Object.fromEntries(header.map((h, i) => [h, i])) as Record<string, number>;
-  const required = ["player_name", "team", "year", "mp", "ORtg", "drtg", "AST_per", "TO_per", "stl_per", "blk_per", "ORB_per", "DRB_per", "eFG", "TP_per", "TS_per"];
+  const required = [
+    "player_name",
+    "team",
+    "year",
+    "mp",
+    "ORtg",
+    "drtg",
+    "AST_per",
+    "TO_per",
+    "stl_per",
+    "blk_per",
+    "ORB_per",
+    "DRB_per",
+    "eFG",
+    "TP_per",
+    "TS_per",
+    "FTM",
+    "FTA",
+    "twoPM",
+    "twoPA",
+    "TPM",
+    "TPA",
+    "ast",
+    "stl",
+    "blk",
+    "oreb",
+    "dreb",
+    "pts",
+  ];
   for (const c of required) {
     if (typeof idx[c] !== "number") throw new Error(`BT CSV missing column: ${c}`);
   }
@@ -124,6 +164,18 @@ async function loadSeasonData(season: number): Promise<SeasonCache> {
       mpg: toNum(cols[idx.mp]),
       ORtg: toNum(cols[idx.ORtg]),
       drtg: toNum(cols[idx.drtg]),
+      FTM: toNum(cols[idx.FTM]),
+      FTA: toNum(cols[idx.FTA]),
+      twoPM: toNum(cols[idx.twoPM]),
+      twoPA: toNum(cols[idx.twoPA]),
+      TPM: toNum(cols[idx.TPM]),
+      TPA: toNum(cols[idx.TPA]),
+      ast: toNum(cols[idx.ast]),
+      stl: toNum(cols[idx.stl]),
+      blk: toNum(cols[idx.blk]),
+      oreb: toNum(cols[idx.oreb]),
+      dreb: toNum(cols[idx.dreb]),
+      pts: toNum(cols[idx.pts]),
       AST_per: toNum(cols[idx.AST_per]),
       TO_per: toNum(cols[idx.TO_per]),
       stl_per: toNum(cols[idx.stl_per]),
@@ -166,28 +218,72 @@ function weightedAvg(players: PlayerRow[], minutes: Record<string, number>, key:
   return den > 0 ? num / den : 0;
 }
 
+function minuteScale(p: PlayerRow, minutes: Record<string, number>): number {
+  const base = Number(p.mpg);
+  if (!Number.isFinite(base) || base <= 0) return 0;
+  const next = Number(minutes[p.player] ?? base);
+  if (!Number.isFinite(next) || next < 0) return 0;
+  return next / base;
+}
+
 function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>): Record<string, number> {
   const off = weightedAvg(players, minutes, "ORtg");
   const def = weightedAvg(players, minutes, "drtg");
-  const ast = weightedAvg(players, minutes, "AST_per");
   const tov = weightedAvg(players, minutes, "TO_per");
-  const stl = weightedAvg(players, minutes, "stl_per");
-  const blk = weightedAvg(players, minutes, "blk_per");
-  const oreb = weightedAvg(players, minutes, "ORB_per");
-  const dreb = weightedAvg(players, minutes, "DRB_per");
-  const fg = weightedAvg(players, minutes, "eFG");
-  const tp = weightedAvg(players, minutes, "TP_per");
-  const ts = weightedAvg(players, minutes, "TS_per");
+  const orebPct = weightedAvg(players, minutes, "ORB_per");
+
+  let twoPM = 0;
+  let twoPA = 0;
+  let tPM = 0;
+  let tPA = 0;
+  let fta = 0;
+  let ast = 0;
+  let stl = 0;
+  let blk = 0;
+  let oreb = 0;
+  let dreb = 0;
+  let pts = 0;
+  for (const p of players) {
+    const s = minuteScale(p, minutes);
+    if (s <= 0) continue;
+    twoPM += p.twoPM * s;
+    twoPA += p.twoPA * s;
+    tPM += p.TPM * s;
+    tPA += p.TPA * s;
+    fta += p.FTA * s;
+    ast += p.ast * s;
+    stl += p.stl * s;
+    blk += p.blk * s;
+    oreb += p.oreb * s;
+    dreb += p.dreb * s;
+    pts += p.pts * s;
+  }
+
+  const fgm = twoPM + tPM;
+  const fga = twoPA + tPA;
+  const fg = fga > 0 ? (fgm / fga) * 100 : 0;
+  const tp = tPA > 0 ? (tPM / tPA) * 100 : 0;
+  const ts = (fga + 0.44 * fta) > 0 ? (pts / (2 * (fga + 0.44 * fta))) * 100 : 0;
+
+  const poss = off > 0 ? pts / (off / 100) : 0;
+  const ast100 = poss > 0 ? (ast / poss) * 100 : weightedAvg(players, minutes, "AST_per");
+  const stl100 = poss > 0 ? (stl / poss) * 100 : weightedAvg(players, minutes, "stl_per");
+  const blk100 = poss > 0 ? (blk / poss) * 100 : weightedAvg(players, minutes, "blk_per");
+  const reb100 =
+    poss > 0
+      ? ((oreb + dreb) / poss) * 100
+      : weightedAvg(players, minutes, "ORB_per") + weightedAvg(players, minutes, "DRB_per");
+
   return {
     net: off - def,
     off,
     def,
-    ast100: ast,
+    ast100,
     tov100: tov,
-    stl100: stl,
-    blk100: blk,
-    reb100: oreb + dreb,
-    oreb,
+    stl100,
+    blk100,
+    reb100,
+    oreb: orebPct,
     fg,
     tp,
     ts,
