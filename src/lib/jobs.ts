@@ -86,7 +86,7 @@ function makeMemoryJob(jobType: JobType, request: Record<string, unknown>): JobR
   };
 }
 
-export async function getCardPayloadFromStore(req: Record<string, unknown>) {
+async function getCardPayloadFromStore(req: Record<string, unknown>) {
   const gender = parseGender(req.gender);
   const cfg = runtimeCfg(gender);
   const season = Number(req.season ?? 0);
