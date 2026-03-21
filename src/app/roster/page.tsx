@@ -9,6 +9,12 @@ type RosterMetric = {
   current: number;
   edited: number;
   delta: number;
+  current_rank?: number;
+  edited_rank?: number;
+  currentRank?: number;
+  editedRank?: number;
+  total_teams?: number;
+  totalTeams?: number;
 };
 
 type RosterResult = {
@@ -46,6 +52,30 @@ export default function RosterPage() {
     () => currentRoster.filter((p) => !removePlayers.includes(p)),
     [currentRoster, removePlayers],
   );
+
+  function fmt(v: number | string | undefined) {
+    if (typeof v === "number") return Number.isFinite(v) ? v.toFixed(1) : "N/A";
+    if (typeof v === "string" && v.trim() !== "") return v;
+    return "N/A";
+  }
+
+  function rankText(m: RosterMetric, side: "current" | "edited") {
+    const rank =
+      side === "current"
+        ? (m.current_rank ?? m.currentRank)
+        : (m.edited_rank ?? m.editedRank);
+    const total = m.total_teams ?? m.totalTeams;
+    if (typeof rank !== "number" || typeof total !== "number" || !Number.isFinite(rank) || !Number.isFinite(total)) {
+      return null;
+    }
+    return `${rank}/${total}`;
+  }
+
+  function diffColor(m: RosterMetric) {
+    if (m.delta > 0) return "text-emerald-400";
+    if (m.delta < 0) return "text-rose-400";
+    return "text-zinc-300";
+  }
 
   useEffect(() => {
     let active = true;
@@ -282,27 +312,35 @@ export default function RosterPage() {
         {result && (
           <div className="mt-6 space-y-3">
             <div className="text-sm text-zinc-400">Cache: {result.cache}</div>
-            <div className="overflow-x-auto rounded border border-zinc-800 bg-zinc-900 p-2">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-zinc-300">
-                    <th className="p-2 text-left">Metric</th>
-                    <th className="p-2 text-right">Current</th>
-                    <th className="p-2 text-right">Edited</th>
-                    <th className="p-2 text-right">Delta</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.metrics?.map((m: RosterMetric) => (
-                    <tr key={m.metric} className="border-t border-zinc-800">
-                      <td className="p-2 text-left">{m.metric}</td>
-                      <td className="p-2 text-right">{m.current}</td>
-                      <td className="p-2 text-right">{m.edited}</td>
-                      <td className="p-2 text-right">{m.delta}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
+              {result.metrics?.map((m: RosterMetric) => {
+                const curRank = rankText(m, "current");
+                const newRank = rankText(m, "edited");
+                return (
+                  <div key={m.metric} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+                    <div className="text-xs uppercase tracking-wide text-zinc-400">{m.metric}</div>
+                    <div className="mt-2 grid grid-cols-3 items-end gap-2 text-center">
+                      <div>
+                        <div className="text-[10px] text-zinc-500">Current Roster</div>
+                        <div className="text-sm text-zinc-300">{fmt(m.current)}</div>
+                        {curRank && <div className="text-[10px] text-zinc-500">{curRank}</div>}
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-zinc-500">New Roster</div>
+                        <div className="text-sm text-zinc-100">{fmt(m.edited)}</div>
+                        {newRank && <div className="text-[10px] text-zinc-500">{newRank}</div>}
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-zinc-500">Diff</div>
+                        <div className={`text-sm font-semibold ${diffColor(m)}`}>
+                          {m.delta >= 0 ? "+" : ""}
+                          {fmt(m.delta)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
