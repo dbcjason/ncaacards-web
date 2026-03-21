@@ -70,6 +70,8 @@ const METRICS: MetricDef[] = [
   { key: "ts", label: "TS%", higherIsBetter: true },
 ];
 
+const DIRECT_ONLY_METRICS = new Set(["ast100", "stl100", "blk100", "reb100", "oreb100"]);
+
 type SeasonCache = {
   rows: PlayerRow[];
   rosterByTeam: Record<string, PlayerRow[]>;
@@ -721,8 +723,9 @@ export async function POST(req: NextRequest) {
       const currentValues: Record<string, number> = {};
       const editedValues: Record<string, number> = {};
       const mdl = modelByMetric[m.key];
+      const forceDirect = DIRECT_ONLY_METRICS.has(m.key);
       for (const t of allTeams) {
-        if (useLearned && mdl) {
+        if (useLearned && mdl && !forceDirect) {
           const teamFeat = teamFeatureMapByTeam[t] ?? teamFeatureMap(data.rosterByTeam[t] ?? [], teamMinutesByTeam[t] ?? {});
           const pred = predictRidge(mdl, featureVectorByOrder(teamFeat, featureOrder));
           currentValues[t] = pred;
@@ -732,7 +735,7 @@ export async function POST(req: NextRequest) {
           editedValues[t] = currentMapByTeam[t]?.[m.key] ?? 0;
         }
       }
-      if (useLearned && mdl) editedValues[team] = predictRidge(mdl, featureVectorByOrder(editedFeatureMap, featureOrder));
+      if (useLearned && mdl && !forceDirect) editedValues[team] = predictRidge(mdl, featureVectorByOrder(editedFeatureMap, featureOrder));
       else editedValues[team] = fallbackEditedMap[m.key] ?? 0;
 
       const cur = currentValues[team] ?? 0;
