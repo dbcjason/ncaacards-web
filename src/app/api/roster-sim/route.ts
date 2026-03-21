@@ -20,6 +20,7 @@ type PlayerRow = {
   player: string;
   team: string;
   season: number;
+  gp: number;
   mpg: number;
   ORtg: number;
   drtg: number;
@@ -63,7 +64,7 @@ const METRICS: MetricDef[] = [
   { key: "stl100", label: "Stl/100", higherIsBetter: true },
   { key: "blk100", label: "Blk/100", higherIsBetter: true },
   { key: "reb100", label: "Reb/100", higherIsBetter: true },
-  { key: "oreb", label: "Off Reb%", higherIsBetter: true },
+  { key: "oreb100", label: "OREB/100", higherIsBetter: true },
   { key: "fg", label: "FG%", higherIsBetter: true },
   { key: "tp", label: "3P%", higherIsBetter: true },
   { key: "ts", label: "TS%", higherIsBetter: true },
@@ -338,6 +339,7 @@ async function loadSeasonData(season: number): Promise<SeasonCache> {
       player,
       team,
       season: yr,
+      gp: Math.max(1, val(cols, "gp") || val(cols, "G") || val(cols, "games") || 1),
       mpg: toNum(cols[idx.mp]),
       ORtg: toNum(cols[idx.ORtg]),
       drtg: toNum(cols[idx.drtg]),
@@ -475,7 +477,13 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
   const off = weightedAvg(players, minutes, "ORtg");
   const def = weightedAvg(players, minutes, "drtg");
   const tov = weightedAvg(players, minutes, "TO_per");
-  const orebPct = weightedAvg(players, minutes, "ORB_per");
+  const selectedMinutes = players.reduce((acc, p) => acc + Math.max(0, Number(minutes[p.player] ?? p.mpg ?? 0)), 0);
+  const gameScale = selectedMinutes > 0 ? 200 / selectedMinutes : 1;
+
+  const pgScaled = (p: PlayerRow, total: number) => {
+    const gp = Math.max(1, Number(p.gp || 1));
+    return (total / gp) * minuteScale(p, minutes);
+  };
 
   let twoPM = 0;
   let twoPA = 0;
@@ -493,25 +501,38 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
   let tsWeightedSum = 0;
   for (const p of players) {
     const s = minuteScale(p, minutes);
-    if (s <= 0) continue;
-    twoPM += p.twoPM * s;
-    twoPA += p.twoPA * s;
-    tPM += p.TPM * s;
-    tPA += p.TPA * s;
-    ftm += p.FTM * s;
-    fta += p.FTA * s;
-    ast += p.ast * s;
-    stl += p.stl * s;
-    blk += p.blk * s;
-    oreb += p.oreb * s;
-    dreb += p.dreb * s;
-    ppg += p.pts * s;
-    const shotDen = (p.twoPA + p.TPA + 0.44 * p.FTA) * s;
+    if (s <= 0 || !Number.isFinite(s)) continue;
+    twoPM += pgScaled(p, p.twoPM);
+    twoPA += pgScaled(p, p.twoPA);
+    tPM += pgScaled(p, p.TPM);
+    tPA += pgScaled(p, p.TPA);
+    ftm += pgScaled(p, p.FTM);
+    fta += pgScaled(p, p.FTA);
+    ast += pgScaled(p, p.ast);
+    stl += pgScaled(p, p.stl);
+    blk += pgScaled(p, p.blk);
+    oreb += pgScaled(p, p.oreb);
+    dreb += pgScaled(p, p.dreb);
+    ppg += pgScaled(p, p.pts);
+    const shotDen = pgScaled(p, p.twoPA + p.TPA + 0.44 * p.FTA);
     if (shotDen > 0) {
       tsWeight += shotDen;
       tsWeightedSum += normalizePercentValue(p.TS_per) * shotDen;
     }
   }
+
+  twoPM *= gameScale;
+  twoPA *= gameScale;
+  tPM *= gameScale;
+  tPA *= gameScale;
+  ftm *= gameScale;
+  fta *= gameScale;
+  ast *= gameScale;
+  stl *= gameScale;
+  blk *= gameScale;
+  oreb *= gameScale;
+  dreb *= gameScale;
+  ppg *= gameScale;
 
   const pts = 2 * twoPM + 3 * tPM + ftm;
   const fgm = twoPM + tPM;
@@ -523,13 +544,11 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
   const ts = tsFromTotals >= 20 && tsFromTotals <= 90 ? tsFromTotals : tsFromPlayerWeighted;
 
   const poss = off > 0 ? ppg / (off / 100) : 0;
-  const ast100 = poss > 0 ? (ast / poss) * 100 : weightedAvg(players, minutes, "AST_per");
-  const stl100 = poss > 0 ? (stl / poss) * 100 : weightedAvg(players, minutes, "stl_per");
-  const blk100 = poss > 0 ? (blk / poss) * 100 : weightedAvg(players, minutes, "blk_per");
-  const reb100 =
-    poss > 0
-      ? ((oreb + dreb) / poss) * 100
-      : weightedAvg(players, minutes, "ORB_per") + weightedAvg(players, minutes, "DRB_per");
+  const ast100 = poss > 0 ? (ast / poss) * 100 : 0;
+  const stl100 = poss > 0 ? (stl / poss) * 100 : 0;
+  const blk100 = poss > 0 ? (blk / poss) * 100 : 0;
+  const reb100 = poss > 0 ? ((oreb + dreb) / poss) * 100 : 0;
+  const oreb100 = poss > 0 ? (oreb / poss) * 100 : 0;
 
   return {
     net: off - def,
@@ -540,7 +559,7 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
     stl100,
     blk100,
     reb100,
-    oreb: orebPct,
+    oreb100,
     fg,
     tp,
     ts,
