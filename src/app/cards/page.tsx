@@ -134,6 +134,35 @@ export default function CardsPage() {
     setResultHtml("");
 
     try {
+      const reqA = {
+        gender,
+        season,
+        team,
+        player,
+        mode,
+        destinationConference: mode === "transfer" ? dest : "",
+      };
+
+      // Fast path: if card payload already exists in cache/DB, load immediately.
+      const instantRes = await fetch("/api/card/instant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reqA),
+      });
+      if (instantRes.ok) {
+        const instantJson = (await instantRes.json()) as {
+          ok?: boolean;
+          found?: boolean;
+          payload?: CardJobResult;
+        };
+        if (instantJson?.ok && instantJson?.found && instantJson.payload?.cardHtml) {
+          setResultHtml(String(instantJson.payload.cardHtml));
+          setResultCache(String(instantJson.payload.cache ?? "hit"));
+          setProgress(100);
+          return;
+        }
+      }
+
       const startJob = async (req: Record<string, unknown>) => {
         const res = await fetch("/api/jobs/start", {
           method: "POST",
@@ -143,15 +172,6 @@ export default function CardsPage() {
         const data = (await res.json()) as JobApiResponse;
         if (!data?.ok || !data.id) throw new Error(String(data?.error ?? "Failed to start job"));
         return data.id;
-      };
-
-      const reqA = {
-        gender,
-        season,
-        team,
-        player,
-        mode,
-        destinationConference: mode === "transfer" ? dest : "",
       };
       const idA = await startJob(reqA);
       const outA = await pollJob(idA, (p) => setProgress(p));
