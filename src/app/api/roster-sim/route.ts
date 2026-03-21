@@ -274,6 +274,7 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
   let blk = 0;
   let oreb = 0;
   let dreb = 0;
+  let ppg = 0;
   let tsWeight = 0;
   let tsWeightedSum = 0;
   for (const p of players) {
@@ -290,6 +291,7 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
     blk += p.blk * s;
     oreb += p.oreb * s;
     dreb += p.dreb * s;
+    ppg += p.pts * s;
     const shotDen = (p.twoPA + p.TPA + 0.44 * p.FTA) * s;
     if (shotDen > 0) {
       tsWeight += shotDen;
@@ -310,7 +312,9 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
       ? tsFromTotals
       : tsFromPlayerWeighted;
 
-  const poss = off > 0 ? pts / (off / 100) : 0;
+  // Use projected team points-per-game for possession denominator so per-100 stats
+  // stay on team scale (not season-total scale).
+  const poss = off > 0 ? ppg / (off / 100) : 0;
   const ast100 = poss > 0 ? (ast / poss) * 100 : weightedAvg(players, minutes, "AST_per");
   const stl100 = poss > 0 ? (stl / poss) * 100 : weightedAvg(players, minutes, "stl_per");
   const blk100 = poss > 0 ? (blk / poss) * 100 : weightedAvg(players, minutes, "blk_per");
