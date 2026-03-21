@@ -69,6 +69,18 @@ function findCol(header: string[], names: string[]): number {
   return -1;
 }
 
+function seasonMatches(rawYear: string, season: number): boolean {
+  const v = String(rawYear ?? "").trim();
+  if (!v) return false;
+  const n = Number(v);
+  if (Number.isFinite(n)) return n === season;
+  if (v.includes(String(season))) return true;
+  const prev = String(season - 1);
+  const two = String(season).slice(-2);
+  if (v.includes(prev) && v.includes(two)) return true;
+  return false;
+}
+
 async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions> {
   const prefixes = Array.from(new Set([BART_PREFIX, BART_PREFIX ? "" : "ncaaw"])).filter((x) => x !== "__none__");
   let lastErr = "";
@@ -87,13 +99,18 @@ async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions
       continue;
     }
     const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
-    const pIdx = findCol(header, ["player_name", "player", "name"]);
-    const tIdx = findCol(header, ["team", "school"]);
+    const pIdx = findCol(header, ["player_name", "player", "name", "plyr"]);
+    const tIdx = findCol(header, ["team", "school", "tm", "team_name", "school_name"]);
     if (pIdx < 0 || tIdx < 0) {
       lastErr = "Bart CSV missing player_name/team columns";
       continue;
     }
-    return parseOptionsFromCsvText(text, { playerIdx: pIdx, teamIdx: tIdx });
+    const parsed = parseOptionsFromCsvText(text, { playerIdx: pIdx, teamIdx: tIdx });
+    if (!parsed.teams.length) {
+      lastErr = "Bart CSV returned zero teams";
+      continue;
+    }
+    return parsed;
   }
   throw new Error(lastErr || "Failed to fetch Bart CSV");
 }
@@ -132,8 +149,13 @@ function parseOptionsFromCsvText(
   if (lines.length < 2) throw new Error("CSV returned no rows");
   const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
   const pIdx =
-    typeof opts.playerIdx === "number" ? opts.playerIdx : findCol(header, ["player_name", "player", "name"]);
-  const tIdx = typeof opts.teamIdx === "number" ? opts.teamIdx : findCol(header, ["team", "school"]);
+    typeof opts.playerIdx === "number"
+      ? opts.playerIdx
+      : findCol(header, ["player_name", "player", "name", "plyr"]);
+  const tIdx =
+    typeof opts.teamIdx === "number"
+      ? opts.teamIdx
+      : findCol(header, ["team", "school", "tm", "team_name", "school_name"]);
   const yIdx = typeof opts.yearIdx === "number" ? opts.yearIdx : findCol(header, ["year", "season", "yr"]);
   if (pIdx < 0 || tIdx < 0) throw new Error("CSV missing player/team columns");
 
@@ -142,8 +164,8 @@ function parseOptionsFromCsvText(
   for (let i = 1; i < lines.length; i += 1) {
     const cols = parseCsvLine(lines[i]);
     if (typeof opts.season === "number" && yIdx >= 0) {
-      const yr = Number((cols[yIdx] ?? "").trim());
-      if (!Number.isFinite(yr) || yr !== opts.season) continue;
+      const rawYr = (cols[yIdx] ?? "").trim();
+      if (!seasonMatches(rawYr, opts.season)) continue;
     }
     const player = (cols[pIdx] ?? "").trim();
     const team = (cols[tIdx] ?? "").trim();
@@ -186,8 +208,8 @@ async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number): Promi
   for (const row of arr) {
     if (!row || typeof row !== "object") continue;
     const obj = row as Record<string, unknown>;
-    const playerKey = pickJsonKey(obj, ["player_name", "player", "name"]);
-    const teamKey = pickJsonKey(obj, ["team", "school"]);
+    const playerKey = pickJsonKey(obj, ["player_name", "player", "name", "plyr"]);
+    const teamKey = pickJsonKey(obj, ["team", "school", "tm", "team_name", "school_name"]);
     if (!playerKey || !teamKey) continue;
     const player = String(obj[playerKey] ?? "").trim();
     const team = String(obj[teamKey] ?? "").trim();
@@ -197,6 +219,7 @@ async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number): Promi
     allPlayersSet.add(player);
   }
   const teams = Array.from(byTeam.keys()).sort((a, b) => a.localeCompare(b));
+  if (!teams.length) throw new Error("Playerstat JSON returned zero teams");
   const playersByTeam: Record<string, string[]> = {};
   for (const team of teams) {
     playersByTeam[team] = Array.from(byTeam.get(team) ?? []).sort((a, b) => a.localeCompare(b));
