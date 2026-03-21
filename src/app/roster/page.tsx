@@ -380,8 +380,6 @@ export default function RosterPage() {
 
         {result && (
           <div className="mt-6 space-y-3">
-            <div className="text-sm text-zinc-400">Cache: {result.cache}</div>
-            {result.source && <div className="text-sm text-zinc-400">Source: {result.source}</div>}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
               {result.metrics?.map((m: RosterMetric) => {
                 const curRank = rankText(m, "current");
