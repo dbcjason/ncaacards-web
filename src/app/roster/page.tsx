@@ -223,6 +223,9 @@ export default function RosterPage() {
           <div className="flex gap-5 text-sm">
             <Link href={`/cards?gender=${gender}`} className="text-zinc-300">Player Profiles</Link>
             <Link href={`/roster?gender=${gender}`} className="text-red-400">Roster Construction</Link>
+            {gender === "men" && (
+              <Link href="/leaderboard" className="text-zinc-300">Leaderboard / Query</Link>
+            )}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>

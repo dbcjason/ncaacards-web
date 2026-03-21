@@ -282,6 +282,11 @@ export default function CardsPage() {
             <Link href={`/roster?gender=${gender}`} className="text-zinc-300">
               Roster Construction
             </Link>
+            {gender === "men" && (
+              <Link href="/leaderboard" className="text-zinc-300">
+                Leaderboard / Query
+              </Link>
+            )}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">
             Home
