@@ -59,6 +59,7 @@ export default function LeaderboardPage() {
   const [height, setHeight] = useState("All");
   const [rsci, setRsci] = useState("All");
   const [position, setPosition] = useState("All");
+  const [allRows, setAllRows] = useState<LbRow[]>([]);
   const [rows, setRows] = useState<LbRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -84,29 +85,63 @@ export default function LeaderboardPage() {
     setSortDir("desc");
   }
 
+  function applyLocalQuery(baseRows: LbRow[]) {
+    let next = [...baseRows];
+
+    if (year && year !== "All") {
+      const y = Number(year);
+      if (Number.isFinite(y)) next = next.filter((r) => r.season === y);
+    }
+    if (age && age !== "All") {
+      const a = Number(age);
+      if (Number.isFinite(a)) next = next.filter((r) => r.age !== null && r.age === a);
+    }
+    if (team && team !== "All") {
+      const needle = team.toLowerCase();
+      next = next.filter((r) => r.team.toLowerCase().includes(needle));
+    }
+    if (height && height !== "All") {
+      const needle = height.toLowerCase();
+      next = next.filter((r) => r.height.toLowerCase().includes(needle));
+    }
+    if (position && position !== "All") {
+      const p = position.toLowerCase();
+      next = next.filter((r) => r.pos.toLowerCase().includes(p));
+    }
+    if (rsci && rsci !== "All") {
+      const r = Number(rsci);
+      if (Number.isFinite(r)) next = next.filter((x) => x.rsci !== null && x.rsci <= r);
+    }
+
+    for (const f of filters) {
+      if (!f.metric || !METRIC_OPTIONS.find(([k]) => k === f.metric)) continue;
+      const target = Number(f.value);
+      if (!Number.isFinite(target)) continue;
+      next = next.filter((r) => {
+        const v = f.mode === "percentile" ? r.percentiles[f.metric] : r.values[f.metric];
+        if (typeof v !== "number" || !Number.isFinite(v)) return false;
+        return f.comparator === ">=" ? v >= target : v <= target;
+      });
+    }
+
+    const dir = sortDir === "asc" ? 1 : -1;
+    next.sort((a, b) => {
+      const av = a.values[sortBy];
+      const bv = b.values[sortBy];
+      const na = typeof av === "number" ? av : -Infinity;
+      const nb = typeof bv === "number" ? bv : -Infinity;
+      if (na === nb) return a.player.localeCompare(b.player);
+      return na > nb ? dir : -dir;
+    });
+
+    setRows(next.slice(0, 100));
+  }
+
   async function runQuery() {
     setLoading(true);
     setError("");
     try {
-      const payload = {
-        year,
-        age,
-        team,
-        height,
-        rsci,
-        position,
-        sortBy,
-        sortDir,
-        limit: 100,
-        filters: filters
-          .map((f) => ({
-            metric: f.metric,
-            comparator: f.comparator,
-            value: Number(f.value),
-            mode: f.mode,
-          }))
-          .filter((f) => Number.isFinite(f.value)),
-      };
+      const payload = { sortBy: "bpm", sortDir: "desc", limit: 10000, filters: [] as unknown[] };
       const r = await fetch("/api/leaderboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -114,7 +149,9 @@ export default function LeaderboardPage() {
       });
       const j = (await r.json()) as { ok?: boolean; error?: string; rows?: LbRow[] };
       if (!j.ok) throw new Error(j.error || "Failed query");
-      setRows(Array.isArray(j.rows) ? j.rows : []);
+      const loaded = Array.isArray(j.rows) ? j.rows : [];
+      setAllRows(loaded);
+      applyLocalQuery(loaded);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed query");
     } finally {
@@ -145,6 +182,12 @@ export default function LeaderboardPage() {
     // Intentionally run once on load to auto-populate with default BPM sort.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!allRows.length) return;
+    applyLocalQuery(allRows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, age, team, height, rsci, position, filters, sortBy, sortDir, allRows]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -215,7 +258,7 @@ export default function LeaderboardPage() {
               Clear Filters
             </button>
             <button className="rounded bg-red-500 px-4 py-2 font-semibold text-white" onClick={runQuery}>
-              {loading ? "Running..." : "Run Query"}
+              {loading ? "Loading..." : "Reload Data"}
             </button>
           </div>
           {error && <div className="mt-2 text-sm text-rose-400">{error}</div>}

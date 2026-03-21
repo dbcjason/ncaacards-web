@@ -47,7 +47,7 @@ const METRIC_KEYS = Object.keys(METRIC_ALIASES);
 
 let memoRows: LeaderboardRow[] | null = null;
 let memoTs = 0;
-const MEMO_TTL_MS = 1000 * 60 * 10;
+const MEMO_TTL_MS = 1000 * 60 * 60 * 24;
 
 function norm(v: string): string {
   return String(v || "")
@@ -119,7 +119,7 @@ async function fetchCsvText(path: string): Promise<string> {
     headers.Authorization = `Bearer ${GH_TOKEN}`;
     headers["X-GitHub-Api-Version"] = "2022-11-28";
   }
-  const r = await fetch(url, { cache: "no-store", headers });
+  const r = await fetch(url, { cache: "force-cache", next: { revalidate: 3600 }, headers });
   if (!r.ok) throw new Error(`Failed to fetch BT CSV (${r.status})`);
   return await r.text();
 }
@@ -175,6 +175,29 @@ async function loadRows(): Promise<LeaderboardRow[]> {
     });
   }
 
+  // Precompute season-level percentiles once so query-time filtering is fast.
+  const bySeason = new Map<number, LeaderboardRow[]>();
+  for (const r of rows) {
+    if (!bySeason.has(r.season)) bySeason.set(r.season, []);
+    bySeason.get(r.season)!.push(r);
+  }
+  for (const [, rs] of bySeason.entries()) {
+    const metricVals: Record<string, number[]> = {};
+    for (const key of METRIC_KEYS) {
+      metricVals[key] = rs
+        .map((x) => x.values[key])
+        .filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+    }
+    for (const row of rs) {
+      const pct: Record<string, number | null> = {};
+      for (const key of METRIC_KEYS) {
+        const v = row.values[key];
+        pct[key] = typeof v === "number" ? percentile(metricVals[key], v) : null;
+      }
+      row.percentiles = pct;
+    }
+  }
+
   memoRows = rows;
   memoTs = now;
   return rows;
@@ -223,30 +246,6 @@ export async function POST(req: NextRequest) {
       if (Number.isFinite(r)) rows = rows.filter((x) => x.rsci !== null && x.rsci <= r);
     }
 
-    // Build season-local percentile arrays on current filtered cohort year(s)
-    const bySeason = new Map<number, LeaderboardRow[]>();
-    for (const r of rows) {
-      if (!bySeason.has(r.season)) bySeason.set(r.season, []);
-      bySeason.get(r.season)!.push(r);
-    }
-    for (const [season, rs] of bySeason.entries()) {
-      const metricVals: Record<string, number[]> = {};
-      for (const key of METRIC_KEYS) {
-        metricVals[key] = rs
-          .map((x) => x.values[key])
-          .filter((x): x is number => typeof x === "number" && Number.isFinite(x));
-      }
-      for (const row of rs) {
-        const pct: Record<string, number | null> = {};
-        for (const key of METRIC_KEYS) {
-          const v = row.values[key];
-          pct[key] = typeof v === "number" ? percentile(metricVals[key], v) : null;
-        }
-        row.percentiles = pct;
-      }
-      bySeason.set(season, rs);
-    }
-
     const filters = Array.isArray(body.filters) ? body.filters : [];
     for (const f of filters) {
       if (!f || !f.metric || !METRIC_KEYS.includes(f.metric)) continue;
@@ -283,4 +282,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
