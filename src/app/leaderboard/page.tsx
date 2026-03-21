@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { SEASONS } from "@/lib/ui-options";
 
@@ -64,18 +64,16 @@ export default function LeaderboardPage() {
   const [error, setError] = useState("");
   const [sortBy, setSortBy] = useState<string>("bpm");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [filters, setFilters] = useState<FilterRow[]>([
-    { metric: "ppg", comparator: ">=", value: "15", mode: "stat" },
-  ]);
+  const [filters, setFilters] = useState<FilterRow[]>([]);
+  const [draftMetric, setDraftMetric] = useState<string>("ppg");
+  const [draftComparator, setDraftComparator] = useState<">=" | "<=">(">=");
+  const [draftValue, setDraftValue] = useState<string>("15");
+  const [draftMode, setDraftMode] = useState<"stat" | "percentile">("stat");
 
   const metricMap = useMemo(
     () => Object.fromEntries(METRIC_OPTIONS.map(([k, v]) => [k, v])),
     [],
   );
-
-  function setFilterAt(i: number, patch: Partial<FilterRow>) {
-    setFilters((prev) => prev.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
-  }
 
   function sortClick(metric: string) {
     if (sortBy === metric) {
@@ -124,6 +122,30 @@ export default function LeaderboardPage() {
     }
   }
 
+  function addDraftFilter() {
+    const v = Number(draftValue);
+    if (!Number.isFinite(v)) {
+      setError("Filter value must be a number.");
+      return;
+    }
+    setError("");
+    setFilters((prev) => [
+      ...prev,
+      {
+        metric: draftMetric,
+        comparator: draftComparator,
+        value: draftValue,
+        mode: draftMode,
+      },
+    ]);
+  }
+
+  useEffect(() => {
+    void runQuery();
+    // Intentionally run once on load to auto-populate with default BPM sort.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto w-full max-w-[1800px] px-4 py-4">
@@ -154,24 +176,33 @@ export default function LeaderboardPage() {
           </div>
 
           <div className="mt-4 text-lg font-bold">Stat / Percentile Filter Rows</div>
-          <div className="mt-2 grid gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-5">
+            <select className="rounded bg-zinc-800 p-2" value={draftMetric} onChange={(e) => setDraftMetric(e.target.value)}>
+              {METRIC_OPTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+            <select className="rounded bg-zinc-800 p-2" value={draftComparator} onChange={(e) => setDraftComparator(e.target.value as ">=" | "<=")}>
+              <option value=">=">{">="}</option>
+              <option value="<=">{"<="}</option>
+            </select>
+            <input className="rounded bg-zinc-800 p-2" value={draftValue} onChange={(e) => setDraftValue(e.target.value)} />
+            <select className="rounded bg-zinc-800 p-2" value={draftMode} onChange={(e) => setDraftMode(e.target.value as "stat" | "percentile")}>
+              <option value="stat">Stat Number</option>
+              <option value="percentile">Percentile</option>
+            </select>
+            <button className="rounded border border-zinc-600 bg-zinc-800 p-2" onClick={addDraftFilter}>
+              Add
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-2">
             {filters.map((f, i) => (
-              <div key={`f-${i}`} className="grid grid-cols-2 gap-2 md:grid-cols-5">
-                <select className="rounded bg-zinc-800 p-2" value={f.metric} onChange={(e) => setFilterAt(i, { metric: e.target.value })}>
-                  {METRIC_OPTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-                </select>
-                <select className="rounded bg-zinc-800 p-2" value={f.comparator} onChange={(e) => setFilterAt(i, { comparator: e.target.value as ">=" | "<=" })}>
-                  <option value=">=">{">="}</option>
-                  <option value="<=">{"<="}</option>
-                </select>
-                <input className="rounded bg-zinc-800 p-2" value={f.value} onChange={(e) => setFilterAt(i, { value: e.target.value })} />
-                <select className="rounded bg-zinc-800 p-2" value={f.mode} onChange={(e) => setFilterAt(i, { mode: e.target.value as "stat" | "percentile" })}>
-                  <option value="stat">Stat Number</option>
-                  <option value="percentile">Percentile</option>
-                </select>
+              <div key={`f-${i}`} className="flex items-center justify-between rounded border border-zinc-700 bg-zinc-800/60 p-2 text-sm">
+                <div className="text-zinc-200">
+                  {(metricMap[f.metric] ?? f.metric)} {f.comparator} {f.value} ({f.mode === "stat" ? "Stat Number" : "Percentile"})
+                </div>
                 <button
-                  className="rounded border border-zinc-600 bg-zinc-800 p-2"
-                  onClick={() => setFilters((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev))}
+                  className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+                  onClick={() => setFilters((prev) => prev.filter((_, idx) => idx !== i))}
                 >
                   Remove
                 </button>
@@ -180,13 +211,8 @@ export default function LeaderboardPage() {
           </div>
 
           <div className="mt-3 flex gap-2">
-            <button
-              className="rounded border border-zinc-600 bg-zinc-800 px-3 py-2"
-              onClick={() =>
-                setFilters((prev) => [...prev, { metric: "bpm", comparator: ">=", value: "85", mode: "percentile" }])
-              }
-            >
-              + Add Filter Row
+            <button className="rounded border border-zinc-600 bg-zinc-800 px-3 py-2" onClick={() => setFilters([])}>
+              Clear Filters
             </button>
             <button className="rounded bg-red-500 px-4 py-2 font-semibold text-white" onClick={runQuery}>
               {loading ? "Running..." : "Run Query"}
@@ -314,4 +340,3 @@ export default function LeaderboardPage() {
     </div>
   );
 }
-
