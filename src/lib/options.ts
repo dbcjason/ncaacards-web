@@ -19,6 +19,15 @@ const BT_PLAYERSTAT_JSON_TEMPLATE =
 const BT_CSV_PATH =
   process.env.GITHUB_BT_CSV_PATH ||
   "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv";
+const BART_PREFIX = (process.env.GITHUB_BART_PREFIX || "").trim();
+const BT_CSV_CANDIDATES = [
+  BT_CSV_PATH,
+  "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2019_2025.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2010_2025.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2026.csv",
+];
 
 function parseCsvLine(line: string): string[] {
   const out: string[] = [];
@@ -61,19 +70,32 @@ function findCol(header: string[], names: string[]): number {
 }
 
 async function fetchSeasonOptionsFromBart(season: number): Promise<SeasonOptions> {
-  const url = `https://barttorvik.com/getadvstats.php?year=${season}&csv=1`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch Bart CSV (${res.status})`);
-  const text = await res.text();
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) throw new Error("Bart CSV returned no rows");
-
-  const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
-  const pIdx = findCol(header, ["player_name", "player", "name"]);
-  const tIdx = findCol(header, ["team", "school"]);
-  if (pIdx < 0 || tIdx < 0) throw new Error("Bart CSV missing player_name/team columns");
-
-  return parseOptionsFromCsvText(text, { playerIdx: pIdx, teamIdx: tIdx });
+  const prefixes = Array.from(new Set([BART_PREFIX, BART_PREFIX ? "" : "ncaaw"])).filter((x) => x !== "__none__");
+  let lastErr = "";
+  for (const prefix of prefixes) {
+    const pref = prefix ? `${prefix}/` : "";
+    const url = `https://barttorvik.com/${pref}getadvstats.php?year=${season}&csv=1`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      lastErr = `Failed to fetch Bart CSV (${res.status})`;
+      continue;
+    }
+    const text = await res.text();
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 2) {
+      lastErr = "Bart CSV returned no rows";
+      continue;
+    }
+    const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
+    const pIdx = findCol(header, ["player_name", "player", "name"]);
+    const tIdx = findCol(header, ["team", "school"]);
+    if (pIdx < 0 || tIdx < 0) {
+      lastErr = "Bart CSV missing player_name/team columns";
+      continue;
+    }
+    return parseOptionsFromCsvText(text, { playerIdx: pIdx, teamIdx: tIdx });
+  }
+  throw new Error(lastErr || "Failed to fetch Bart CSV");
 }
 
 async function fetchSeasonOptionsFromStaticIndex(season: number): Promise<SeasonOptions> {
@@ -184,11 +206,20 @@ async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number): Promi
 }
 
 async function fetchSeasonOptionsFromGithubLargeFile(season: number): Promise<SeasonOptions> {
-  const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${BT_CSV_PATH}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch repo all-years CSV (${res.status})`);
-  const text = await res.text();
-  return parseOptionsFromCsvText(text, { season });
+  let lastErr = "";
+  for (const path of BT_CSV_CANDIDATES) {
+    const url = `https://raw.githubusercontent.com/${DATA_OWNER}/${DATA_REPO}/${DATA_REF}/${path}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      lastErr = `${path}: ${res.status}`;
+      continue;
+    }
+    const text = await res.text();
+    const parsed = parseOptionsFromCsvText(text, { season });
+    if (parsed.teams.length > 0) return parsed;
+    lastErr = `${path}: no teams`;
+  }
+  throw new Error(`Failed to fetch repo all-years CSV (${lastErr || "no valid path"})`);
 }
 
 export async function getSeasonOptions(season: number): Promise<SeasonOptions> {

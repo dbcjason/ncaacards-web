@@ -4,6 +4,15 @@ const DATA_OWNER = process.env.GITHUB_DATA_OWNER || "dbcjason";
 const DATA_REPO = process.env.GITHUB_DATA_REPO || "NCAACards";
 const DATA_REF = process.env.GITHUB_DATA_REF || "main";
 const BT_CSV_PATH = process.env.GITHUB_BT_CSV_PATH || "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv";
+const BART_PREFIX = (process.env.GITHUB_BART_PREFIX || "").trim();
+const BT_CSV_CANDIDATES = [
+  BT_CSV_PATH,
+  "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2019_2025.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2010_2025.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2026.csv",
+];
 
 type PlayerRow = {
   player: string;
@@ -105,12 +114,28 @@ async function loadSeasonData(season: number): Promise<SeasonCache> {
   const cached = seasonCache.get(season);
   if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached;
 
-  const url = `https://raw.githubusercontent.com/${encodeURIComponent(DATA_OWNER)}/${encodeURIComponent(
-    DATA_REPO,
-  )}/${encodeURIComponent(DATA_REF)}/${BT_CSV_PATH}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch BT CSV (${res.status})`);
-  const text = await res.text();
+  async function fetchCsvText(): Promise<string> {
+    let lastErr = "";
+    for (const path of BT_CSV_CANDIDATES) {
+      const url = `https://raw.githubusercontent.com/${encodeURIComponent(DATA_OWNER)}/${encodeURIComponent(
+        DATA_REPO,
+      )}/${encodeURIComponent(DATA_REF)}/${path}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (res.ok) return await res.text();
+      lastErr = `${path}: ${res.status}`;
+    }
+    const prefixes = Array.from(new Set([BART_PREFIX, BART_PREFIX ? "" : "ncaaw"]));
+    for (const prefix of prefixes) {
+      const pref = prefix ? `${prefix}/` : "";
+      const url = `https://barttorvik.com/${pref}getadvstats.php?year=${season}&csv=1`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (res.ok) return await res.text();
+      lastErr = `bart ${prefix || "men"}: ${res.status}`;
+    }
+    throw new Error(`Failed to fetch BT CSV (${lastErr || "no source"})`);
+  }
+
+  const text = await fetchCsvText();
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length < 2) throw new Error("BT CSV has no rows");
 
