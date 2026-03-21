@@ -4,6 +4,8 @@ const DATA_OWNER = process.env.GITHUB_DATA_OWNER || "dbcjason";
 const DATA_REPO = process.env.GITHUB_DATA_REPO || "NCAACards";
 const DATA_REF = process.env.GITHUB_DATA_REF || "main";
 const BT_CSV_PATH = process.env.GITHUB_BT_CSV_PATH || "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv";
+const TEAM_MODEL_JSON_PATH =
+  process.env.GITHUB_TEAM_MODEL_JSON_PATH || "player_cards_pipeline/data/models/team_interaction_ridge_v1.json";
 const BART_PREFIX = (process.env.GITHUB_BART_PREFIX || "").trim();
 const BT_CSV_CANDIDATES = [
   BT_CSV_PATH,
@@ -21,6 +23,12 @@ type PlayerRow = {
   mpg: number;
   ORtg: number;
   drtg: number;
+  usg: number;
+  bpm: number;
+  gbpm: number;
+  dgbpm: number;
+  adjoe: number;
+  adrtg: number;
   FTM: number;
   FTA: number;
   twoPM: number;
@@ -68,8 +76,57 @@ type SeasonCache = {
   loadedAt: number;
 };
 
+type RidgeModel = {
+  meanX: number[];
+  stdX: number[];
+  weights: number[];
+  bias: number;
+};
+
+type TeamModelBundle = {
+  version: string;
+  feature_order: string[];
+  metric_keys: string[];
+  models: Record<string, RidgeModel>;
+};
+
 const seasonCache = new Map<number, SeasonCache>();
+const modelCache = new Map<number, { loadedAt: number; modelByMetric: Record<string, RidgeModel> }>();
+let pretrainedModelCache: { loadedAt: number; bundle: TeamModelBundle | null } | null = null;
 const TTL_MS = 1000 * 60 * 20;
+
+const FEATURE_ORDER = [
+  "n_players",
+  "minutes_sum",
+  "wm_pts",
+  "wm_reb",
+  "wm_ast",
+  "wm_stl",
+  "wm_blk",
+  "wm_ortg",
+  "wm_drtg",
+  "wm_usg",
+  "wm_ts",
+  "wm_efg",
+  "wm_tp",
+  "wm_astp",
+  "wm_top",
+  "wm_orbp",
+  "wm_drbp",
+  "wm_bpm",
+  "wm_gbpm",
+  "wm_dgbpm",
+  "usg_top1",
+  "usg_top3_sum",
+  "usg_std",
+  "ts_std",
+  "ast_std",
+  "int_usg_x_ts",
+  "int_ast_x_tp",
+  "int_blk_x_drb",
+  "int_orb_x_to",
+  "int_offdef_gap",
+];
 
 function parseCsvLine(line: string): string[] {
   const out: string[] = [];
@@ -102,12 +159,102 @@ function toNum(v: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function pctNum(v: string | undefined): number {
+  const x = toNum(v);
+  return x <= 1 ? x * 100 : x;
+}
+
 function normalizeTeamName(team: string, teams: string[]): string {
   if (teams.includes(team)) return team;
   const low = team.toLowerCase().trim();
   const exact = teams.find((t) => t.toLowerCase() === low);
   if (exact) return exact;
   return team;
+}
+
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const s = [...values].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function dot(a: number[], b: number[]): number {
+  let out = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i += 1) out += a[i] * b[i];
+  return out;
+}
+
+function trainRidgeGD(X: number[][], y: number[], lambda = 0.08, iters = 450, lr = 0.05): RidgeModel {
+  const n = X.length;
+  const d = X[0]?.length ?? 0;
+  const meanX = new Array(d).fill(0);
+  const stdX = new Array(d).fill(1);
+
+  for (let j = 0; j < d; j += 1) {
+    let s = 0;
+    for (let i = 0; i < n; i += 1) s += X[i][j];
+    meanX[j] = s / Math.max(1, n);
+  }
+  for (let j = 0; j < d; j += 1) {
+    let ss = 0;
+    for (let i = 0; i < n; i += 1) {
+      const v = X[i][j] - meanX[j];
+      ss += v * v;
+    }
+    stdX[j] = Math.sqrt(ss / Math.max(1, n)) || 1;
+  }
+
+  const Xn = X.map((r) => r.map((v, j) => (v - meanX[j]) / stdX[j]));
+  let bias = y.reduce((a, b) => a + b, 0) / Math.max(1, y.length);
+  const w = new Array(d).fill(0);
+
+  for (let it = 0; it < iters; it += 1) {
+    const gradW = new Array(d).fill(0);
+    let gradB = 0;
+    for (let i = 0; i < n; i += 1) {
+      const pred = bias + dot(w, Xn[i]);
+      const err = pred - y[i];
+      gradB += err;
+      for (let j = 0; j < d; j += 1) gradW[j] += err * Xn[i][j];
+    }
+    const scale = 2 / Math.max(1, n);
+    gradB *= scale;
+    for (let j = 0; j < d; j += 1) {
+      gradW[j] = gradW[j] * scale + 2 * lambda * w[j];
+      w[j] -= lr * gradW[j];
+    }
+    bias -= lr * gradB;
+  }
+
+  return { meanX, stdX, weights: w, bias };
+}
+
+function predictRidge(model: RidgeModel, x: number[]): number {
+  const xn = x.map((v, i) => (v - model.meanX[i]) / (model.stdX[i] || 1));
+  return model.bias + dot(model.weights, xn);
+}
+
+async function loadPretrainedModelBundle(): Promise<TeamModelBundle | null> {
+  if (pretrainedModelCache && Date.now() - pretrainedModelCache.loadedAt < TTL_MS) {
+    return pretrainedModelCache.bundle;
+  }
+  const url = `https://raw.githubusercontent.com/${encodeURIComponent(DATA_OWNER)}/${encodeURIComponent(
+    DATA_REPO,
+  )}/${encodeURIComponent(DATA_REF)}/${TEAM_MODEL_JSON_PATH}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    pretrainedModelCache = { loadedAt: Date.now(), bundle: null };
+    return null;
+  }
+  const obj = (await res.json()) as TeamModelBundle;
+  if (!obj || !obj.models || !obj.feature_order || !Array.isArray(obj.feature_order)) {
+    pretrainedModelCache = { loadedAt: Date.now(), bundle: null };
+    return null;
+  }
+  pretrainedModelCache = { loadedAt: Date.now(), bundle: obj };
+  return obj;
 }
 
 async function loadSeasonData(season: number): Promise<SeasonCache> {
@@ -173,6 +320,11 @@ async function loadSeasonData(season: number): Promise<SeasonCache> {
   for (const c of required) {
     if (typeof idx[c] !== "number") throw new Error(`BT CSV missing column: ${c}`);
   }
+  const has = (c: string) => typeof idx[c] === "number";
+  const val = (cols: string[], c: string, pct = false) => {
+    if (!has(c)) return 0;
+    return pct ? pctNum(cols[idx[c]]) : toNum(cols[idx[c]]);
+  };
 
   const rows: PlayerRow[] = [];
   for (let i = 1; i < lines.length; i += 1) {
@@ -189,6 +341,12 @@ async function loadSeasonData(season: number): Promise<SeasonCache> {
       mpg: toNum(cols[idx.mp]),
       ORtg: toNum(cols[idx.ORtg]),
       drtg: toNum(cols[idx.drtg]),
+      usg: val(cols, "usg", true),
+      bpm: val(cols, "bpm"),
+      gbpm: val(cols, "gbpm"),
+      dgbpm: val(cols, "dgbpm"),
+      adjoe: val(cols, "adjoe"),
+      adrtg: val(cols, "adrtg"),
       FTM: toNum(cols[idx.FTM]),
       FTA: toNum(cols[idx.FTA]),
       twoPM: toNum(cols[idx.twoPM]),
@@ -207,9 +365,9 @@ async function loadSeasonData(season: number): Promise<SeasonCache> {
       blk_per: toNum(cols[idx.blk_per]),
       ORB_per: toNum(cols[idx.ORB_per]),
       DRB_per: toNum(cols[idx.DRB_per]),
-      eFG: toNum(cols[idx.eFG]),
-      TP_per: toNum(cols[idx.TP_per]),
-      TS_per: toNum(cols[idx.TS_per]),
+      eFG: pctNum(cols[idx.eFG]),
+      TP_per: pctNum(cols[idx.TP_per]),
+      TS_per: pctNum(cols[idx.TS_per]),
     });
   }
 
@@ -251,9 +409,65 @@ function minuteScale(p: PlayerRow, minutes: Record<string, number>): number {
   return next / base;
 }
 
+function teamFeatureMap(players: PlayerRow[], minutes: Record<string, number>): Record<string, number> {
+  const rows = players.map((p) => ({ p, w: Math.max(0, Number(minutes[p.player] ?? p.mpg ?? 0)) })).filter((x) => x.w > 0);
+  const ws = rows.reduce((a, b) => a + b.w, 0) || 1;
+  const wm = (fn: (p: PlayerRow) => number) => rows.reduce((a, x) => a + fn(x.p) * x.w, 0) / ws;
+  const std = (arr: number[]) => {
+    if (arr.length < 2) return 0;
+    const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+    const v = arr.reduce((a, b) => a + (b - m) * (b - m), 0) / arr.length;
+    return Math.sqrt(v);
+  };
+
+  const usgs = rows.map((x) => Number(x.p.usg || 0)).sort((a, b) => b - a);
+  const tsVals = rows.map((x) => Number(x.p.TS_per || 0));
+  const astVals = rows.map((x) => Number(x.p.AST_per || 0));
+
+  const f: Record<string, number> = {};
+  f.n_players = rows.length;
+  f.minutes_sum = rows.reduce((a, b) => a + b.w, 0);
+  f.wm_pts = wm((p) => p.pts);
+  f.wm_reb = wm((p) => p.oreb + p.dreb);
+  f.wm_ast = wm((p) => p.ast);
+  f.wm_stl = wm((p) => p.stl);
+  f.wm_blk = wm((p) => p.blk);
+  f.wm_ortg = wm((p) => p.ORtg);
+  f.wm_drtg = wm((p) => p.drtg);
+  f.wm_usg = wm((p) => p.usg);
+  f.wm_ts = wm((p) => p.TS_per);
+  f.wm_efg = wm((p) => p.eFG);
+  f.wm_tp = wm((p) => p.TP_per);
+  f.wm_astp = wm((p) => p.AST_per);
+  f.wm_top = wm((p) => p.TO_per);
+  f.wm_orbp = wm((p) => p.ORB_per);
+  f.wm_drbp = wm((p) => p.DRB_per);
+  f.wm_bpm = wm((p) => p.bpm);
+  f.wm_gbpm = wm((p) => p.gbpm);
+  f.wm_dgbpm = wm((p) => p.dgbpm);
+  f.usg_top1 = usgs[0] ?? 0;
+  f.usg_top3_sum = (usgs[0] ?? 0) + (usgs[1] ?? 0) + (usgs[2] ?? 0);
+  f.usg_std = std(usgs);
+  f.ts_std = std(tsVals);
+  f.ast_std = std(astVals);
+  f.int_usg_x_ts = (f.wm_usg * f.wm_ts) / 100;
+  f.int_ast_x_tp = (f.wm_astp * f.wm_tp) / 100;
+  f.int_blk_x_drb = (f.wm_blk * f.wm_drbp) / 100;
+  f.int_orb_x_to = (f.wm_orbp * f.wm_top) / 100;
+  f.int_offdef_gap = f.wm_ortg - f.wm_drtg;
+  return f;
+}
+
+function featureVector(fm: Record<string, number>): number[] {
+  return FEATURE_ORDER.map((k) => Number(fm[k] ?? 0));
+}
+
+function featureVectorByOrder(fm: Record<string, number>, order: string[]): number[] {
+  return order.map((k) => Number(fm[k] ?? 0));
+}
+
 function normalizePercentValue(v: number): number {
   if (!Number.isFinite(v)) return 0;
-  // Some feeds use [0..1] while others use [0..100].
   return v <= 1 ? v * 100 : v;
 }
 
@@ -306,14 +520,8 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
   const tp = tPA > 0 ? (tPM / tPA) * 100 : 0;
   const tsFromTotals = (fga + 0.44 * fta) > 0 ? (pts / (2 * (fga + 0.44 * fta))) * 100 : 0;
   const tsFromPlayerWeighted = tsWeight > 0 ? tsWeightedSum / tsWeight : 0;
-  // Prefer formula TS%; fall back if source column units are inconsistent.
-  const ts =
-    tsFromTotals >= 20 && tsFromTotals <= 90
-      ? tsFromTotals
-      : tsFromPlayerWeighted;
+  const ts = tsFromTotals >= 20 && tsFromTotals <= 90 ? tsFromTotals : tsFromPlayerWeighted;
 
-  // Use projected team points-per-game for possession denominator so per-100 stats
-  // stay on team scale (not season-total scale).
   const poss = off > 0 ? ppg / (off / 100) : 0;
   const ast100 = poss > 0 ? (ast / poss) * 100 : weightedAvg(players, minutes, "AST_per");
   const stl100 = poss > 0 ? (stl / poss) * 100 : weightedAvg(players, minutes, "stl_per");
@@ -337,6 +545,49 @@ function computeMetricMap(players: PlayerRow[], minutes: Record<string, number>)
     tp,
     ts,
   };
+}
+
+function buildSeasonModels(
+  season: number,
+  allTeams: string[],
+  data: SeasonCache,
+  currentMapByTeam: Record<string, Record<string, number>>,
+): Record<string, RidgeModel> {
+  const cached = modelCache.get(season);
+  if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached.modelByMetric;
+
+  const X: number[][] = [];
+  const yByMetric: Record<string, number[]> = {};
+  for (const m of METRICS) yByMetric[m.key] = [];
+
+  for (const t of allTeams) {
+    const roster = data.rosterByTeam[t] ?? [];
+    if (!roster.length) continue;
+    const mins: Record<string, number> = {};
+    for (const p of roster) mins[p.player] = p.mpg;
+    X.push(featureVector(teamFeatureMap(roster, mins)));
+
+    const adjOffVals = roster.map((r) => r.adjoe).filter((v) => Number.isFinite(v) && v > 70 && v < 140);
+    const adjDefVals = roster.map((r) => r.adrtg).filter((v) => Number.isFinite(v) && v > 70 && v < 140);
+    const offAdj = adjOffVals.length ? median(adjOffVals) : (currentMapByTeam[t]?.off ?? 0);
+    const defAdj = adjDefVals.length ? median(adjDefVals) : (currentMapByTeam[t]?.def ?? 0);
+
+    for (const m of METRICS) {
+      if (m.key === "off") yByMetric[m.key].push(offAdj);
+      else if (m.key === "def") yByMetric[m.key].push(defAdj);
+      else if (m.key === "net") yByMetric[m.key].push(offAdj - defAdj);
+      else yByMetric[m.key].push(currentMapByTeam[t]?.[m.key] ?? 0);
+    }
+  }
+
+  const modelByMetric: Record<string, RidgeModel> = {};
+  if (X.length >= 20) {
+    for (const m of METRICS) {
+      modelByMetric[m.key] = trainRidgeGD(X, yByMetric[m.key], 0.08, 450, 0.05);
+    }
+  }
+  modelCache.set(season, { loadedAt: Date.now(), modelByMetric });
+  return modelByMetric;
 }
 
 function rankForMetric(valuesByTeam: Record<string, number>, team: string, higherIsBetter: boolean): number {
@@ -397,7 +648,6 @@ export async function POST(req: NextRequest) {
 
     const baseByPlayer = new Map<string, PlayerRow>();
     for (const p of teamRows) baseByPlayer.set(p.player, p);
-
     for (const p of addPlayers) {
       if (baseByPlayer.has(p)) continue;
       const hit = data.rows.find((r) => r.player === p);
@@ -410,35 +660,64 @@ export async function POST(req: NextRequest) {
 
     const currentMinutes: Record<string, number> = {};
     for (const p of currentPlayers) currentMinutes[p.player] = p.mpg;
-
     const newMinutes: Record<string, number> = {};
     for (const p of newPlayers) {
       const n = Number((rosterMinutesIn as Record<string, unknown>)[p.player]);
-      if (Number.isFinite(n) && n >= 0) newMinutes[p.player] = n;
-      else newMinutes[p.player] = p.mpg;
+      newMinutes[p.player] = Number.isFinite(n) && n >= 0 ? n : p.mpg;
     }
 
     const currentMapByTeam: Record<string, Record<string, number>> = {};
+    const teamFeatureMapByTeam: Record<string, Record<string, number>> = {};
+    const teamMinutesByTeam: Record<string, Record<string, number>> = {};
     for (const t of allTeams) {
       const roster = data.rosterByTeam[t] ?? [];
       const mins: Record<string, number> = {};
       for (const p of roster) mins[p.player] = p.mpg;
       currentMapByTeam[t] = computeMetricMap(roster, mins);
+      teamFeatureMapByTeam[t] = teamFeatureMap(roster, mins);
+      teamMinutesByTeam[t] = mins;
+    }
+    const editedFeatureMap = teamFeatureMap(newPlayers, newMinutes);
+    const fallbackEditedMap = computeMetricMap(newPlayers, newMinutes);
+
+    let modelByMetric: Record<string, RidgeModel> = {};
+    let modelSource = "live_bt";
+    let featureOrder = FEATURE_ORDER;
+
+    const pretrained = await loadPretrainedModelBundle();
+    if (pretrained && pretrained.models && Object.keys(pretrained.models).length > 0) {
+      modelByMetric = pretrained.models;
+      modelSource = "pretrained_model";
+      if (Array.isArray(pretrained.feature_order) && pretrained.feature_order.length > 0) {
+        featureOrder = pretrained.feature_order;
+      }
+    } else {
+      modelByMetric = buildSeasonModels(season, allTeams, data, currentMapByTeam);
+      if (Object.keys(modelByMetric).length > 0) modelSource = "learned_regression";
     }
 
-    const editedMapByTeam: Record<string, Record<string, number>> = { ...currentMapByTeam, [team]: computeMetricMap(newPlayers, newMinutes) };
-    const currentTeamMap = currentMapByTeam[team] ?? computeMetricMap(currentPlayers, currentMinutes);
-    const newTeamMap = editedMapByTeam[team] ?? computeMetricMap(newPlayers, newMinutes);
+    const useLearned = Object.keys(modelByMetric).length > 0;
 
     const metrics = METRICS.map((m) => {
       const currentValues: Record<string, number> = {};
       const editedValues: Record<string, number> = {};
+      const mdl = modelByMetric[m.key];
       for (const t of allTeams) {
-        currentValues[t] = currentMapByTeam[t]?.[m.key] ?? 0;
-        editedValues[t] = editedMapByTeam[t]?.[m.key] ?? 0;
+        if (useLearned && mdl) {
+          const teamFeat = teamFeatureMapByTeam[t] ?? teamFeatureMap(data.rosterByTeam[t] ?? [], teamMinutesByTeam[t] ?? {});
+          const pred = predictRidge(mdl, featureVectorByOrder(teamFeat, featureOrder));
+          currentValues[t] = pred;
+          editedValues[t] = pred;
+        } else {
+          currentValues[t] = currentMapByTeam[t]?.[m.key] ?? 0;
+          editedValues[t] = currentMapByTeam[t]?.[m.key] ?? 0;
+        }
       }
-      const cur = currentTeamMap[m.key] ?? 0;
-      const neu = newTeamMap[m.key] ?? 0;
+      if (useLearned && mdl) editedValues[team] = predictRidge(mdl, featureVectorByOrder(editedFeatureMap, featureOrder));
+      else editedValues[team] = fallbackEditedMap[m.key] ?? 0;
+
+      const cur = currentValues[team] ?? 0;
+      const neu = editedValues[team] ?? 0;
       return {
         metric: m.label,
         current: Number(cur.toFixed(2)),
@@ -456,7 +735,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      source: "live_bt",
+      source: useLearned ? modelSource : "live_bt",
       cache: "live",
       season,
       team,
