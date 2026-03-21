@@ -31,6 +31,9 @@ export default function CardsPage() {
   const [season, setSeason] = useState(2026);
   const [team, setTeam] = useState("");
   const [player, setPlayer] = useState("");
+  const [compare, setCompare] = useState(false);
+  const [teamB, setTeamB] = useState("");
+  const [playerB, setPlayerB] = useState("");
   const [mode, setMode] = useState<"draft" | "transfer">("draft");
   const [dest, setDest] = useState("SEC");
 
@@ -41,24 +44,15 @@ export default function CardsPage() {
 
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
 
   const [resultHtml, setResultHtml] = useState("");
+  const [resultHtmlB, setResultHtmlB] = useState("");
   const [resultCache, setResultCache] = useState<string>("");
   const [runError, setRunError] = useState("");
   const draftLabel = process.env.NEXT_PUBLIC_DRAFT_LABEL || "NBA Draft";
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
-  const etaLabel = useMemo(() => {
-    if (!loading || runStartedAt === null || progress <= 3 || progress >= 99) return "";
-    const elapsedSec = Math.max(1, Math.floor((Date.now() - runStartedAt) / 1000));
-    const estTotalSec = Math.floor((elapsedSec * 100) / progress);
-    const rem = Math.max(0, estTotalSec - elapsedSec);
-    if (rem < 60) return `Est. ${rem}s remaining`;
-    const m = Math.floor(rem / 60);
-    const s = rem % 60;
-    return `Est. ${m}m ${s}s remaining`;
-  }, [loading, progress, runStartedAt]);
+  const playerOptionsB = useMemo(() => playersByTeam[teamB] ?? [], [playersByTeam, teamB]);
 
   useEffect(() => {
     let active = true;
@@ -93,6 +87,8 @@ export default function CardsPage() {
 
           setTeam(selectedTeam);
           setPlayer(selectedPlayer);
+          setTeamB(selectedTeam);
+          setPlayerB(selectedPlayer);
           setOptionsLoaded(true);
           return;
         } catch (err) {
@@ -112,7 +108,7 @@ export default function CardsPage() {
     };
   }, [season, player, team]);
 
-  async function pollJob(id: string): Promise<CardJobResult | null> {
+  async function pollJob(id: string, onProgress?: (p: number) => void): Promise<CardJobResult | null> {
     while (true) {
       const r = await fetch(`/api/jobs/${id}`, { cache: "no-store" });
       const j = (await r.json()) as JobPollResponse;
@@ -120,7 +116,7 @@ export default function CardsPage() {
         throw new Error(String(j?.error ?? "Failed to poll job"));
       }
       const status = String(j.job.status ?? "");
-      setProgress(Number(j.job.progress ?? 0));
+      onProgress?.(Number(j.job.progress ?? 0));
 
       if (status === "done") {
         return (j.job.result_json ?? null) as CardJobResult | null;
@@ -135,47 +131,78 @@ export default function CardsPage() {
 
   async function runCardBuild() {
     if (!optionsLoaded || !team || !player) return;
+    if (compare && (!teamB || !playerB)) return;
 
     setLoading(true);
     setProgress(5);
-    setRunStartedAt(Date.now());
     setRunError("");
     setResultCache("");
+    setResultHtml("");
+    setResultHtmlB("");
 
     try {
-      const res = await fetch("/api/jobs/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jobType: "card",
-          request: {
-            season,
-            team,
-            player,
-            mode,
-            destinationConference: mode === "transfer" ? dest : "",
-          },
-        }),
-      });
-      const data = (await res.json()) as JobApiResponse;
-      if (!data?.ok || !data.id) {
-        throw new Error(String(data?.error ?? "Failed to start job"));
+      const startJob = async (req: Record<string, unknown>) => {
+        const res = await fetch("/api/jobs/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobType: "card", request: req }),
+        });
+        const data = (await res.json()) as JobApiResponse;
+        if (!data?.ok || !data.id) throw new Error(String(data?.error ?? "Failed to start job"));
+        return data.id;
+      };
+
+      const reqA = {
+        season,
+        team,
+        player,
+        mode,
+        destinationConference: mode === "transfer" ? dest : "",
+      };
+      const reqB = {
+        season,
+        team: teamB,
+        player: playerB,
+        mode,
+        destinationConference: mode === "transfer" ? dest : "",
+      };
+
+      if (!compare) {
+        const idA = await startJob(reqA);
+        const outA = await pollJob(idA, (p) => setProgress(p));
+        const htmlA = String(outA?.cardHtml ?? "");
+        if (!htmlA) throw new Error("Card HTML missing from job result");
+        setResultHtml(htmlA);
+        setResultCache(String(outA?.cache ?? ""));
+      } else {
+        const [idA, idB] = await Promise.all([startJob(reqA), startJob(reqB)]);
+        let pA = 5;
+        let pB = 5;
+        const updateCombined = () => setProgress(Math.max(5, Math.min(100, Math.round((pA + pB) / 2))));
+        const [outA, outB] = await Promise.all([
+          pollJob(idA, (p) => {
+            pA = p;
+            updateCombined();
+          }),
+          pollJob(idB, (p) => {
+            pB = p;
+            updateCombined();
+          }),
+        ]);
+        const htmlA = String(outA?.cardHtml ?? "");
+        const htmlB = String(outB?.cardHtml ?? "");
+        if (!htmlA || !htmlB) throw new Error("Comparison card HTML missing from job result");
+        setResultHtml(htmlA);
+        setResultHtmlB(htmlB);
+        setResultCache(String(outA?.cache ?? outB?.cache ?? ""));
       }
 
-      const out = await pollJob(data.id);
-      const html = String(out?.cardHtml ?? "");
-      if (!html) {
-        throw new Error("Card HTML missing from job result");
-      }
-      setResultHtml(html);
-      setResultCache(String(out?.cache ?? ""));
       setProgress(100);
     } catch (e) {
       setRunError(e instanceof Error ? e.message : "Card build failed");
       setProgress(100);
     } finally {
       setLoading(false);
-      if (runStartedAt === null) setRunStartedAt(Date.now());
     }
   }
 
@@ -256,6 +283,16 @@ export default function CardsPage() {
             <option value="transfer">Transfer</option>
           </select>
 
+          <label className="flex items-center gap-2 rounded bg-zinc-900 px-3 py-3">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={compare}
+              onChange={(e) => setCompare(e.target.checked)}
+            />
+            <span className="text-sm">Compare</span>
+          </label>
+
           <select
             className="rounded bg-zinc-900 p-3 disabled:opacity-40"
             value={dest}
@@ -278,13 +315,54 @@ export default function CardsPage() {
           </button>
         </div>
 
+        {compare && (
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <select
+              className="rounded bg-zinc-900 p-3"
+              value={optionsLoaded ? teamB : "__loading_team_b__"}
+              onChange={(e) => {
+                const nextTeam = e.target.value;
+                setTeamB(nextTeam);
+                const nextPlayers = playersByTeam[nextTeam] ?? [];
+                setPlayerB(nextPlayers[0] ?? "");
+              }}
+              disabled={!optionsLoaded}
+            >
+              {!optionsLoaded && <option value="__loading_team_b__">Team</option>}
+              {optionsLoaded &&
+                teamOptions.map((t) => (
+                  <option key={`team-b-${t}`} value={t}>
+                    {t}
+                  </option>
+                ))}
+            </select>
+            <select
+              className="rounded bg-zinc-900 p-3"
+              value={optionsLoaded ? playerB : "__loading_player_b__"}
+              onChange={(e) => setPlayerB(e.target.value)}
+              disabled={!optionsLoaded}
+            >
+              {!optionsLoaded && <option value="__loading_player_b__">Player</option>}
+              {optionsLoaded &&
+                playerOptionsB.map((p) => (
+                  <option key={`player-b-${p}`} value={p}>
+                    {p}
+                  </option>
+                ))}
+            </select>
+            <div className="rounded bg-zinc-900 p-3 text-sm text-zinc-400">
+              Parallel build enabled. Both cards run at the same time.
+            </div>
+          </div>
+        )}
+
         {optionsError && <div className="mt-2 text-sm text-rose-400">Options error: {optionsError}</div>}
         {runError && <div className="mt-2 text-sm text-rose-400">Run error: {runError}</div>}
 
         {(loading || progress > 0) && (
           <div className="mt-4 rounded border border-zinc-800 bg-zinc-900 p-3">
             <div className="mb-2 flex items-center justify-between text-sm text-zinc-300">
-              <span>{loading ? (etaLabel || "Building card...") : progress >= 100 ? "Completed" : "Ready"}</span>
+              <span>{loading ? "Building card..." : progress >= 100 ? "Completed" : "Ready"}</span>
               <span>{Math.max(0, Math.min(100, progress))}%</span>
             </div>
             <div className="h-2 w-full rounded bg-zinc-800">
@@ -298,13 +376,23 @@ export default function CardsPage() {
         )}
 
         {resultHtml ? (
-          <div className="mt-5 rounded border border-zinc-800 bg-zinc-950">
-            <iframe
-              title="Player Card"
-              srcDoc={resultHtml}
-              className="h-[2300px] w-full rounded"
-              sandbox="allow-same-origin allow-scripts"
-            />
+          <div className="mt-5 rounded border border-zinc-800 bg-zinc-950 p-1">
+            <div className={`grid gap-1 ${compare && resultHtmlB ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1"}`}>
+              <iframe
+                title="Player Card"
+                srcDoc={resultHtml}
+                className="h-[2300px] w-full rounded"
+                sandbox="allow-same-origin allow-scripts"
+              />
+              {compare && resultHtmlB && (
+                <iframe
+                  title="Player Card B"
+                  srcDoc={resultHtmlB}
+                  className="h-[2300px] w-full rounded"
+                  sandbox="allow-same-origin allow-scripts"
+                />
+              )}
+            </div>
           </div>
         ) : (
           <div className="mt-5 rounded border border-zinc-800 bg-zinc-900 p-5 text-zinc-400">
