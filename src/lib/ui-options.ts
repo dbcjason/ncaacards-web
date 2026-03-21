@@ -2,10 +2,35 @@ export const SEASONS = [2021, 2022, 2023, 2024, 2025, 2026] as const;
 
 export const CONFERENCES = [
   "ACC",
+  "America East",
+  "American",
+  "ASUN",
+  "Atlantic 10",
+  "Big Sky",
   "Big 12",
   "Big East",
   "Big Ten",
+  "Big West",
+  "CAA",
+  "Conference USA",
+  "Horizon",
+  "Ivy",
+  "MAAC",
+  "MAC",
+  "MEAC",
+  "Missouri Valley",
+  "Mountain West",
+  "Northeast",
+  "Ohio Valley",
+  "Patriot",
   "SEC",
+  "SoCon",
+  "Southland",
+  "Summit",
+  "Sun Belt",
+  "SWAC",
+  "WAC",
+  "WCC",
 ] as const;
 
 type TeamRosterMap = Record<number, Record<string, string[]>>;
@@ -75,4 +100,3 @@ export function playersForTeamSeason(team: string, season: number): string[] {
   const roster = rosterForTeamSeason(team, season);
   return roster.length ? roster : TRANSFER_CANDIDATES.slice(0, 20);
 }
-
