@@ -41,8 +41,7 @@ export default function CardsPage() {
 
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [message, setMessage] = useState("");
-  const [jobId, setJobId] = useState("");
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
 
   const [resultHtml, setResultHtml] = useState("");
   const [resultCache, setResultCache] = useState<string>("");
@@ -50,6 +49,16 @@ export default function CardsPage() {
   const draftLabel = process.env.NEXT_PUBLIC_DRAFT_LABEL || "NBA Draft";
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
+  const etaLabel = useMemo(() => {
+    if (!loading || runStartedAt === null || progress <= 3 || progress >= 99) return "";
+    const elapsedSec = Math.max(1, Math.floor((Date.now() - runStartedAt) / 1000));
+    const estTotalSec = Math.floor((elapsedSec * 100) / progress);
+    const rem = Math.max(0, estTotalSec - elapsedSec);
+    if (rem < 60) return `Est. ${rem}s remaining`;
+    const m = Math.floor(rem / 60);
+    const s = rem % 60;
+    return `Est. ${m}m ${s}s remaining`;
+  }, [loading, progress, runStartedAt]);
 
   useEffect(() => {
     let active = true;
@@ -112,7 +121,6 @@ export default function CardsPage() {
       }
       const status = String(j.job.status ?? "");
       setProgress(Number(j.job.progress ?? 0));
-      setMessage(String(j.job.message ?? "Working..."));
 
       if (status === "done") {
         return (j.job.result_json ?? null) as CardJobResult | null;
@@ -130,9 +138,8 @@ export default function CardsPage() {
 
     setLoading(true);
     setProgress(5);
-    setMessage("Starting card build");
+    setRunStartedAt(Date.now());
     setRunError("");
-    setJobId("");
     setResultCache("");
 
     try {
@@ -155,7 +162,6 @@ export default function CardsPage() {
         throw new Error(String(data?.error ?? "Failed to start job"));
       }
 
-      setJobId(data.id);
       const out = await pollJob(data.id);
       const html = String(out?.cardHtml ?? "");
       if (!html) {
@@ -163,14 +169,13 @@ export default function CardsPage() {
       }
       setResultHtml(html);
       setResultCache(String(out?.cache ?? ""));
-      setMessage("Completed");
       setProgress(100);
     } catch (e) {
       setRunError(e instanceof Error ? e.message : "Card build failed");
-      setMessage("Failed");
       setProgress(100);
     } finally {
       setLoading(false);
+      if (runStartedAt === null) setRunStartedAt(Date.now());
     }
   }
 
@@ -279,7 +284,7 @@ export default function CardsPage() {
         {(loading || progress > 0) && (
           <div className="mt-4 rounded border border-zinc-800 bg-zinc-900 p-3">
             <div className="mb-2 flex items-center justify-between text-sm text-zinc-300">
-              <span>{message || "Working..."}</span>
+              <span>{loading ? (etaLabel || "Building card...") : progress >= 100 ? "Completed" : "Ready"}</span>
               <span>{Math.max(0, Math.min(100, progress))}%</span>
             </div>
             <div className="h-2 w-full rounded bg-zinc-800">
@@ -288,7 +293,6 @@ export default function CardsPage() {
                 style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
               />
             </div>
-            {jobId && <div className="mt-2 text-xs text-zinc-500">Job: {jobId}</div>}
             {resultCache && <div className="mt-1 text-xs text-zinc-500">Cache: {resultCache}</div>}
           </div>
         )}
