@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { SEASONS } from "@/lib/ui-options";
 
 type RosterMetric = {
@@ -33,8 +32,7 @@ type TeamRosterResponse = {
 };
 
 export default function RosterPage() {
-  const searchParams = useSearchParams();
-  const gender = searchParams.get("gender") === "women" ? "women" : "men";
+  const [gender, setGender] = useState<"men" | "women">("men");
   const [season, setSeason] = useState(2026);
   const [team, setTeam] = useState("");
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
@@ -148,6 +146,12 @@ export default function RosterPage() {
 
     setOptionsLoaded(true);
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const g = new URLSearchParams(window.location.search).get("gender");
+    setGender(g === "women" ? "women" : "men");
+  }, []);
 
   useEffect(() => {
     let active = true;
