@@ -291,6 +291,17 @@ export default function CardsPage() {
           </Link>
         </div>
 
+        <div className="mb-3">
+          <div className="group relative inline-block">
+            <span className="cursor-help font-bold underline decoration-2 underline-offset-2">
+              IMPORTANT NOTE
+            </span>
+            <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-[560px] rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-200 shadow-xl group-hover:block">
+              In order to allow the various unerlying models to properly run, each player profile takes approximently 5 minutes to load. I am working on improving speed, but in the meantime, if you want to run multiple profiles you can do so concurrently across multiple tabs.
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
           <select
             className="rounded bg-zinc-900 p-3"
