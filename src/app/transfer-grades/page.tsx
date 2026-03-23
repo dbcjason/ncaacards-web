@@ -60,12 +60,26 @@ export default function TransferGradesPage() {
 
   function isHighMajorSourceConference(raw: string): boolean {
     const k = conferenceKey(raw);
+    const exact = new Set([
+      "sec",
+      "acc",
+      "b10",
+      "b1g",
+      "big10",
+      "bigten",
+      "b12",
+      "big12",
+      "be",
+      "bigeast",
+    ]);
+    if (exact.has(k)) return true;
     return (
       k.includes("bigten") ||
-      k === "sec" ||
+      k.includes("b1g") ||
       k.includes("big12") ||
+      k.includes("bigeast") ||
       k.includes("acc") ||
-      k.includes("bigeast")
+      k.includes("sec")
     );
   }
 
