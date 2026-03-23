@@ -9,24 +9,44 @@ function parseGender(raw?: string): "men" | "women" {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
 }
 
+function buildCandidatePaths(explicitPath?: string): string[] {
+  const base = [
+    "player_cards_pipeline/output/transfer_projection_2026_all_conferences.csv",
+    "player_cards_pipeline/output/transfer_projection_all_conferences.csv",
+    "player_cards_pipeline/output/transfer_projection_2026_all_conferences_matrix.csv",
+    "player_cards_pipeline/output/transfer_projection_2026_all_conference_grades.csv",
+    "transfer_projection_2026_all_conferences.csv",
+  ];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (p?: string) => {
+    const v = String(p || "").trim();
+    if (!v || seen.has(v)) return;
+    seen.add(v);
+    out.push(v);
+  };
+  if (explicitPath) {
+    add(explicitPath);
+    if (!explicitPath.includes("/")) add(`player_cards_pipeline/output/${explicitPath}`);
+  }
+  for (const p of base) add(p);
+  return out;
+}
+
 function sourceCfg(gender: "men" | "women") {
   if (gender === "women") {
     return {
       owner: process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason",
       repo: process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards",
       ref: process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main",
-      csvPath:
-        process.env.GITHUB_TRANSFER_GRADES_CSV_PATH_WOMEN ||
-        "player_cards_pipeline/output/transfer_projection_2026_all_conferences.csv",
+      csvPaths: buildCandidatePaths(process.env.GITHUB_TRANSFER_GRADES_CSV_PATH_WOMEN),
     };
   }
   return {
     owner: process.env.GITHUB_DATA_OWNER || "dbcjason",
     repo: process.env.GITHUB_DATA_REPO || "NCAACards",
     ref: process.env.GITHUB_DATA_REF || "main",
-    csvPath:
-      process.env.GITHUB_TRANSFER_GRADES_CSV_PATH ||
-      "player_cards_pipeline/output/transfer_projection_2026_all_conferences.csv",
+    csvPaths: buildCandidatePaths(process.env.GITHUB_TRANSFER_GRADES_CSV_PATH),
   };
 }
 
@@ -61,11 +81,11 @@ async function fetchTransferRows(
   repo: string,
   ref: string,
   csvPath: string,
-): Promise<{ rows: GradeRow[]; columns: string[] }> {
+): Promise<{ rows: GradeRow[]; columns: string[]; csvPath: string }> {
   const key = `${owner}/${repo}@${ref}:${csvPath}`;
   const now = Date.now();
   const cached = memo.get(key);
-  if (cached && now - cached.ts < CACHE_TTL_MS) return cached.data;
+  if (cached && now - cached.ts < CACHE_TTL_MS) return { ...cached.data, csvPath };
 
   const headers: Record<string, string> = {};
   const token = process.env.GITHUB_TOKEN || "";
@@ -79,7 +99,7 @@ async function fetchTransferRows(
 
   const text = await res.text();
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return { rows: [], columns: [] };
+  if (lines.length < 2) return { rows: [], columns: [], csvPath };
   const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
 
   const rows: GradeRow[] = [];
@@ -94,7 +114,24 @@ async function fetchTransferRows(
 
   const data = { rows, columns: header };
   memo.set(key, { ts: now, data });
-  return data;
+  return { ...data, csvPath };
+}
+
+async function fetchTransferRowsWithFallback(
+  owner: string,
+  repo: string,
+  ref: string,
+  csvPaths: string[],
+): Promise<{ rows: GradeRow[]; columns: string[]; csvPath: string }> {
+  let lastErr = "not found";
+  for (const p of csvPaths) {
+    try {
+      return await fetchTransferRows(owner, repo, ref, p);
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+  throw new Error(`Failed to fetch transfer grades CSV (tried ${csvPaths.length} paths): ${lastErr}`);
 }
 
 export async function GET(req: NextRequest) {
@@ -102,7 +139,7 @@ export async function GET(req: NextRequest) {
     const gender = parseGender(req.nextUrl.searchParams.get("gender") ?? "men");
     const season = String(req.nextUrl.searchParams.get("season") ?? "2026").trim();
     const cfg = sourceCfg(gender);
-    const loaded = await fetchTransferRows(cfg.owner, cfg.repo, cfg.ref, cfg.csvPath);
+    const loaded = await fetchTransferRowsWithFallback(cfg.owner, cfg.repo, cfg.ref, cfg.csvPaths);
 
     let rows = loaded.rows;
     if (season) rows = rows.filter((r) => String(r.season || "").trim() === season);
@@ -122,7 +159,7 @@ export async function GET(req: NextRequest) {
       classes,
       teams,
       players,
-      source: `${cfg.owner}/${cfg.repo}:${cfg.csvPath}`,
+      source: `${cfg.owner}/${cfg.repo}:${loaded.csvPath}`,
     });
   } catch (e) {
     return NextResponse.json(
@@ -131,4 +168,3 @@ export async function GET(req: NextRequest) {
     );
   }
 }
-
