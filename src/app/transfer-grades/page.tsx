@@ -17,11 +17,14 @@ type ApiResp = {
 };
 
 export default function TransferGradesPage() {
-  const [gender, setGender] = useState<"men" | "women">("men");
+  const SITE_GENDER: "men" | "women" = process.env.NEXT_PUBLIC_SITE_GENDER === "women" ? "women" : "men";
+  const [gender] = useState<"men" | "women">(SITE_GENDER);
   const [season, setSeason] = useState<number>(2026);
   const [classFilter, setClassFilter] = useState("All");
   const [teamFilter, setTeamFilter] = useState("All");
   const [playerFilter, setPlayerFilter] = useState("");
+  const [sortCol, setSortCol] = useState("");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [rows, setRows] = useState<GradeRow[]>([]);
   const [gradeColumns, setGradeColumns] = useState<string[]>([]);
   const [classes, setClasses] = useState<string[]>([]);
@@ -32,11 +35,21 @@ export default function TransferGradesPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const qs = new URLSearchParams(window.location.search);
-    const g = qs.get("gender");
     const s = Number(qs.get("season"));
-    setGender(g === "women" ? "women" : "men");
     if (Number.isFinite(s) && s > 2000) setSeason(s);
   }, []);
+
+  function gradeScore(raw: string): number {
+    const v = String(raw || "").trim().toUpperCase();
+    const map: Record<string, number> = {
+      "A+": 12, A: 11, "A-": 10,
+      "B+": 9, B: 8, "B-": 7,
+      "C+": 6, C: 5, "C-": 4,
+      "D+": 3, D: 2, "D-": 1,
+      F: 0,
+    };
+    return Object.prototype.hasOwnProperty.call(map, v) ? map[v] : -1;
+  }
 
   useEffect(() => {
     let active = true;
@@ -68,13 +81,22 @@ export default function TransferGradesPage() {
 
   const filtered = useMemo(() => {
     const needle = playerFilter.trim().toLowerCase();
-    return rows.filter((r) => {
+    const base = rows.filter((r) => {
       if (classFilter !== "All" && String(r.class || "").trim() !== classFilter) return false;
       if (teamFilter !== "All" && String(r.team || "").trim() !== teamFilter) return false;
       if (needle && !String(r.player || "").toLowerCase().includes(needle)) return false;
       return true;
     });
-  }, [rows, classFilter, teamFilter, playerFilter]);
+    if (!sortCol || !gradeColumns.includes(sortCol)) return base;
+    const out = [...base];
+    out.sort((a, b) => {
+      const av = gradeScore(String(a[sortCol] || ""));
+      const bv = gradeScore(String(b[sortCol] || ""));
+      if (av !== bv) return sortDir === "desc" ? bv - av : av - bv;
+      return String(a.player || "").localeCompare(String(b.player || ""));
+    });
+    return out;
+  }, [rows, classFilter, teamFilter, playerFilter, sortCol, sortDir, gradeColumns]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -90,7 +112,7 @@ export default function TransferGradesPage() {
 
         <div className="mb-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Transfer Grades</div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {SEASONS.map((y) => (
                 <option key={y} value={y}>{y}</option>
@@ -114,10 +136,6 @@ export default function TransferGradesPage() {
               value={playerFilter}
               onChange={(e) => setPlayerFilter(e.target.value)}
             />
-            <select className="rounded bg-zinc-800 p-2" value={gender} onChange={(e) => setGender(e.target.value === "women" ? "women" : "men")}>
-              <option value="men">Men</option>
-              <option value="women">Women</option>
-            </select>
           </div>
           <div className="mt-2 text-xs text-zinc-500">
             {loading ? "Loading..." : `Rows: ${filtered.length}`}
@@ -135,7 +153,20 @@ export default function TransferGradesPage() {
                 <th className="border-b border-zinc-700 p-2 text-left">Source Conference</th>
                 <th className="border-b border-zinc-700 p-2 text-left">Class</th>
                 {gradeColumns.map((c) => (
-                  <th key={c} className="border-b border-zinc-700 p-2 text-center">{c}</th>
+                  <th
+                    key={c}
+                    className="cursor-pointer border-b border-zinc-700 p-2 text-center"
+                    onClick={() => {
+                      if (sortCol === c) {
+                        setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+                      } else {
+                        setSortCol(c);
+                        setSortDir("desc");
+                      }
+                    }}
+                  >
+                    {c}{sortCol === c ? (sortDir === "desc" ? " ▼" : " ▲") : ""}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -166,4 +197,3 @@ export default function TransferGradesPage() {
     </div>
   );
 }
-
