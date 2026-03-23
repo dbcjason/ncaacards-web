@@ -23,6 +23,7 @@ export default function TransferGradesPage() {
   const [classFilter, setClassFilter] = useState("All");
   const [teamFilter, setTeamFilter] = useState("All");
   const [playerFilter, setPlayerFilter] = useState("");
+  const [scopeFilter, setScopeFilter] = useState<"all" | "mid_major">("all");
   const [sortCol, setSortCol] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [rows, setRows] = useState<GradeRow[]>([]);
@@ -49,6 +50,23 @@ export default function TransferGradesPage() {
       F: 0,
     };
     return Object.prototype.hasOwnProperty.call(map, v) ? map[v] : -1;
+  }
+
+  function conferenceKey(raw: string): string {
+    return String(raw || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function isHighMajorSourceConference(raw: string): boolean {
+    const k = conferenceKey(raw);
+    return (
+      k.includes("bigten") ||
+      k === "sec" ||
+      k.includes("big12") ||
+      k.includes("acc") ||
+      k.includes("bigeast")
+    );
   }
 
   useEffect(() => {
@@ -84,6 +102,7 @@ export default function TransferGradesPage() {
     const base = rows.filter((r) => {
       if (classFilter !== "All" && String(r.class || "").trim() !== classFilter) return false;
       if (teamFilter !== "All" && String(r.team || "").trim() !== teamFilter) return false;
+      if (scopeFilter === "mid_major" && isHighMajorSourceConference(String(r.source_conference || ""))) return false;
       if (needle && !String(r.player || "").toLowerCase().includes(needle)) return false;
       return true;
     });
@@ -96,7 +115,7 @@ export default function TransferGradesPage() {
       return String(a.player || "").localeCompare(String(b.player || ""));
     });
     return out;
-  }, [rows, classFilter, teamFilter, playerFilter, sortCol, sortDir, gradeColumns]);
+  }, [rows, classFilter, teamFilter, scopeFilter, playerFilter, sortCol, sortDir, gradeColumns]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -112,7 +131,7 @@ export default function TransferGradesPage() {
 
         <div className="mb-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Transfer Grades</div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {SEASONS.map((y) => (
                 <option key={y} value={y}>{y}</option>
@@ -136,6 +155,14 @@ export default function TransferGradesPage() {
               value={playerFilter}
               onChange={(e) => setPlayerFilter(e.target.value)}
             />
+            <select
+              className="rounded bg-zinc-800 p-2"
+              value={scopeFilter}
+              onChange={(e) => setScopeFilter(e.target.value === "mid_major" ? "mid_major" : "all")}
+            >
+              <option value="all">All Players</option>
+              <option value="mid_major">Mid Major Only</option>
+            </select>
           </div>
           <div className="mt-2 text-xs text-zinc-500">
             {loading ? "Loading..." : `Rows: ${filtered.length}`}
