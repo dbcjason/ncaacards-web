@@ -9,8 +9,10 @@ function parseGender(raw?: string): "men" | "women" {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
 }
 
-function buildCandidatePaths(explicitPath?: string): string[] {
+function buildCandidatePaths(season: string, explicitPath?: string): string[] {
   const base = [
+    `player_cards_pipeline/output/transfer_projection_${season}_all_conferences.csv`,
+    `transfer_projection_${season}_all_conferences.csv`,
     "player_cards_pipeline/output/transfer_projection_2026_all_conferences.csv",
     "player_cards_pipeline/output/transfer_projection_all_conferences.csv",
     "player_cards_pipeline/output/transfer_projection_2026_all_conferences_matrix.csv",
@@ -33,20 +35,20 @@ function buildCandidatePaths(explicitPath?: string): string[] {
   return out;
 }
 
-function sourceCfg(gender: "men" | "women") {
+function sourceCfg(gender: "men" | "women", season: string) {
   if (gender === "women") {
     return {
       owner: process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason",
       repo: process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards",
       ref: process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main",
-      csvPaths: buildCandidatePaths(process.env.GITHUB_TRANSFER_GRADES_CSV_PATH_WOMEN),
+      csvPaths: buildCandidatePaths(season, process.env.GITHUB_TRANSFER_GRADES_CSV_PATH_WOMEN),
     };
   }
   return {
     owner: process.env.GITHUB_DATA_OWNER || "dbcjason",
     repo: process.env.GITHUB_DATA_REPO || "NCAACards",
     ref: process.env.GITHUB_DATA_REF || "main",
-    csvPaths: buildCandidatePaths(process.env.GITHUB_TRANSFER_GRADES_CSV_PATH),
+    csvPaths: buildCandidatePaths(season, process.env.GITHUB_TRANSFER_GRADES_CSV_PATH),
   };
 }
 
@@ -138,7 +140,7 @@ export async function GET(req: NextRequest) {
   try {
     const gender = parseGender(req.nextUrl.searchParams.get("gender") ?? "men");
     const season = String(req.nextUrl.searchParams.get("season") ?? "2026").trim();
-    const cfg = sourceCfg(gender);
+    const cfg = sourceCfg(gender, season);
     const loaded = await fetchTransferRowsWithFallback(cfg.owner, cfg.repo, cfg.ref, cfg.csvPaths);
 
     let rows = loaded.rows;
