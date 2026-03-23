@@ -28,6 +28,16 @@ type JobPollResponse = {
   };
 };
 
+type PersistedCardRun = {
+  v: 1;
+  gender: "men" | "women";
+  compare: boolean;
+  idA: string;
+  idB?: string;
+};
+
+const CARD_RUN_STORAGE_KEY = "ncaacards:player-profile:active-run";
+
 export default function CardsPage() {
   const [gender, setGender] = useState<"men" | "women">("men");
 
@@ -66,6 +76,29 @@ export default function CardsPage() {
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
   const playerOptionsB = useMemo(() => playersByTeamB[teamB] ?? [], [playersByTeamB, teamB]);
+
+  function persistActiveRun(run: PersistedCardRun) {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(CARD_RUN_STORAGE_KEY, JSON.stringify(run));
+  }
+
+  function clearActiveRun() {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.removeItem(CARD_RUN_STORAGE_KEY);
+  }
+
+  function loadActiveRun(): PersistedCardRun | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.sessionStorage.getItem(CARD_RUN_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as PersistedCardRun;
+      if (!parsed || parsed.v !== 1 || !parsed.idA) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -192,6 +225,72 @@ export default function CardsPage() {
     }
   }
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = loadActiveRun();
+    if (!saved) return;
+    if (saved.gender !== gender) return;
+
+    let active = true;
+    (async () => {
+      setLoading(true);
+      setRunError("");
+      setProgress(5);
+      try {
+        if (!saved.compare) {
+          const outA = await pollJob(saved.idA, (p) => {
+            if (active) setProgress(p);
+          });
+          if (!active) return;
+          const htmlA = String(outA?.cardHtml ?? "");
+          if (!htmlA) throw new Error("Card HTML missing from resumed job result");
+          setResultHtml(htmlA);
+          setResultHtmlB("");
+          setResultCache(String(outA?.cache ?? ""));
+        } else {
+          const idB = String(saved.idB || "").trim();
+          if (!idB) throw new Error("Missing comparison job id");
+          let pA = 5;
+          let pB = 5;
+          const updateCombined = () => {
+            if (!active) return;
+            setProgress(Math.max(5, Math.min(100, Math.round((pA + pB) / 2))));
+          };
+          const [outA, outB] = await Promise.all([
+            pollJob(saved.idA, (p) => {
+              pA = p;
+              updateCombined();
+            }),
+            pollJob(idB, (p) => {
+              pB = p;
+              updateCombined();
+            }),
+          ]);
+          if (!active) return;
+          const htmlA = String(outA?.cardHtml ?? "");
+          const htmlB = String(outB?.cardHtml ?? "");
+          if (!htmlA || !htmlB) throw new Error("Comparison card HTML missing from resumed job result");
+          setResultHtml(htmlA);
+          setResultHtmlB(htmlB);
+          setResultCache(String(outA?.cache ?? outB?.cache ?? ""));
+        }
+        setProgress(100);
+        clearActiveRun();
+      } catch (e) {
+        if (!active) return;
+        setRunError(e instanceof Error ? e.message : "Failed to resume active card build");
+        setProgress(100);
+        clearActiveRun();
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [gender]);
+
   async function runCardBuild() {
     if (!optionsLoaded || !team || !player) return;
     if (compare && (!teamB || !playerB)) return;
@@ -234,13 +333,27 @@ export default function CardsPage() {
 
       if (!compare) {
         const idA = await startJob(reqA);
+        persistActiveRun({
+          v: 1,
+          gender,
+          compare: false,
+          idA,
+        });
         const outA = await pollJob(idA, (p) => setProgress(p));
         const htmlA = String(outA?.cardHtml ?? "");
         if (!htmlA) throw new Error("Card HTML missing from job result");
         setResultHtml(htmlA);
         setResultCache(String(outA?.cache ?? ""));
+        clearActiveRun();
       } else {
         const [idA, idB] = await Promise.all([startJob(reqA), startJob(reqB)]);
+        persistActiveRun({
+          v: 1,
+          gender,
+          compare: true,
+          idA,
+          idB,
+        });
         let pA = 5;
         let pB = 5;
         const updateCombined = () => setProgress(Math.max(5, Math.min(100, Math.round((pA + pB) / 2))));
@@ -260,12 +373,14 @@ export default function CardsPage() {
         setResultHtml(htmlA);
         setResultHtmlB(htmlB);
         setResultCache(String(outA?.cache ?? outB?.cache ?? ""));
+        clearActiveRun();
       }
 
       setProgress(100);
     } catch (e) {
       setRunError(e instanceof Error ? e.message : "Card build failed");
       setProgress(100);
+      clearActiveRun();
     } finally {
       setLoading(false);
     }
