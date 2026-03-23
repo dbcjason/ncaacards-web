@@ -17,6 +17,10 @@ type ApiResp = {
 };
 
 export default function TransferGradesPage() {
+  const MANUAL_EXCLUDE_PLAYERS = new Set([
+    "jake shapiro",
+    "tj drain",
+  ]);
   const SITE_GENDER: "men" | "women" = process.env.NEXT_PUBLIC_SITE_GENDER === "women" ? "women" : "men";
   const [gender] = useState<"men" | "women">(SITE_GENDER);
   const [season, setSeason] = useState<number>(2026);
@@ -114,6 +118,8 @@ export default function TransferGradesPage() {
   const filtered = useMemo(() => {
     const needle = playerFilter.trim().toLowerCase();
     const base = rows.filter((r) => {
+      const playerNorm = String(r.player || "").trim().toLowerCase();
+      if (MANUAL_EXCLUDE_PLAYERS.has(playerNorm)) return false;
       if (classFilter !== "All" && String(r.class || "").trim() !== classFilter) return false;
       if (teamFilter !== "All" && String(r.team || "").trim() !== teamFilter) return false;
       if (scopeFilter === "mid_major" && isHighMajorSourceConference(String(r.source_conference || ""))) return false;
