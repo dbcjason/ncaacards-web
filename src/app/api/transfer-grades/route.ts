@@ -35,21 +35,35 @@ function buildCandidatePaths(season: string, explicitPath?: string): string[] {
   return out;
 }
 
-function sourceCfg(gender: "men" | "women", season: string) {
-  if (gender === "women") {
-    return {
-      owner: process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason",
-      repo: process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards",
-      ref: process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main",
-      csvPaths: buildCandidatePaths(season, process.env.GITHUB_TRANSFER_GRADES_CSV_PATH_WOMEN),
-    };
-  }
-  return {
-    owner: process.env.GITHUB_DATA_OWNER || "dbcjason",
-    repo: process.env.GITHUB_DATA_REPO || "NCAACards",
-    ref: process.env.GITHUB_DATA_REF || "main",
-    csvPaths: buildCandidatePaths(season, process.env.GITHUB_TRANSFER_GRADES_CSV_PATH),
+type SourceCfg = { owner: string; repo: string; ref: string; csvPaths: string[] };
+
+function sourceCfgs(gender: "men" | "women", season: string): SourceCfg[] {
+  const out: SourceCfg[] = [];
+  const seen = new Set<string>();
+  const add = (owner: string, repo: string, ref: string, csvPaths: string[]) => {
+    const key = `${owner}/${repo}@${ref}`;
+    if (!owner || !repo || !ref || seen.has(key)) return;
+    seen.add(key);
+    out.push({ owner, repo, ref, csvPaths });
   };
+
+  if (gender === "women") {
+    const owner = process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason";
+    const repo = process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards";
+    const ref = process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main";
+    const csvPaths = buildCandidatePaths(season, process.env.GITHUB_TRANSFER_GRADES_CSV_PATH_WOMEN);
+    add(owner, repo, ref, csvPaths);
+    add("dbcjason", "NCAAWCards", "main", csvPaths);
+    return out;
+  }
+
+  const owner = process.env.GITHUB_DATA_OWNER || "dbcjason";
+  const repo = process.env.GITHUB_DATA_REPO || "NCAACards";
+  const ref = process.env.GITHUB_DATA_REF || "main";
+  const csvPaths = buildCandidatePaths(season, process.env.GITHUB_TRANSFER_GRADES_CSV_PATH);
+  add(owner, repo, ref, csvPaths);
+  add("dbcjason", "NCAACards", "main", csvPaths);
+  return out;
 }
 
 function parseCsvLine(line: string): string[] {
@@ -120,28 +134,29 @@ async function fetchTransferRows(
 }
 
 async function fetchTransferRowsWithFallback(
-  owner: string,
-  repo: string,
-  ref: string,
-  csvPaths: string[],
+  cfgs: SourceCfg[],
 ): Promise<{ rows: GradeRow[]; columns: string[]; csvPath: string }> {
   let lastErr = "not found";
-  for (const p of csvPaths) {
-    try {
-      return await fetchTransferRows(owner, repo, ref, p);
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e);
+  let tries = 0;
+  for (const cfg of cfgs) {
+    for (const p of cfg.csvPaths) {
+      tries += 1;
+      try {
+        return await fetchTransferRows(cfg.owner, cfg.repo, cfg.ref, p);
+      } catch (e) {
+        lastErr = `${cfg.owner}/${cfg.repo}@${cfg.ref}:${p} -> ${e instanceof Error ? e.message : String(e)}`;
+      }
     }
   }
-  throw new Error(`Failed to fetch transfer grades CSV (tried ${csvPaths.length} paths): ${lastErr}`);
+  throw new Error(`Failed to fetch transfer grades CSV (tried ${tries} paths): ${lastErr}`);
 }
 
 export async function GET(req: NextRequest) {
   try {
     const gender = parseGender(req.nextUrl.searchParams.get("gender") ?? "men");
     const season = String(req.nextUrl.searchParams.get("season") ?? "2026").trim();
-    const cfg = sourceCfg(gender, season);
-    const loaded = await fetchTransferRowsWithFallback(cfg.owner, cfg.repo, cfg.ref, cfg.csvPaths);
+    const cfgs = sourceCfgs(gender, season);
+    const loaded = await fetchTransferRowsWithFallback(cfgs);
 
     let rows = loaded.rows;
     if (season) rows = rows.filter((r) => String(r.season || "").trim() === season);
@@ -161,7 +176,7 @@ export async function GET(req: NextRequest) {
       classes,
       teams,
       players,
-      source: `${cfg.owner}/${cfg.repo}:${loaded.csvPath}`,
+      source: loaded.csvPath,
     });
   } catch (e) {
     return NextResponse.json(
