@@ -78,7 +78,9 @@ export default function CardsPage() {
   const [resultCache, setResultCache] = useState<string>("");
   const [runError, setRunError] = useState("");
   const draftLabel =
-    process.env.NEXT_PUBLIC_DRAFT_LABEL || (gender === "women" ? "WNBA Draft" : "NBA Draft");
+    gender === "women"
+      ? "WNBA Draft"
+      : process.env.NEXT_PUBLIC_DRAFT_LABEL_MEN || process.env.NEXT_PUBLIC_DRAFT_LABEL || "NBA Draft";
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
   const playerOptionsB = useMemo(() => playersByTeamB[teamB] ?? [], [playersByTeamB, teamB]);
