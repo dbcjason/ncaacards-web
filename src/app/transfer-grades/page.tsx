@@ -115,6 +115,25 @@ export default function TransferGradesPage() {
     };
   }, [gender, season]);
 
+  useEffect(() => {
+    const q = playerFilter.trim();
+    if (q.length < 2) return;
+    const t = window.setTimeout(() => {
+      void fetch("/api/telemetry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventType: "transfer_search",
+          gender,
+          season,
+          queryText: q,
+          source: "transfer_grades_filter",
+        }),
+      });
+    }, 450);
+    return () => window.clearTimeout(t);
+  }, [playerFilter, gender, season]);
+
   const filtered = useMemo(() => {
     const needle = playerFilter.trim().toLowerCase();
     const base = rows.filter((r) => {
