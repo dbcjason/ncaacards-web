@@ -39,19 +39,13 @@ type PersistedCardRun = {
 const CARD_RUN_STORAGE_KEY = "ncaacards:player-profile:active-run";
 
 export default function CardsPage() {
-  const SITE_GENDER: "men" | "women" = process.env.NEXT_PUBLIC_SITE_GENDER === "women" ? "women" : "men";
-  const GENDER_LOCKED = Boolean(process.env.NEXT_PUBLIC_SITE_GENDER);
-  const [gender, setGender] = useState<"men" | "women">(SITE_GENDER);
+  const [gender, setGender] = useState<"men" | "women">("men");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (GENDER_LOCKED) {
-      setGender(SITE_GENDER);
-      return;
-    }
     const g = new URLSearchParams(window.location.search).get("gender");
     setGender(g === "women" ? "women" : "men");
-  }, [GENDER_LOCKED, SITE_GENDER]);
+  }, []);
   const [season, setSeason] = useState(2026);
   const [seasonB, setSeasonB] = useState(2026);
   const [team, setTeam] = useState("");
