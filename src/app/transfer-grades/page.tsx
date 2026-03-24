@@ -21,9 +21,7 @@ export default function TransferGradesPage() {
     "jake shapiro",
     "tj drain",
   ]);
-  const SITE_GENDER: "men" | "women" = process.env.NEXT_PUBLIC_SITE_GENDER === "women" ? "women" : "men";
-  const GENDER_LOCKED = Boolean(process.env.NEXT_PUBLIC_SITE_GENDER);
-  const [gender, setGender] = useState<"men" | "women">(SITE_GENDER);
+  const [gender, setGender] = useState<"men" | "women">("men");
   const [season, setSeason] = useState<number>(2026);
   const [classFilter, setClassFilter] = useState("All");
   const [teamFilter, setTeamFilter] = useState("All");
@@ -41,15 +39,11 @@ export default function TransferGradesPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const qs = new URLSearchParams(window.location.search);
-    if (GENDER_LOCKED) {
-      setGender(SITE_GENDER);
-    } else {
-      const g = qs.get("gender");
-      setGender(g === "women" ? "women" : "men");
-    }
+    const g = qs.get("gender");
+    setGender(g === "women" ? "women" : "men");
     const s = Number(qs.get("season"));
     if (Number.isFinite(s) && s > 2000) setSeason(s);
-  }, [GENDER_LOCKED, SITE_GENDER]);
+  }, []);
 
   function gradeScore(raw: string): number {
     const v = String(raw || "").trim().toUpperCase();
