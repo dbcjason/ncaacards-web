@@ -26,6 +26,8 @@ export default function JasonCreatedStatsPage() {
   const [teamFilter, setTeamFilter] = useState("All");
   const [playerFilter, setPlayerFilter] = useState("");
   const [minMpg, setMinMpg] = useState("10");
+  const [draftedOnly, setDraftedOnly] = useState(false);
+  const [highMajorOnly, setHighMajorOnly] = useState(false);
 
   const [rows, setRows] = useState<Row[]>([]);
   const [seasons, setSeasons] = useState<string[]>([]);
@@ -34,8 +36,55 @@ export default function JasonCreatedStatsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const [sortCol, setSortCol] = useState<"feel_plus" | "rimfluence" | "height_delta_inches">("feel_plus");
+  const [sortCol, setSortCol] = useState<string>("feel_plus");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  function conferenceKey(raw: string): string {
+    return String(raw || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function isHighMajorConference(raw: string): boolean {
+    const k = conferenceKey(raw);
+    const exact = new Set([
+      "sec",
+      "acc",
+      "b10",
+      "b1g",
+      "big10",
+      "bigten",
+      "b12",
+      "big12",
+      "be",
+      "bigeast",
+    ]);
+    if (exact.has(k)) return true;
+    return (
+      k.includes("bigten") ||
+      k.includes("b1g") ||
+      k.includes("big12") ||
+      k.includes("bigeast") ||
+      k.includes("acc") ||
+      k.includes("sec")
+    );
+  }
+
+  function isHighMajorRow(r: Row): boolean {
+    const team = String(r.team || "").trim().toLowerCase();
+    if (team === "gonzaga") return true;
+    const confRaw = String(r.conference || r.conf || r.source_conference || "").trim();
+    return isHighMajorConference(confRaw);
+  }
+
+  const onSort = (col: string) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setSortCol(col);
+    setSortDir("desc");
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -81,6 +130,8 @@ export default function JasonCreatedStatsPage() {
       if (classFilter !== "All" && String(r.class || "").trim() !== classFilter) return false;
       if (teamFilter !== "All" && String(r.team || "").trim() !== teamFilter) return false;
       if (needle && !String(r.player_name || "").toLowerCase().includes(needle)) return false;
+      if (draftedOnly && !String(r.draft_pick || "").trim()) return false;
+      if (highMajorOnly && !isHighMajorRow(r)) return false;
       if (Number.isFinite(minMpgNum) && minMpgNum > 0) {
         const mpg = Number(String(r.mpg ?? "").trim());
         if (!Number.isFinite(mpg) || mpg < minMpgNum) return false;
@@ -89,14 +140,19 @@ export default function JasonCreatedStatsPage() {
     });
 
     out.sort((a, b) => {
-      const av = toNum(a[sortCol]);
-      const bv = toNum(b[sortCol]);
-      if (av !== bv) return sortDir === "desc" ? bv - av : av - bv;
+      const avNum = toNum(a[sortCol]);
+      const bvNum = toNum(b[sortCol]);
+      const aIsNum = Number.isFinite(avNum);
+      const bIsNum = Number.isFinite(bvNum);
+      if (aIsNum && bIsNum && avNum !== bvNum) return sortDir === "desc" ? bvNum - avNum : avNum - bvNum;
+      const av = String(a[sortCol] ?? "");
+      const bv = String(b[sortCol] ?? "");
+      if (av !== bv) return sortDir === "desc" ? bv.localeCompare(av) : av.localeCompare(bv);
       return String(a.player_name || "").localeCompare(String(b.player_name || ""));
     });
 
     return out;
-  }, [rows, season, classFilter, teamFilter, playerFilter, minMpg, sortCol, sortDir]);
+  }, [rows, season, classFilter, teamFilter, playerFilter, draftedOnly, highMajorOnly, minMpg, sortCol, sortDir]);
 
   const seasonOptions = useMemo(() => ["All", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019"], []);
 
@@ -115,7 +171,7 @@ export default function JasonCreatedStatsPage() {
 
         <div className="mb-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Jason Created Stats</div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(e.target.value)}>
               {seasonOptions.map((s) => (
                 <option key={s} value={s}>{s === "All" ? "Combined (All years)" : s}</option>
@@ -139,18 +195,17 @@ export default function JasonCreatedStatsPage() {
                 onChange={(e) => setMinMpg(e.target.value)}
               />
             </div>
-            <select
-              className="rounded bg-zinc-800 p-2"
-              value={sortCol}
-              onChange={(e) => setSortCol(e.target.value as "feel_plus" | "rimfluence" | "height_delta_inches")}
-            >
-              <option value="feel_plus">Sort: Feel+</option>
-              <option value="rimfluence">Sort: Rimfluence</option>
-              <option value="height_delta_inches">Sort: Statistical Height</option>
-            </select>
           </div>
           <div className="mt-2 flex items-center gap-3 text-xs text-zinc-500">
             <span>{loading ? "Loading..." : `Rows: ${filtered.length}`}</span>
+            <label className="inline-flex items-center gap-2">
+              <input type="checkbox" checked={draftedOnly} onChange={(e) => setDraftedOnly(e.target.checked)} />
+              Drafted
+            </label>
+            <label className="inline-flex items-center gap-2">
+              <input type="checkbox" checked={highMajorOnly} onChange={(e) => setHighMajorOnly(e.target.checked)} />
+              High Major
+            </label>
             <button
               className="rounded bg-zinc-800 px-2 py-1"
               onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
@@ -166,22 +221,22 @@ export default function JasonCreatedStatsPage() {
           <table className="w-max min-w-full border-collapse text-sm">
             <thead>
               <tr className="bg-zinc-800 text-zinc-100">
-                <th className="border-b border-zinc-700 p-2 text-left">Season</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Player</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Team</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Pos</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Class</th>
-                <th className="border-b border-zinc-700 p-2 text-center">MPG</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Listed Ht</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Statistical Height</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Delta (in)</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Delta %ile</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Feel+</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Feel+ %ile</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Rimfluence</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Off Rimfluence</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Def Rimfluence</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Rimfluence %ile</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-left" onClick={() => onSort("season")}>Season</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-left" onClick={() => onSort("player_name")}>Player</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-left" onClick={() => onSort("team")}>Team</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-left" onClick={() => onSort("position")}>Pos</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-left" onClick={() => onSort("class")}>Class</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("mpg")}>MPG</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("listed_height")}>Listed Ht</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("statistical_height")}>Statistical Height</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("height_delta_inches")}>Delta (in)</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("height_delta_percentile")}>Delta %ile</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("feel_plus")}>Feel+</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("feel_plus_percentile")}>Feel+ %ile</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("rimfluence")}>Rimfluence</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("rimfluence_off")}>Off Rimfluence</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("rimfluence_def")}>Def Rimfluence</th>
+                <th className="cursor-pointer border-b border-zinc-700 p-2 text-center" onClick={() => onSort("rimfluence_percentile")}>Rimfluence %ile</th>
               </tr>
             </thead>
             <tbody>
