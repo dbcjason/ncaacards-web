@@ -25,6 +25,7 @@ export default function JasonCreatedStatsPage() {
   const [classFilter, setClassFilter] = useState("All");
   const [teamFilter, setTeamFilter] = useState("All");
   const [playerFilter, setPlayerFilter] = useState("");
+  const [minMpg, setMinMpg] = useState("10");
 
   const [rows, setRows] = useState<Row[]>([]);
   const [seasons, setSeasons] = useState<string[]>([]);
@@ -74,11 +75,16 @@ export default function JasonCreatedStatsPage() {
 
   const filtered = useMemo(() => {
     const needle = playerFilter.trim().toLowerCase();
+    const minMpgNum = Number(minMpg);
     const out = rows.filter((r) => {
       if (season !== "All" && String(r.season || "").trim() !== season) return false;
       if (classFilter !== "All" && String(r.class || "").trim() !== classFilter) return false;
       if (teamFilter !== "All" && String(r.team || "").trim() !== teamFilter) return false;
       if (needle && !String(r.player_name || "").toLowerCase().includes(needle)) return false;
+      if (Number.isFinite(minMpgNum) && minMpgNum > 0) {
+        const mpg = Number(String(r.mpg ?? "").trim());
+        if (!Number.isFinite(mpg) || mpg < minMpgNum) return false;
+      }
       return true;
     });
 
@@ -90,7 +96,7 @@ export default function JasonCreatedStatsPage() {
     });
 
     return out;
-  }, [rows, season, classFilter, teamFilter, playerFilter, sortCol, sortDir]);
+  }, [rows, season, classFilter, teamFilter, playerFilter, minMpg, sortCol, sortDir]);
 
   const seasonOptions = useMemo(() => ["All", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019"], []);
 
@@ -109,7 +115,7 @@ export default function JasonCreatedStatsPage() {
 
         <div className="mb-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Jason Created Stats</div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(e.target.value)}>
               {seasonOptions.map((s) => (
                 <option key={s} value={s}>{s === "All" ? "Combined (All years)" : s}</option>
@@ -124,6 +130,12 @@ export default function JasonCreatedStatsPage() {
               {teams.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter player" value={playerFilter} onChange={(e) => setPlayerFilter(e.target.value)} />
+            <input
+              className="rounded bg-zinc-800 p-2"
+              placeholder="Min MPG"
+              value={minMpg}
+              onChange={(e) => setMinMpg(e.target.value)}
+            />
             <select
               className="rounded bg-zinc-800 p-2"
               value={sortCol}
