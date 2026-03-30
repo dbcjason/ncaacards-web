@@ -224,6 +224,7 @@ export default function RosterPage() {
             <Link href={`/cards?gender=${gender}`} className="text-zinc-300">Player Profiles</Link>
             <Link href={`/roster?gender=${gender}`} className="text-red-400">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${season}`} className="text-zinc-300">Transfer Grades</Link>
+            <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-zinc-300">Jason Created Stats</Link>
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
