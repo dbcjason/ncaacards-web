@@ -21,7 +21,7 @@ function toNum(v: string | undefined): number {
 
 export default function JasonCreatedStatsPage() {
   const [gender, setGender] = useState<"men" | "women">("men");
-  const [season, setSeason] = useState("2026");
+  const [season, setSeason] = useState("All");
   const [classFilter, setClassFilter] = useState("All");
   const [teamFilter, setTeamFilter] = useState("All");
   const [playerFilter, setPlayerFilter] = useState("");
@@ -51,7 +51,7 @@ export default function JasonCreatedStatsPage() {
       setLoading(true);
       setError("");
       try {
-        const r = await fetch(`/api/jason-stats?gender=${gender}&season=${season}`, { cache: "no-store" });
+        const r = await fetch(`/api/jason-stats?gender=${gender}`, { cache: "no-store" });
         const j = (await r.json()) as ApiResp;
         if (!active) return;
         if (!j.ok) throw new Error(j.error || "Failed to load Jason Created Stats");
@@ -70,11 +70,12 @@ export default function JasonCreatedStatsPage() {
     return () => {
       active = false;
     };
-  }, [gender, season]);
+  }, [gender]);
 
   const filtered = useMemo(() => {
     const needle = playerFilter.trim().toLowerCase();
     const out = rows.filter((r) => {
+      if (season !== "All" && String(r.season || "").trim() !== season) return false;
       if (classFilter !== "All" && String(r.class || "").trim() !== classFilter) return false;
       if (teamFilter !== "All" && String(r.team || "").trim() !== teamFilter) return false;
       if (needle && !String(r.player_name || "").toLowerCase().includes(needle)) return false;
@@ -89,7 +90,9 @@ export default function JasonCreatedStatsPage() {
     });
 
     return out;
-  }, [rows, classFilter, teamFilter, playerFilter, sortCol, sortDir]);
+  }, [rows, season, classFilter, teamFilter, playerFilter, sortCol, sortDir]);
+
+  const seasonOptions = useMemo(() => ["All", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019"], []);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -108,8 +111,8 @@ export default function JasonCreatedStatsPage() {
           <div className="mb-2 text-lg font-bold">Jason Created Stats</div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(e.target.value)}>
-              {(seasons.length ? seasons : ["2026"]).map((s) => (
-                <option key={s} value={s}>{s}</option>
+              {seasonOptions.map((s) => (
+                <option key={s} value={s}>{s === "All" ? "Combined (All years)" : s}</option>
               ))}
             </select>
             <select className="rounded bg-zinc-800 p-2" value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
@@ -128,7 +131,7 @@ export default function JasonCreatedStatsPage() {
             >
               <option value="feel_plus">Sort: Feel+</option>
               <option value="rimfluence">Sort: Rimfluence</option>
-              <option value="height_delta_inches">Sort: Height Delta</option>
+              <option value="height_delta_inches">Sort: Statistical Height</option>
             </select>
           </div>
           <div className="mt-2 flex items-center gap-3 text-xs text-zinc-500">
@@ -156,9 +159,12 @@ export default function JasonCreatedStatsPage() {
                 <th className="border-b border-zinc-700 p-2 text-center">Feel+</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Feel+ %ile</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Rimfluence</th>
+                <th className="border-b border-zinc-700 p-2 text-center">Off Rimfluence</th>
+                <th className="border-b border-zinc-700 p-2 text-center">Def Rimfluence</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Rimfluence %ile</th>
+                <th className="border-b border-zinc-700 p-2 text-center">MPG</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Listed Ht</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Stat Ht</th>
+                <th className="border-b border-zinc-700 p-2 text-center">Statistical Height</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Delta (in)</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Delta %ile</th>
               </tr>
@@ -174,7 +180,10 @@ export default function JasonCreatedStatsPage() {
                   <td className="border-b border-zinc-800 p-2 text-center">{r.feel_plus}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.feel_plus_percentile}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.rimfluence}</td>
+                  <td className="border-b border-zinc-800 p-2 text-center">{r.rimfluence_off}</td>
+                  <td className="border-b border-zinc-800 p-2 text-center">{r.rimfluence_def}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.rimfluence_percentile}</td>
+                  <td className="border-b border-zinc-800 p-2 text-center">{r.mpg}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.listed_height}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.statistical_height}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.height_delta_inches}</td>
@@ -183,7 +192,7 @@ export default function JasonCreatedStatsPage() {
               ))}
               {!filtered.length && (
                 <tr>
-                  <td colSpan={13} className="p-8 text-center text-zinc-400">
+                  <td colSpan={16} className="p-8 text-center text-zinc-400">
                     {loading ? "Loading Jason Created Stats..." : "No rows for the current filters."}
                   </td>
                 </tr>
