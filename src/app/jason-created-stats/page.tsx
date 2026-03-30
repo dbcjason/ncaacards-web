@@ -130,12 +130,15 @@ export default function JasonCreatedStatsPage() {
               {teams.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter player" value={playerFilter} onChange={(e) => setPlayerFilter(e.target.value)} />
-            <input
-              className="rounded bg-zinc-800 p-2"
-              placeholder="Min MPG"
-              value={minMpg}
-              onChange={(e) => setMinMpg(e.target.value)}
-            />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-400">Min MPG</span>
+              <input
+                className="rounded bg-zinc-800 p-2"
+                placeholder="10"
+                value={minMpg}
+                onChange={(e) => setMinMpg(e.target.value)}
+              />
+            </div>
             <select
               className="rounded bg-zinc-800 p-2"
               value={sortCol}
@@ -168,17 +171,17 @@ export default function JasonCreatedStatsPage() {
                 <th className="border-b border-zinc-700 p-2 text-left">Team</th>
                 <th className="border-b border-zinc-700 p-2 text-left">Pos</th>
                 <th className="border-b border-zinc-700 p-2 text-left">Class</th>
+                <th className="border-b border-zinc-700 p-2 text-center">MPG</th>
+                <th className="border-b border-zinc-700 p-2 text-center">Listed Ht</th>
+                <th className="border-b border-zinc-700 p-2 text-center">Statistical Height</th>
+                <th className="border-b border-zinc-700 p-2 text-center">Delta (in)</th>
+                <th className="border-b border-zinc-700 p-2 text-center">Delta %ile</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Feel+</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Feel+ %ile</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Rimfluence</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Off Rimfluence</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Def Rimfluence</th>
                 <th className="border-b border-zinc-700 p-2 text-center">Rimfluence %ile</th>
-                <th className="border-b border-zinc-700 p-2 text-center">MPG</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Listed Ht</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Statistical Height</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Delta (in)</th>
-                <th className="border-b border-zinc-700 p-2 text-center">Delta %ile</th>
               </tr>
             </thead>
             <tbody>
@@ -189,17 +192,17 @@ export default function JasonCreatedStatsPage() {
                   <td className="border-b border-zinc-800 p-2 text-left">{r.team}</td>
                   <td className="border-b border-zinc-800 p-2 text-left">{r.position}</td>
                   <td className="border-b border-zinc-800 p-2 text-left">{r.class}</td>
+                  <td className="border-b border-zinc-800 p-2 text-center">{r.mpg}</td>
+                  <td className="border-b border-zinc-800 p-2 text-center">{r.listed_height}</td>
+                  <td className="border-b border-zinc-800 p-2 text-center">{r.statistical_height}</td>
+                  <td className="border-b border-zinc-800 p-2 text-center">{r.height_delta_inches}</td>
+                  <td className="border-b border-zinc-800 p-2 text-center">{r.height_delta_percentile}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.feel_plus}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.feel_plus_percentile}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.rimfluence}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.rimfluence_off}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.rimfluence_def}</td>
                   <td className="border-b border-zinc-800 p-2 text-center">{r.rimfluence_percentile}</td>
-                  <td className="border-b border-zinc-800 p-2 text-center">{r.mpg}</td>
-                  <td className="border-b border-zinc-800 p-2 text-center">{r.listed_height}</td>
-                  <td className="border-b border-zinc-800 p-2 text-center">{r.statistical_height}</td>
-                  <td className="border-b border-zinc-800 p-2 text-center">{r.height_delta_inches}</td>
-                  <td className="border-b border-zinc-800 p-2 text-center">{r.height_delta_percentile}</td>
                 </tr>
               ))}
               {!filtered.length && (
