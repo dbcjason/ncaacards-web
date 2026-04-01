@@ -307,11 +307,15 @@ async function getRun(cfg: RuntimeCfg, runId: number): Promise<{ status: string;
 
 async function fetchCommittedCardHtml(cfg: RuntimeCfg, outputFilename: string): Promise<string> {
   const path = `player_cards_pipeline/output/${outputFilename}`;
+  const encodedPath = path
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
   const r = await ghApi(
     cfg,
     `/repos/${encodeURIComponent(cfg.ghOwner)}/${encodeURIComponent(
       cfg.ghRepo,
-    )}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(cfg.ghRef)}`,
+    )}/contents/${encodedPath}?ref=${encodeURIComponent(cfg.ghRef)}`,
   );
   if (!r.ok) {
     const t = await r.text();
