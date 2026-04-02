@@ -165,6 +165,7 @@ export default function JasonCreatedStatsPage() {
             <Link href={`/roster?gender=${gender}`} className="text-zinc-300">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${season}`} className="text-zinc-300">Transfer Grades</Link>
             <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-red-400">Jason Created Stats</Link>
+            {gender === "men" && <Link href="/lineup-analysis" className="text-zinc-300">Lineup Analysis</Link>}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
