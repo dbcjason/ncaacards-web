@@ -264,7 +264,7 @@ export default function LineupAnalysisPage() {
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
             <section className="h-full rounded-xl border border-zinc-700 bg-zinc-900 p-4">
               <div className="mb-3 text-lg font-bold">Player On/Off</div>
-              <div className="max-h-[560px] overflow-auto rounded-lg border border-zinc-800">
+              <div className="h-[380px] overflow-auto rounded-lg border border-zinc-800">
                 <table className="w-max min-w-full border-collapse text-sm">
                   <thead>
                     <tr className="bg-zinc-800 text-zinc-100">
@@ -306,7 +306,7 @@ export default function LineupAnalysisPage() {
 
             <section className="h-full rounded-xl border border-zinc-700 bg-zinc-900 p-4">
               <div className="mb-3 text-lg font-bold">Five-Man Lineups</div>
-              <div className="max-h-[560px] overflow-auto rounded-lg border border-zinc-800">
+              <div className="h-[380px] overflow-auto rounded-lg border border-zinc-800">
                 <table className="w-max min-w-full border-collapse text-sm">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-zinc-800 text-zinc-100">
@@ -436,7 +436,7 @@ export default function LineupAnalysisPage() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-6">
-              <StatCell label="Matching Lineups" value={String(wowyLineups.length)} />
+              <StatCell label="Net Rating" value={fmtNum(wowyStats.netRtg)} />
               <StatCell label="Minutes" value={fmtNum(wowyStats.minutes)} />
               <StatCell label="OffRtg" value={fmtNum(wowyStats.offRtg)} />
               <StatCell label="DefRtg" value={fmtNum(wowyStats.defRtg)} />
