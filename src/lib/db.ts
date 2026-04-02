@@ -1,24 +1,17 @@
 import { Pool } from "pg";
+import { resolveDatabaseUrl } from "@/lib/env";
 
 type DbQueryResult = { rows: unknown[] };
 type DbPool = { query: (text: string, params?: unknown[]) => Promise<DbQueryResult> };
 
 let pool: DbPool | null = null;
 
-function resolveDatabaseUrl(): string {
-  const url =
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    process.env.POSTGRES_URL_NON_POOLING ||
-    "";
-  return String(url).trim();
-}
-
 function getPool(): DbPool {
   const dbUrl = resolveDatabaseUrl();
   if (!dbUrl) {
-    throw new Error("DATABASE_URL is not set (or POSTGRES_URL)");
+    throw new Error(
+      "Database connection string is not set. Expected SUPABASE_DB_URL, DIRECT_DATABASE_URL, DATABASE_URL, or POSTGRES_URL.",
+    );
   }
   if (!pool) {
     pool = new Pool({

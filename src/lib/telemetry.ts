@@ -16,29 +16,9 @@ let schemaReady = false;
 
 async function ensureTelemetrySchema() {
   if (schemaReady) return;
-  await dbQuery(`
-    CREATE TABLE IF NOT EXISTS site_telemetry_events (
-      id BIGSERIAL PRIMARY KEY,
-      event_type TEXT NOT NULL,
-      path TEXT,
-      gender TEXT,
-      season INT,
-      team TEXT,
-      player TEXT,
-      query_text TEXT,
-      source TEXT,
-      country TEXT,
-      region TEXT,
-      city TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-  await dbQuery(
-    `CREATE INDEX IF NOT EXISTS idx_site_telemetry_events_created_at ON site_telemetry_events(created_at DESC)`,
-  );
-  await dbQuery(
-    `CREATE INDEX IF NOT EXISTS idx_site_telemetry_events_type_created ON site_telemetry_events(event_type, created_at DESC)`,
-  );
+  // Schema is provisioned via SQL migrations; this call keeps telemetry writes
+  // on a lazy path without issuing DDL during requests.
+  await dbQuery("SELECT 1");
   schemaReady = true;
 }
 
@@ -82,4 +62,3 @@ export async function logTelemetryEvent(req: NextRequest, payload: TelemetryPayl
     // Best-effort telemetry only; never fail user flows.
   }
 }
-

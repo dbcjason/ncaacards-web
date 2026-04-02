@@ -2,6 +2,7 @@ import { dbQuery } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { resolveTeamPlayerForSeason } from "@/lib/options";
 import { buildRosterPayload } from "@/lib/mock";
+import { loadJsonPayload, storeJsonPayload } from "@/lib/object-store";
 
 export type JobType = "card" | "roster";
 export type JobStatus = "queued" | "running" | "done" | "error";
@@ -120,14 +121,14 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
 
   let payload: Record<string, unknown> | null = null;
   try {
-    const rows = await dbQuery<{ payload: Record<string, unknown> }>(
+    const rows = await dbQuery<{ payload: unknown }>(
       `SELECT payload
        FROM card_payloads
        WHERE season = $1 AND team = $2 AND player = $3 AND mode = $4 AND destination_conference = $5
        LIMIT 1`,
       [season, team, player, mode, destinationConference],
     );
-    if (rows[0]?.payload) payload = rows[0].payload;
+    if (rows[0]?.payload) payload = await loadJsonPayload<Record<string, unknown>>(rows[0].payload);
   } catch {
     payload = null;
   }
@@ -173,14 +174,14 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
   let payload: Record<string, unknown> | null = null;
   if (!addMinutes.length && !removeMinutes.length) {
     try {
-      const rows = await dbQuery<{ payload: Record<string, unknown> }>(
+      const rows = await dbQuery<{ payload: unknown }>(
         `SELECT payload
          FROM roster_payloads
          WHERE season = $1 AND team = $2 AND add_hash = $3 AND remove_hash = $4
          LIMIT 1`,
         [season, team, inHash, outHash],
       );
-      if (rows[0]?.payload) payload = rows[0].payload;
+      if (rows[0]?.payload) payload = await loadJsonPayload<Record<string, unknown>>(rows[0].payload);
     } catch {
       payload = null;
     }
@@ -195,6 +196,19 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
       addMinutes: Object.fromEntries(addMinutes),
       removeMinutes: Object.fromEntries(removeMinutes),
     }) as Record<string, unknown>;
+    if (!addMinutes.length && !removeMinutes.length) {
+      try {
+        await upsertRosterPayload({
+          season,
+          team,
+          addHash: inHash,
+          removeHash: outHash,
+          payload: livePayload,
+        });
+      } catch {
+        // Keep live generation resilient even if persistence fails.
+      }
+    }
     await cacheSet(key, livePayload, 60 * 10);
     return { ...livePayload, cache: "live" };
   }
@@ -335,6 +349,14 @@ async function upsertCardPayload(payloadKey: {
   destinationConference: string;
   payload: Record<string, unknown>;
 }) {
+  const storedPayload = await storeJsonPayload(payloadKey.payload, [
+    "cards",
+    String(payloadKey.season),
+    payloadKey.team,
+    payloadKey.player,
+    payloadKey.mode,
+    payloadKey.destinationConference || "na",
+  ]);
   await dbQuery(
     `INSERT INTO card_payloads (season, team, player, mode, destination_conference, payload, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
@@ -346,7 +368,36 @@ async function upsertCardPayload(payloadKey: {
       payloadKey.player,
       payloadKey.mode,
       payloadKey.destinationConference,
-      JSON.stringify(payloadKey.payload),
+      JSON.stringify(storedPayload),
+    ],
+  );
+}
+
+async function upsertRosterPayload(payloadKey: {
+  season: number;
+  team: string;
+  addHash: string;
+  removeHash: string;
+  payload: Record<string, unknown>;
+}) {
+  const storedPayload = await storeJsonPayload(payloadKey.payload, [
+    "rosters",
+    String(payloadKey.season),
+    payloadKey.team,
+    payloadKey.addHash || "none",
+    payloadKey.removeHash || "none",
+  ]);
+  await dbQuery(
+    `INSERT INTO roster_payloads (season, team, add_hash, remove_hash, payload, updated_at)
+     VALUES ($1, $2, $3, $4, $5::jsonb, now())
+     ON CONFLICT (season, team, add_hash, remove_hash)
+     DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()`,
+    [
+      payloadKey.season,
+      payloadKey.team,
+      payloadKey.addHash,
+      payloadKey.removeHash,
+      JSON.stringify(storedPayload),
     ],
   );
 }
