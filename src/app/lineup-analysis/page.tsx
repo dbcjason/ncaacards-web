@@ -311,7 +311,6 @@ export default function LineupAnalysisPage() {
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-zinc-800 text-zinc-100">
                       <th className="border-b border-zinc-700 p-2 text-left">Lineup</th>
-                      <th className="border-b border-zinc-700 p-2 text-center">Minutes</th>
                       <th className="border-b border-zinc-700 p-2 text-center">Poss</th>
                       <th className="border-b border-zinc-700 p-2 text-center">OffRtg</th>
                       <th className="border-b border-zinc-700 p-2 text-center">DefRtg</th>
@@ -324,7 +323,6 @@ export default function LineupAnalysisPage() {
                     {allLineups.map((row) => (
                       <tr key={row.id} className="odd:bg-zinc-900 even:bg-zinc-950">
                         <td className="border-b border-zinc-800 p-2 text-left">{lineupLabel([...row.players])}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.minutes)}</td>
                         <td className="border-b border-zinc-800 p-2 text-center">{row.possessions}</td>
                         <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.offRtg)}</td>
                         <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.defRtg)}</td>
