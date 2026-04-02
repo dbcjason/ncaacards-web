@@ -262,9 +262,9 @@ export default function LineupAnalysisPage() {
 
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
-            <section className="rounded-xl border border-zinc-700 bg-zinc-900 p-4">
+            <section className="h-full rounded-xl border border-zinc-700 bg-zinc-900 p-4">
               <div className="mb-3 text-lg font-bold">Player On/Off</div>
-              <div className="overflow-auto rounded-lg border border-zinc-800">
+              <div className="max-h-[560px] overflow-auto rounded-lg border border-zinc-800">
                 <table className="w-max min-w-full border-collapse text-sm">
                   <thead>
                     <tr className="bg-zinc-800 text-zinc-100">
@@ -304,9 +304,44 @@ export default function LineupAnalysisPage() {
               </div>
             </section>
 
-            <section className="rounded-xl border border-zinc-700 bg-zinc-900 p-4">
-              <div className="mb-3 text-lg font-bold">WOWY Explorer</div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
+            <section className="h-full rounded-xl border border-zinc-700 bg-zinc-900 p-4">
+              <div className="mb-3 text-lg font-bold">Five-Man Lineups</div>
+              <div className="max-h-[560px] overflow-auto rounded-lg border border-zinc-800">
+                <table className="w-max min-w-full border-collapse text-sm">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-zinc-800 text-zinc-100">
+                      <th className="border-b border-zinc-700 p-2 text-left">Lineup</th>
+                      <th className="border-b border-zinc-700 p-2 text-center">Minutes</th>
+                      <th className="border-b border-zinc-700 p-2 text-center">Poss</th>
+                      <th className="border-b border-zinc-700 p-2 text-center">OffRtg</th>
+                      <th className="border-b border-zinc-700 p-2 text-center">DefRtg</th>
+                      <th className="border-b border-zinc-700 p-2 text-center">Net</th>
+                      <th className="border-b border-zinc-700 p-2 text-center">FG%</th>
+                      <th className="border-b border-zinc-700 p-2 text-center">3P%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allLineups.map((row) => (
+                      <tr key={row.id} className="odd:bg-zinc-900 even:bg-zinc-950">
+                        <td className="border-b border-zinc-800 p-2 text-left">{lineupLabel([...row.players])}</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.minutes)}</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{row.possessions}</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.offRtg)}</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.defRtg)}</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.netRtg)}</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.fgPct)}%</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.threePct)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <section className="rounded-xl border border-zinc-700 bg-zinc-900 p-4">
+            <div className="mb-3 text-lg font-bold">WOWY Explorer</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
               <div className="flex gap-2">
                 <div className="w-full space-y-2">
                   <input
@@ -398,18 +433,18 @@ export default function LineupAnalysisPage() {
                   </div>
                 </div>
               </div>
-              </div>
+            </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-6">
+            <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-6">
               <StatCell label="Matching Lineups" value={String(wowyLineups.length)} />
               <StatCell label="Minutes" value={fmtNum(wowyStats.minutes)} />
               <StatCell label="OffRtg" value={fmtNum(wowyStats.offRtg)} />
               <StatCell label="DefRtg" value={fmtNum(wowyStats.defRtg)} />
               <StatCell label="FG%" value={`${fmtNum(wowyStats.fgPct)}%`} />
               <StatCell label="3P%" value={`${fmtNum(wowyStats.threePct)}%`} />
-              </div>
+            </div>
 
-              <div className="mt-4 overflow-auto rounded-lg border border-zinc-800">
+            <div className="mt-4 overflow-auto rounded-lg border border-zinc-800">
               <table className="w-max min-w-full border-collapse text-sm">
                 <thead>
                   <tr className="bg-zinc-800 text-zinc-100">
@@ -445,41 +480,6 @@ export default function LineupAnalysisPage() {
                       </td>
                     </tr>
                   )}
-                </tbody>
-              </table>
-              </div>
-            </section>
-          </div>
-
-          <section className="rounded-xl border border-zinc-700 bg-zinc-900 p-4">
-            <div className="mb-3 text-lg font-bold">Five-Man Lineups</div>
-            <div className="max-h-[560px] overflow-auto rounded-lg border border-zinc-800">
-              <table className="w-max min-w-full border-collapse text-sm">
-                <thead className="sticky top-0 z-10">
-                  <tr className="bg-zinc-800 text-zinc-100">
-                    <th className="border-b border-zinc-700 p-2 text-left">Lineup</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">Minutes</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">Poss</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">OffRtg</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">DefRtg</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">Net</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">FG%</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">3P%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allLineups.map((row) => (
-                    <tr key={row.id} className="odd:bg-zinc-900 even:bg-zinc-950">
-                      <td className="border-b border-zinc-800 p-2 text-left">{lineupLabel([...row.players])}</td>
-                      <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.minutes)}</td>
-                      <td className="border-b border-zinc-800 p-2 text-center">{row.possessions}</td>
-                      <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.offRtg)}</td>
-                      <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.defRtg)}</td>
-                      <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.netRtg)}</td>
-                      <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.fgPct)}%</td>
-                      <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.threePct)}%</td>
-                    </tr>
-                  ))}
                 </tbody>
               </table>
             </div>
