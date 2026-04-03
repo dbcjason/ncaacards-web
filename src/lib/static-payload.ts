@@ -1,14 +1,21 @@
 import { dbQuery } from "@/lib/db";
 import { loadJsonPayloadFromObjectKey } from "@/lib/object-store";
 
-type CardPayload = {
+export type CardSections = Record<string, unknown>;
+
+export type CardPayload = {
+  schema_version?: string;
   player: string;
   team: string;
   season: string;
   bio?: Record<string, unknown>;
   per_game?: Record<string, unknown>;
   shot_chart?: Record<string, unknown>;
-  sections_html?: Record<string, unknown>;
+  sections_html?: CardSections;
+  section_bundles?: {
+    core?: CardSections;
+    heavy?: CardSections;
+  };
 };
 
 type Gender = "men" | "women";
@@ -171,6 +178,21 @@ async function loadFromStaticIndex(
   }
   const payloadPath = `${cfg.staticRoot}/${season}/${row.path}`;
   return await fetchRepoJson<CardPayload>(payloadPath, cfg);
+}
+
+export function mergedSectionsHtml(payload: CardPayload): Record<string, string> {
+  const merged: Record<string, string> = {};
+  const sections = payload.sections_html ?? {};
+  for (const [key, value] of Object.entries(sections)) {
+    if (typeof value === "string") merged[key] = value;
+  }
+  const bundles = payload.section_bundles ?? {};
+  for (const bundle of [bundles.core ?? {}, bundles.heavy ?? {}]) {
+    for (const [key, value] of Object.entries(bundle)) {
+      if (typeof value === "string") merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 export async function loadStaticPayload(

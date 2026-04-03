@@ -1,4 +1,5 @@
 import pg from "pg";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 const { Client } = pg;
 
@@ -39,6 +40,44 @@ function genderConfig(gender) {
     token: env("GITHUB_TOKEN"),
     staticRoot: env("GITHUB_STATIC_PAYLOAD_ROOT", "player_cards_pipeline/public/cards"),
   };
+}
+
+function payloadPrimaryStorage() {
+  const raw = env("PAYLOAD_PRIMARY_STORAGE", "github").toLowerCase();
+  if (raw === "r2" || raw === "supabase") return raw;
+  return "github";
+}
+
+function getR2Config() {
+  return {
+    accountId: env("R2_ACCOUNT_ID"),
+    bucket: env("R2_BUCKET"),
+    accessKeyId: env("R2_ACCESS_KEY_ID"),
+    secretAccessKey: env("R2_SECRET_ACCESS_KEY"),
+    publicBaseUrl: env("R2_PUBLIC_BASE_URL").replace(/\/+$/, ""),
+  };
+}
+
+function hasR2Config() {
+  const cfg = getR2Config();
+  return Boolean(cfg.accountId && cfg.bucket && cfg.accessKeyId && cfg.secretAccessKey);
+}
+
+let r2Client = null;
+function getR2Client() {
+  const cfg = getR2Config();
+  if (!hasR2Config()) throw new Error("R2 config missing");
+  if (!r2Client) {
+    r2Client = new S3Client({
+      region: "auto",
+      endpoint: `https://${cfg.accountId}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: cfg.accessKeyId,
+        secretAccessKey: cfg.secretAccessKey,
+      },
+    });
+  }
+  return { client: r2Client, cfg };
 }
 
 async function fetchRepoJson(path, cfg) {
@@ -91,6 +130,7 @@ async function main() {
     .filter((value) => value === "men" || value === "women");
   const years = parseYears(env("YEARS", "2026"));
   if (!years.length) throw new Error("No valid YEARS provided");
+  const primaryStorage = payloadPrimaryStorage();
 
   const client = new Client({
     connectionString: dbUrl,
@@ -119,11 +159,43 @@ async function main() {
         const storageKey = `${cfg.staticRoot}/${season}/${relativePath}`;
         const publicUrl = githubRawUrl(storageKey, cfg);
         const sourceHash = String(manifest?.[cacheKey] ?? row?.source_hash ?? "").trim();
+        let storageProvider = "github";
+        let storageKeyValue = storageKey;
+        let publicUrlValue = publicUrl;
+        let payloadJson = null;
+
+        if (primaryStorage !== "github") {
+          const payload = await fetchRepoJson(storageKey, cfg);
+          if (primaryStorage === "supabase") {
+            storageProvider = "supabase";
+            payloadJson = payload;
+            storageKeyValue = `${gender}/${season}/${relativePath}`;
+            publicUrlValue = null;
+          } else if (primaryStorage === "r2") {
+            if (!hasR2Config()) {
+              throw new Error("PAYLOAD_PRIMARY_STORAGE=r2 but R2 env vars are missing");
+            }
+            const { client: s3, cfg: r2 } = getR2Client();
+            const r2Key = `cards/${gender}/${season}/${relativePath}`;
+            const body = JSON.stringify(payload);
+            await s3.send(
+              new PutObjectCommand({
+                Bucket: r2.bucket,
+                Key: r2Key,
+                Body: body,
+                ContentType: "application/json",
+              }),
+            );
+            storageProvider = "r2";
+            storageKeyValue = r2Key;
+            publicUrlValue = r2.publicBaseUrl ? `${r2.publicBaseUrl}/${r2Key}` : null;
+          }
+        }
 
         await client.query(
           `insert into public.player_payload_index
-            (gender, season, team, player, cache_key, source_hash, storage_provider, storage_key, public_url, updated_at)
-           values ($1,$2,$3,$4,$5,$6,'github',$7,$8,now())
+            (gender, season, team, player, cache_key, source_hash, storage_provider, storage_key, public_url, payload_json, updated_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now())
            on conflict (gender, season, team, player)
            do update set
              cache_key = excluded.cache_key,
@@ -131,8 +203,20 @@ async function main() {
              storage_provider = excluded.storage_provider,
              storage_key = excluded.storage_key,
              public_url = excluded.public_url,
+             payload_json = excluded.payload_json,
              updated_at = now()`,
-          [gender, season, team, player, cacheKey, sourceHash, storageKey, publicUrl],
+          [
+            gender,
+            season,
+            team,
+            player,
+            cacheKey,
+            sourceHash,
+            storageProvider,
+            storageKeyValue,
+            publicUrlValue,
+            payloadJson ? JSON.stringify(payloadJson) : null,
+          ],
         );
         total += 1;
       }

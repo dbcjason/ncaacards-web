@@ -3,6 +3,8 @@ import { cacheGet, cacheSet } from "@/lib/cache";
 import { resolveTeamPlayerForSeason } from "@/lib/options";
 import { buildRosterPayload } from "@/lib/mock";
 import { loadJsonPayload, storeJsonPayload } from "@/lib/object-store";
+import { loadStaticPayload } from "@/lib/static-payload";
+import { renderCardHtmlFromPayload } from "@/lib/render-card";
 
 export type JobType = "card" | "roster";
 export type JobStatus = "queued" | "running" | "done" | "error";
@@ -478,9 +480,53 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
 
   const provider = cardBuildProvider();
   if (provider === "precomputed") {
-    throw new Error(
-      "This card has not been precomputed yet. The app is configured for precomputed payloads only, so no GitHub workflow was dispatched.",
-    );
+    const staticPayload = await loadStaticPayload(season, team, player, gender);
+    const cardHtml = renderCardHtmlFromPayload(staticPayload, {
+      gender,
+      mode,
+      destinationConference,
+    });
+    const payload: Record<string, unknown> = {
+      ok: true,
+      source: "precomputed_sections",
+      generatedAt: new Date().toISOString(),
+      input: {
+        gender,
+        season,
+        team,
+        player,
+        mode,
+        destinationConference,
+      },
+      dataVersion,
+      cardHtml,
+      staticPayload,
+    };
+    await upsertCardPayload({
+      season,
+      team,
+      player,
+      mode,
+      destinationConference,
+      payload,
+    });
+    const cacheKey = cardCacheKey({
+      gender,
+      season,
+      team,
+      player,
+      mode,
+      destinationConference,
+      dataVersion,
+    });
+    await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
+    await updateJob(job.id, {
+      status: "done",
+      progress: 100,
+      message: "Completed from precomputed sections",
+      result_json: { ...payload, cache: "miss" },
+    });
+    return (await loadJob(job.id)) ?? job;
   }
 
   if (!githubReady(cfg)) {
