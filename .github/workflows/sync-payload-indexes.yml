@@ -10,7 +10,11 @@ on:
       genders:
         description: "Comma-separated genders to sync"
         required: true
-        default: "women"
+        default: "men,women"
+      storage:
+        description: "Primary storage target for synced payloads"
+        required: true
+        default: "supabase"
   schedule:
     - cron: "30 9 * * *"
 
@@ -38,4 +42,5 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           YEARS: ${{ github.event.inputs.years || '2026' }}
           GENDERS: ${{ github.event.inputs.genders || 'men,women' }}
+          PAYLOAD_PRIMARY_STORAGE: ${{ github.event.inputs.storage || 'supabase' }}
         run: node scripts/sync-player-payload-indexes.mjs
