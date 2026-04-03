@@ -23,6 +23,7 @@ export type JobRow = {
 const inMemoryJobs = new Map<string, JobRow>();
 let warnedNoDb = false;
 type Gender = "men" | "women";
+type CardBuildProvider = "github" | "precomputed";
 type RuntimeCfg = {
   ghOwner: string;
   ghRepo: string;
@@ -67,6 +68,11 @@ function runtimeCfg(gender: Gender): RuntimeCfg {
     dataBt2026Path: (process.env.GITHUB_BT_2026_PATH || "player_cards_pipeline/data/bt/bt_advstats_2026.csv").trim(),
     dataEnrichedManifestPath: (process.env.GITHUB_ENRICHED_MANIFEST_PATH || "player_cards_pipeline/data/manual/enriched_players/manifest.json").trim(),
   };
+}
+
+function cardBuildProvider(): CardBuildProvider {
+  const raw = String(process.env.CARD_BUILD_PROVIDER || "github").trim().toLowerCase();
+  return raw === "precomputed" ? "precomputed" : "github";
 }
 const seasonVersionMemo = new Map<string, { value: string; ts: number }>();
 const VERSION_TTL_MS = 1000 * 60 * 10;
@@ -468,6 +474,13 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
       result_json: existing,
     });
     return (await loadJob(job.id)) ?? job;
+  }
+
+  const provider = cardBuildProvider();
+  if (provider === "precomputed") {
+    throw new Error(
+      "This card has not been precomputed yet. The app is configured for precomputed payloads only, so no GitHub workflow was dispatched.",
+    );
   }
 
   if (!githubReady(cfg)) {
