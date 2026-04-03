@@ -8,8 +8,14 @@ export async function POST(req: NextRequest) {
       team: string;
       player: string;
       part: "comparisons" | "draft";
+      gender?: "men" | "women";
     };
-    const payload = await loadStaticPayload(Number(body.season), String(body.team), String(body.player));
+    const payload = await loadStaticPayload(
+      Number(body.season),
+      String(body.team),
+      String(body.player),
+      String(body.gender ?? "men"),
+    );
     const sections = (payload.sections_html ?? {}) as Record<string, unknown>;
     const part = body.part === "draft" ? "draft" : "comparisons";
 
@@ -35,4 +41,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

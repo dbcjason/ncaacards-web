@@ -109,3 +109,19 @@ export async function loadJsonPayload<T extends JsonRecord>(
   if (!body) return null;
   return JSON.parse(body) as T;
 }
+
+export async function loadJsonPayloadFromObjectKey<T extends JsonRecord>(
+  key: string,
+  bucketOverride?: string,
+): Promise<T | null> {
+  const { client: s3, cfg } = getClient();
+  const res = await s3.send(
+    new GetObjectCommand({
+      Bucket: bucketOverride || cfg.bucket,
+      Key: key,
+    }),
+  );
+  const body = await res.Body?.transformToString();
+  if (!body) return null;
+  return JSON.parse(body) as T;
+}
