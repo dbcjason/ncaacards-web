@@ -7,6 +7,7 @@ import { AccessRequestItem } from "@/components/admin/access-request-item";
 type DashboardPageProps = {
   searchParams: Promise<{
     tab?: string;
+    requestStatus?: string;
     notice?: string;
     error?: string;
     org?: string;
@@ -15,6 +16,7 @@ type DashboardPageProps = {
 };
 
 const TABS = ["accounts", "requests", "payments", "usage", "activity"] as const;
+const REQUEST_TABS = ["pending", "accepted", "declined"] as const;
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const [user, params] = await Promise.all([getCurrentUser(), searchParams]);
@@ -28,6 +30,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const tab = TABS.includes((params.tab || "accounts") as (typeof TABS)[number])
       ? (params.tab as (typeof TABS)[number])
       : "accounts";
+    const requestStatus = REQUEST_TABS.includes((params.requestStatus || "pending") as (typeof REQUEST_TABS)[number])
+      ? (params.requestStatus as (typeof REQUEST_TABS)[number])
+      : "pending";
 
     const [
       organizationsResult,
@@ -54,6 +59,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const billing = unwrapSettled(billingResult);
     const usageSummary = unwrapSettled(usageSummaryResult);
     const usageEvents = unwrapSettled(usageEventsResult);
+    const filteredAccessRequests = accessRequests.filter((request) => matchesRequestStatus(request.status, requestStatus));
     const hasDataError = [
       organizationsResult,
       usersResult,
@@ -204,12 +210,23 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           {tab === "requests" && (
             <section className="space-y-4">
               <div className="text-lg font-semibold text-zinc-100">Access Code Requests</div>
+              <div className="flex flex-wrap gap-2">
+                {REQUEST_TABS.map((item) => (
+                  <a
+                    key={item}
+                    href={`/dashboard?tab=requests&requestStatus=${item}`}
+                    className={`site-button-secondary ${requestStatus === item ? "!border-zinc-500 !bg-zinc-800 !text-white" : ""}`}
+                  >
+                    {labelForRequestTab(item)}
+                  </a>
+                ))}
+              </div>
               <div className="grid gap-4">
-                {accessRequests.map((request) => (
+                {filteredAccessRequests.map((request) => (
                   <AccessRequestItem key={request.id} request={request} />
                 ))}
-                {!accessRequests.length && (
-                  <div className="site-panel rounded-xl p-6 text-zinc-400">No access requests yet.</div>
+                {!filteredAccessRequests.length && (
+                  <div className="site-panel rounded-xl p-6 text-zinc-400">No {labelForRequestTab(requestStatus).toLowerCase()} right now.</div>
                 )}
               </div>
             </section>
@@ -344,11 +361,23 @@ function labelForTab(tab: string) {
   return "Specific Usage";
 }
 
+function labelForRequestTab(tab: "pending" | "accepted" | "declined") {
+  if (tab === "accepted") return "Accepted Requests";
+  if (tab === "declined") return "Declined Requests";
+  return "Pending Requests";
+}
+
 function normalizeEventType(value?: string | null) {
   if (value === "login" || value === "logout" || value === "card_build" || value === "transfer_search") {
     return value;
   }
   return null;
+}
+
+function matchesRequestStatus(status: string, tab: "pending" | "accepted" | "declined") {
+  if (tab === "accepted") return status === "disabled";
+  if (tab === "declined") return status === "expired";
+  return status === "pending";
 }
 
 function labelForEvent(value: "login" | "logout" | "card_build" | "transfer_search") {
