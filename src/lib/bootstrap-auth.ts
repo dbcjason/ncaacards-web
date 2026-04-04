@@ -1,16 +1,22 @@
 import "server-only";
 
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { withDbTransaction } from "@/lib/db";
 import { insertAdminUser } from "@/lib/auth";
 
 export async function ensureAuthSchemaFromMigration() {
-  const migrationPath = path.join(process.cwd(), "supabase", "migrations", "20260403210000_auth_accounts_billing.sql");
-  const sql = await readFile(migrationPath, "utf8");
-  await withDbTransaction(async (client) => {
-    await client.query(sql);
-  });
+  const migrationsDir = path.join(process.cwd(), "supabase", "migrations");
+  const filenames = (await readdir(migrationsDir))
+    .filter((name) => name.endsWith(".sql"))
+    .sort((a, b) => a.localeCompare(b));
+
+  for (const filename of filenames) {
+    const sql = await readFile(path.join(migrationsDir, filename), "utf8");
+    await withDbTransaction(async (client) => {
+      await client.query(sql);
+    });
+  }
 }
 
 export async function bootstrapAdminAccount(input: {

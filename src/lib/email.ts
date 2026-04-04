@@ -10,6 +10,13 @@ type AccessCodeEmailInput = {
   expiresAt?: string | null;
 };
 
+type AccessRequestEmailInput = {
+  requesterEmail: string;
+  organization: string;
+  requesterName: string;
+  notes?: string | null;
+};
+
 function resendKey(): string {
   return String(process.env.RESEND_API_KEY || "").trim();
 }
@@ -67,6 +74,48 @@ export async function sendAccessCodeEmail(input: AccessCodeEmailInput): Promise<
       from: senderEmail(),
       to: [input.to],
       subject: `Your ${input.organizationName} access code`,
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    return { ok: false, error: `Resend error ${response.status}: ${message}` };
+  }
+
+  return { ok: true };
+}
+
+function adminNotifyEmail(): string {
+  return String(process.env.ACCESS_REQUEST_NOTIFY_EMAIL || "dbbjasonb@gmail.com").trim();
+}
+
+export async function sendAccessRequestNotification(input: AccessRequestEmailInput): Promise<{ ok: boolean; error?: string }> {
+  if (!canSendEmail()) {
+    return { ok: false, error: "Email sending is not configured yet. Add RESEND_API_KEY and INVITE_FROM_EMAIL." };
+  }
+
+  const html = `
+    <div style="font-family: Georgia, 'Times New Roman', serif; padding: 24px; color: #181512;">
+      <h1 style="font-size: 24px; margin-bottom: 16px;">New Access Code Request</h1>
+      <p><strong>Email:</strong> ${escapeHtml(input.requesterEmail)}</p>
+      <p><strong>Organization:</strong> ${escapeHtml(input.organization)}</p>
+      <p><strong>Who They Are:</strong> ${escapeHtml(input.requesterName)}</p>
+      <p><strong>Notes:</strong> ${escapeHtml(input.notes || "—")}</p>
+      <p><a href="https://www.dbcjason.com/dashboard?tab=requests">Open admin dashboard</a></p>
+    </div>
+  `;
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendKey()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: senderEmail(),
+      to: [adminNotifyEmail()],
+      subject: `Access request from ${input.organization}`,
       html,
     }),
   });

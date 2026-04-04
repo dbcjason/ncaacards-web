@@ -217,3 +217,29 @@ export async function listUsageEvents(organizationId?: string | null): Promise<D
     params,
   );
 }
+
+export type DashboardAccessRequest = {
+  id: string;
+  email: string;
+  organization: string;
+  requester_name: string;
+  notes: string | null;
+  status: string;
+  created_at: string;
+};
+
+export async function listAccessRequests(): Promise<DashboardAccessRequest[]> {
+  return dbQuery<DashboardAccessRequest>(
+    `select
+        id,
+        email,
+        organization,
+        requester_name,
+        notes,
+        status,
+        created_at
+      from public.access_requests
+      order by created_at desc
+      limit 250`,
+  );
+}

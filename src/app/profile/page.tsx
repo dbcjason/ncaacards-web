@@ -4,10 +4,10 @@ export default async function ProfilePage() {
   const user = await requireUser();
 
   return (
-    <div className="min-h-screen px-6 py-8">
+    <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
       <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="dashboard-card">
-          <div className="dashboard-section-title">Account Profile</div>
+        <section className="site-panel rounded-xl p-6">
+          <div className="text-lg font-semibold text-zinc-100">Account Profile</div>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <ProfileItem label="Email" value={user.email} />
             <ProfileItem label="Role" value={user.role} />
@@ -20,8 +20,8 @@ export default async function ProfilePage() {
           </div>
         </section>
 
-        <section className="dashboard-card">
-          <div className="dashboard-section-title">Quick Links</div>
+        <section className="site-panel rounded-xl p-6">
+          <div className="text-lg font-semibold text-zinc-100">Quick Links</div>
           <div className="mt-4 space-y-3 text-sm">
             {user.access_scope !== "women" && <a className="dashboard-link block" href="/cards?gender=men">Open Men Player Profiles</a>}
             {user.access_scope !== "men" && <a className="dashboard-link block" href="/cards?gender=women">Open Women Player Profiles</a>}
@@ -36,9 +36,9 @@ export default async function ProfilePage() {
 
 function ProfileItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--panel)] p-4">
-      <div className="text-xs uppercase tracking-[0.2em] text-[color:var(--accent-soft)]">{label}</div>
-      <div className="mt-2 text-base text-[color:var(--foreground)]">{value}</div>
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">{label}</div>
+      <div className="mt-2 text-base text-zinc-100">{value}</div>
     </div>
   );
 }

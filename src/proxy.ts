@@ -11,6 +11,7 @@ const PUBLIC_PATHS = new Set([
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   if (pathname.startsWith("/auth/complete-signup")) return true;
+  if (pathname.startsWith("/api/access-requests")) return true;
   if (pathname.startsWith("/api/auth/")) return true;
   if (pathname.startsWith("/api/internal/bootstrap-admin")) return true;
   if (pathname.startsWith("/api/internal/payload-sync")) return true;

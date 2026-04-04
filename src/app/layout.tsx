@@ -16,7 +16,7 @@ export default function RootLayout({
   const userPromise = getCurrentUser();
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="app-shell min-h-full flex flex-col">
+      <body className="min-h-full bg-zinc-950 text-zinc-100">
         <AppChrome userPromise={userPromise}>{children}</AppChrome>
       </body>
     </html>
@@ -34,37 +34,28 @@ async function AppChrome({
 
   return (
     <>
-      <header className="border-b border-[color:var(--border)] bg-[color:var(--surface)]/90 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
-          <div>
-            <Link href={user ? "/cards" : "/"} className="text-sm font-semibold tracking-[0.22em] text-[color:var(--accent-soft)] uppercase">
+      <header className="border-b border-zinc-900 bg-black">
+        <div className="mx-auto flex w-full max-w-[1900px] items-center justify-between px-6 py-5">
+          <div className="space-y-1">
+            <Link href={user ? "/cards" : "/"} className="text-[15px] font-semibold tracking-[0.28em] text-[#d7c193] uppercase">
               DBCJASON
             </Link>
-            <div className="text-xs text-[color:var(--muted)]">Player intelligence, roster construction, and portal evals</div>
           </div>
           {user ? (
-            <div className="flex items-center gap-3 text-sm">
-              <nav className="hidden items-center gap-3 md:flex">
-                {user.access_scope !== "women" && <Link className="app-nav-link" href="/cards?gender=men">Men</Link>}
-                {user.access_scope !== "men" && <Link className="app-nav-link" href="/cards?gender=women">Women</Link>}
-                <Link className="app-nav-link" href={`/transfer-grades?gender=${user.access_scope === "women" ? "women" : "men"}&season=2026`}>Portal</Link>
-                {user.role === "admin" && <Link className="app-nav-link" href="/dashboard">Admin Dashboard</Link>}
-              </nav>
-              <Link href="/profile" className="rounded-full border border-[color:var(--border)] bg-[color:var(--panel)] px-4 py-2 text-[color:var(--foreground)]">
-                Profile
-              </Link>
+            <div className="flex items-center gap-5 text-sm text-zinc-300">
+              {user.access_scope !== "women" && <Link href="/cards?gender=men" className="hover:text-white">Men</Link>}
+              {user.access_scope !== "men" && <Link href="/cards?gender=women" className="hover:text-white">Women</Link>}
+              <Link href={`/transfer-grades?gender=${user.access_scope === "women" ? "women" : "men"}&season=2026`} className="hover:text-white">Portal</Link>
+              {user.role === "admin" && <Link href="/dashboard" className="hover:text-white">Admin Dashboard</Link>}
+              <Link href="/profile" className="hover:text-white">Profile</Link>
               <form action="/api/auth/logout" method="post">
-                <button className="rounded-full border border-[color:var(--border)] px-4 py-2 text-[color:var(--muted)] hover:text-[color:var(--foreground)]" type="submit">
-                  Sign Out
-                </button>
+                <button type="submit" className="hover:text-white">Sign Out</button>
               </form>
             </div>
-          ) : (
-            <div className="text-sm text-[color:var(--muted)]">Members-only access</div>
-          )}
+          ) : null}
         </div>
       </header>
-      <main className="flex-1">{children}</main>
+      <main>{children}</main>
     </>
   );
 }
