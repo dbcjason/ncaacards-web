@@ -175,7 +175,9 @@ function seasonMatchesPrev(rawYear: string, season: number): boolean {
 }
 
 async function fetchSeasonOptionsFromBart(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
-  const prefixes = Array.from(new Set([cfg.bartPrefix, cfg.bartPrefix ? "" : "ncaaw"])).filter((x) => x !== "__none__");
+  // Keep women strictly on the women Bart feed so we never silently cross over
+  // to the men endpoint when the women source has a temporary miss.
+  const prefixes = cfg.bartPrefix ? [cfg.bartPrefix] : [""];
   let lastErr = "";
   for (const prefix of prefixes) {
     const pref = prefix ? `${prefix}/` : "";
