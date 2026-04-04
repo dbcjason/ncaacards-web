@@ -9,6 +9,22 @@ body {
   background: #09090b;
 }
 
+html {
+  font-size: 15px;
+}
+
+@media (min-width: 1400px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 16px;
+  }
+}
+
 body {
   color: #f4f4f5;
   font-family: Georgia, "Times New Roman", serif;
