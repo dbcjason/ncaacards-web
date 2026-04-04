@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1023.0",
+    "html-to-image": "^1.11.13",
     "next": "16.2.0",
     "pg": "^8.13.1",
     "react": "19.2.4",

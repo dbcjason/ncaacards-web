@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { useRef } from "react";
 import Link from "next/link";
+import { toCanvas } from "html-to-image";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
 
 type CardJobResult = {
@@ -40,6 +42,8 @@ const CARD_RUN_STORAGE_KEY = "ncaacards:player-profile:active-run";
 
 export default function CardsPage() {
   const [gender, setGender] = useState<"men" | "women">("men");
+  const iframeRefA = useRef<HTMLIFrameElement | null>(null);
+  const iframeRefB = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -71,6 +75,8 @@ export default function CardsPage() {
   const [resultHtmlB, setResultHtmlB] = useState("");
   const [resultCache, setResultCache] = useState<string>("");
   const [runError, setRunError] = useState("");
+  const [exportBusy, setExportBusy] = useState<"" | "download" | "clipboard">("");
+  const [exportError, setExportError] = useState("");
   const draftLabel =
     gender === "women"
       ? "WNBA Draft"
@@ -388,6 +394,129 @@ export default function CardsPage() {
     }
   }
 
+  async function captureCardCanvas(iframe: HTMLIFrameElement) {
+    const doc = iframe.contentDocument;
+    const root = doc?.body;
+    if (!doc || !root) {
+      throw new Error("Card preview is still loading.");
+    }
+
+    const width = Math.max(
+      iframe.clientWidth,
+      doc.documentElement.scrollWidth,
+      doc.body.scrollWidth,
+      1200,
+    );
+    const height = Math.max(
+      iframe.clientHeight,
+      doc.documentElement.scrollHeight,
+      doc.body.scrollHeight,
+      1600,
+    );
+
+    return toCanvas(root, {
+      cacheBust: true,
+      backgroundColor: "#09090b",
+      pixelRatio: 1,
+      width,
+      height,
+      canvasWidth: width,
+      canvasHeight: height,
+    });
+  }
+
+  async function composeExportCanvas() {
+    const iframeA = iframeRefA.current;
+    if (!iframeA) {
+      throw new Error("No finished card is available yet.");
+    }
+
+    const canvasA = await captureCardCanvas(iframeA);
+    const iframeB = compare ? iframeRefB.current : null;
+
+    if (!compare || !resultHtmlB || !iframeB) {
+      return canvasA;
+    }
+
+    const canvasB = await captureCardCanvas(iframeB);
+    const gap = 24;
+    const width = canvasA.width + canvasB.width + gap;
+    const height = Math.max(canvasA.height, canvasB.height);
+    const combined = document.createElement("canvas");
+    combined.width = width;
+    combined.height = height;
+    const ctx = combined.getContext("2d");
+    if (!ctx) {
+      throw new Error("Could not prepare the combined export image.");
+    }
+    ctx.fillStyle = "#09090b";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(canvasA, 0, 0);
+    ctx.drawImage(canvasB, canvasA.width + gap, 0);
+    return combined;
+  }
+
+  function canvasToBlob(canvas: HTMLCanvasElement) {
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("Could not create the image file."));
+          return;
+        }
+        resolve(blob);
+      }, "image/png");
+    });
+  }
+
+  function exportFileName() {
+    if (compare && playerB) {
+      return `${player}_vs_${playerB}_${gender}.png`.replace(/\s+/g, "_");
+    }
+    return `${player}_${gender}.png`.replace(/\s+/g, "_");
+  }
+
+  async function handleDownloadImage() {
+    setExportBusy("download");
+    setExportError("");
+    try {
+      const canvas = await composeExportCanvas();
+      const blob = await canvasToBlob(canvas);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = exportFileName();
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Could not download the card image.");
+    } finally {
+      setExportBusy("");
+    }
+  }
+
+  async function handleCopyImage() {
+    setExportBusy("clipboard");
+    setExportError("");
+    try {
+      const canvas = await composeExportCanvas();
+      const blob = await canvasToBlob(canvas);
+      if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
+        throw new Error("Clipboard image copy is not supported in this browser.");
+      }
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          [blob.type]: blob,
+        }),
+      ]);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Could not copy the card image.");
+    } finally {
+      setExportBusy("");
+    }
+  }
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto w-full max-w-[1600px] px-6 py-6">
@@ -595,9 +724,36 @@ export default function CardsPage() {
 
         {resultHtml ? (
           <div className="mt-5 rounded border border-zinc-800 bg-zinc-950 p-1">
+            <div className="mb-3 flex flex-wrap gap-2 px-2 pt-2">
+              <button
+                type="button"
+                className="site-button"
+                onClick={handleDownloadImage}
+                disabled={exportBusy !== ""}
+              >
+                {exportBusy === "download" ? "Downloading..." : "Download Image"}
+              </button>
+              <button
+                type="button"
+                className="site-button-secondary"
+                onClick={handleCopyImage}
+                disabled={exportBusy !== ""}
+              >
+                {exportBusy === "clipboard" ? "Copying..." : "Save Image to Clipboard"}
+              </button>
+              {compare && resultHtmlB ? (
+                <div className="self-center text-xs text-zinc-500">
+                  Export includes both profiles side by side.
+                </div>
+              ) : null}
+            </div>
+            {exportError ? (
+              <div className="mb-3 px-2 text-sm text-rose-400">{exportError}</div>
+            ) : null}
             <div className={`grid gap-1 ${compare && resultHtmlB ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1"}`}>
               <div className={compare && resultHtmlB ? "h-[1500px] overflow-hidden rounded" : "rounded"}>
                 <iframe
+                  ref={iframeRefA}
                   title="Player Card"
                   srcDoc={resultHtml}
                   className={compare && resultHtmlB ? "h-[2300px] w-full rounded" : "h-[2300px] w-full rounded"}
@@ -608,6 +764,7 @@ export default function CardsPage() {
               {compare && resultHtmlB && (
                 <div className="h-[1500px] overflow-hidden rounded">
                   <iframe
+                    ref={iframeRefB}
                     title="Player Card B"
                     srcDoc={resultHtmlB}
                     className="h-[2300px] w-full rounded"
