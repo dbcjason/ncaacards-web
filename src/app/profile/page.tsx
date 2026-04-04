@@ -1,7 +1,11 @@
-import { requireUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth";
 
 export default async function ProfilePage() {
-  const user = await requireUser();
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/?error=Please log in again.");
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">

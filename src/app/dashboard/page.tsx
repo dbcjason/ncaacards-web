@@ -1,4 +1,5 @@
-import { requireAdminUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth";
 import { listAccessCodes, listAccessRequests, listBillingRecords, listOrganizations, listUsageEvents, listUsageSummary, listUsers } from "@/lib/admin";
 import { CreateOrganizationForm } from "@/components/admin/create-organization-form";
 import { AccessRequestItem } from "@/components/admin/access-request-item";
@@ -16,8 +17,13 @@ type DashboardPageProps = {
 const TABS = ["accounts", "requests", "payments", "usage", "activity"] as const;
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  await requireAdminUser();
-  const params = await searchParams;
+  const [user, params] = await Promise.all([getCurrentUser(), searchParams]);
+  if (!user) {
+    redirect("/?error=Please log in again.");
+  }
+  if (user.role !== "admin") {
+    redirect("/cards");
+  }
   const tab = TABS.includes((params.tab || "accounts") as (typeof TABS)[number])
     ? (params.tab as (typeof TABS)[number])
     : "accounts";
