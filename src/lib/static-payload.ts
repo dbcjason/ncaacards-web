@@ -654,6 +654,20 @@ export async function loadStaticPayload(
   const gender = parseGender(genderRaw);
   const cfg = getSourceCfg(gender);
   const backedUp = await loadFromLatestPhaseBackup(season, team, player, gender);
+  let indexedPayload: CardPayload | null = null;
+
+  const indexed = await findIndexedPayload(season, team, player, gender);
+  if (indexed) {
+    try {
+      indexedPayload = await loadFromIndexRow(indexed, cfg);
+    } catch {
+      // Fall back to the existing GitHub static index path if index metadata is stale.
+    }
+  }
+
+  if (backedUp && indexedPayload) {
+    return await enrichPayloadBio(mergePayloadWithFallback(backedUp, indexedPayload, gender), cfg, gender);
+  }
 
   if (backedUp) {
     try {
@@ -664,21 +678,13 @@ export async function loadStaticPayload(
     }
   }
 
-  const indexed = await findIndexedPayload(season, team, player, gender);
-  if (indexed) {
+  if (indexedPayload) {
+    if (!isMissingAnyCriticalSection(indexedPayload)) return await enrichPayloadBio(indexedPayload, cfg, gender);
     try {
-      const payload = await loadFromIndexRow(indexed, cfg);
-      if (payload) {
-        if (!isMissingAnyCriticalSection(payload)) return await enrichPayloadBio(payload, cfg, gender);
-        try {
-          const fallback = await loadFromStaticIndex(season, team, player, cfg);
-          return await enrichPayloadBio(mergePayloadWithFallback(payload, fallback, gender), cfg, gender);
-        } catch {
-          return await enrichPayloadBio(payload, cfg, gender);
-        }
-      }
+      const fallback = await loadFromStaticIndex(season, team, player, cfg);
+      return await enrichPayloadBio(mergePayloadWithFallback(indexedPayload, fallback, gender), cfg, gender);
     } catch {
-      // Fall back to the existing GitHub static index path if index metadata is stale.
+      return await enrichPayloadBio(indexedPayload, cfg, gender);
     }
   }
 
