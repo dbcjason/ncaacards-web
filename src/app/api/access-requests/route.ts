@@ -34,12 +34,16 @@ export async function POST(req: NextRequest) {
       );
     });
 
-    await sendAccessRequestNotification({
+    const emailResult = await sendAccessRequestNotification({
       requesterEmail: email,
       organization,
       requesterName,
       notes: notes || null,
     });
+
+    if (!emailResult.ok) {
+      return redirectHome(req, "notice", `Access request submitted. Admin email was not sent yet: ${emailResult.error}`);
+    }
 
     return redirectHome(req, "notice", "Access request submitted.");
   } catch (error) {
