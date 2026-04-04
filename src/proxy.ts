@@ -16,6 +16,7 @@ function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith("/api/internal/bootstrap-admin")) return true;
   if (pathname.startsWith("/api/internal/payload-sync")) return true;
   if (pathname.startsWith("/api/internal/payload-phase-backup")) return true;
+  if (pathname.startsWith("/api/internal/payload-phase-promote")) return true;
   if (pathname.startsWith("/api/health/")) return true;
   if (pathname.startsWith("/_next/")) return true;
   return false;
