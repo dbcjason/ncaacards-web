@@ -14,12 +14,12 @@ export default async function ProfilePage() {
           <div className="text-lg font-semibold text-zinc-100">Account Profile</div>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <ProfileItem label="Email" value={user.email} />
-            <ProfileItem label="Role" value={user.role} />
+            <ProfileItem label="Role" value={formatDisplayValue(user.role)} />
             <ProfileItem label="Organization" value={user.organization_name} />
-            <ProfileItem label="Access Scope" value={user.access_scope} />
-            <ProfileItem label="Organization Access" value={user.organization_access_scope} />
-            <ProfileItem label="Organization Type" value={user.organization_account_type} />
-            <ProfileItem label="Account Status" value={user.status} />
+            <ProfileItem label="Access Scope" value={formatDisplayValue(user.access_scope)} />
+            <ProfileItem label="Organization Access" value={formatDisplayValue(user.organization_access_scope)} />
+            <ProfileItem label="Organization Type" value={formatDisplayValue(user.organization_account_type)} />
+            <ProfileItem label="Account Status" value={formatDisplayValue(user.status)} />
             <ProfileItem label="Expiration Date" value={user.expires_at ? new Date(user.expires_at).toLocaleDateString("en-US") : "No expiration set"} />
           </div>
         </section>
@@ -45,4 +45,12 @@ function ProfileItem({ label, value }: { label: string; value: string }) {
       <div className="mt-2 text-base text-zinc-100">{value}</div>
     </div>
   );
+}
+
+function formatDisplayValue(value: string) {
+  return value
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }

@@ -110,17 +110,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         <section className="site-panel rounded-xl p-6">
           <div className="text-lg font-semibold text-zinc-100">Organizations</div>
           <div className="mt-4 overflow-x-auto">
-            <table className="dashboard-table">
-              <thead><tr><th>Organization</th><th>Type</th><th>Scope</th><th>Users</th><th>Active Codes</th><th>Contract End</th><th>Expires</th></tr></thead>
-              <tbody>
-                {organizations.map((org) => (
-                  <tr key={org.id}>
-                    <td>{org.name}</td>
-                    <td>{org.account_type}</td>
-                    <td>{org.access_scope}</td>
-                    <td>{org.user_count}</td>
-                    <td>{org.active_code_count}</td>
-                    <td>{formatDate(org.contract_ends_at)}</td>
+                  <table className="dashboard-table">
+                    <thead><tr><th>Organization</th><th>Type</th><th>Scope</th><th>Users</th><th>Active Codes</th><th>Contract End</th><th>Expires</th></tr></thead>
+                    <tbody>
+                      {organizations.map((org) => (
+                        <tr key={org.id}>
+                          <td>{org.name}</td>
+                          <td>{formatDisplayValue(org.account_type)}</td>
+                          <td>{formatDisplayValue(org.access_scope)}</td>
+                          <td>{org.user_count}</td>
+                          <td>{org.active_code_count}</td>
+                          <td>{formatDate(org.contract_ends_at)}</td>
                     <td>{formatDate(org.expires_at)}</td>
                   </tr>
                 ))}
@@ -134,17 +134,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <div className="text-lg font-semibold text-zinc-100">Users + Codes</div>
           <div className="mt-4 grid gap-6 xl:grid-cols-2">
             <div className="overflow-x-auto">
-              <table className="dashboard-table">
-                <thead><tr><th>User</th><th>Org</th><th>Role</th><th>Scope</th><th>Expires</th><th>Last Login</th><th>Actions</th></tr></thead>
-                <tbody>
-                  {users.map((account) => (
-                    <tr key={account.id}>
-                      <td>{account.email}</td>
-                      <td>{account.organization_name}</td>
-                      <td>{account.role}</td>
-                      <td>{account.access_scope}</td>
-                      <td>{formatDate(account.expires_at)}</td>
-                      <td>{formatDateTime(account.last_login_at)}</td>
+                  <table className="dashboard-table">
+                    <thead><tr><th>User</th><th>Org</th><th>Role</th><th>Scope</th><th>Expires</th><th>Last Login</th><th>Actions</th></tr></thead>
+                    <tbody>
+                      {users.map((account) => (
+                        <tr key={account.id}>
+                          <td>{account.email}</td>
+                          <td>{account.organization_name}</td>
+                          <td>{formatDisplayValue(account.role)}</td>
+                          <td>{formatDisplayValue(account.access_scope)}</td>
+                          <td>{formatDate(account.expires_at)}</td>
+                          <td>{formatDateTime(account.last_login_at)}</td>
                       <td>
                         {account.id === user.id ? (
                           <span className="text-xs text-zinc-500">Current admin</span>
@@ -167,18 +167,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               </table>
             </div>
             <div className="overflow-x-auto">
-              <table className="dashboard-table">
-                <thead><tr><th>Code</th><th>Org</th><th>Scope</th><th>Status</th><th>Uses</th><th>Expires</th></tr></thead>
-                <tbody>
-                  {accessCodes.map((code) => (
-                    <tr key={code.id}>
-                      <td className="font-semibold tracking-[0.18em]">{code.code}</td>
-                      <td>{code.organization_name}</td>
-                      <td>{code.access_scope}</td>
-                      <td>{code.status}</td>
-                      <td>{code.used_count}/{code.max_uses}</td>
-                      <td>{formatDate(code.expires_at)}</td>
-                    </tr>
+                  <table className="dashboard-table">
+                    <thead><tr><th>Code</th><th>Org</th><th>Scope</th><th>Status</th><th>Uses</th><th>Expires</th></tr></thead>
+                    <tbody>
+                      {accessCodes.map((code) => (
+                        <tr key={code.id}>
+                          <td className="font-semibold tracking-[0.18em]">{code.code}</td>
+                          <td>{code.organization_name}</td>
+                          <td>{formatDisplayValue(code.access_scope)}</td>
+                          <td>{formatDisplayValue(code.status)}</td>
+                          <td>{code.used_count}/{code.max_uses}</td>
+                          <td>{formatDate(code.expires_at)}</td>
+                        </tr>
                   ))}
                 </tbody>
               </table>
@@ -250,8 +250,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     {billing.map((row) => (
                       <tr key={row.id}>
                         <td>{row.organization_name}</td>
-                        <td>{row.provider}</td>
-                        <td>{row.status}</td>
+                        <td>{formatDisplayValue(row.provider)}</td>
+                        <td>{formatDisplayValue(row.status)}</td>
                         <td>{row.amount_cents == null ? "—" : `$${(row.amount_cents / 100).toFixed(2)}`}</td>
                         <td>{row.billing_interval || "—"}</td>
                         <td>{formatDate(row.current_period_end)}</td>
@@ -467,6 +467,14 @@ function parseDateValue(value: string | null) {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDisplayValue(value: string) {
+  return value
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function renderSafeSection(label: string, render: () => React.ReactNode) {
