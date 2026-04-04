@@ -85,6 +85,20 @@ export default function CardsPage() {
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
   const playerOptionsB = useMemo(() => playersByTeamB[teamB] ?? [], [playersByTeamB, teamB]);
 
+  function redirectToLogin() {
+    if (typeof window === "undefined") return;
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.href = `/?next=${encodeURIComponent(next)}`;
+  }
+
+  function isAuthError(status: number, error?: string) {
+    return (
+      status === 401 ||
+      String(error ?? "") === "UNAUTHENTICATED" ||
+      String(error ?? "") === "ACCOUNT_EXPIRED"
+    );
+  }
+
   async function waitForIframeReady(iframe: HTMLIFrameElement) {
     if (iframe.contentDocument?.readyState === "complete") return;
     await new Promise<void>((resolve) => {
@@ -170,6 +184,10 @@ export default function CardsPage() {
             playersByTeam?: Record<string, string[]>;
           };
           if (!active) return;
+          if (isAuthError(r.status, j?.error)) {
+            redirectToLogin();
+            return;
+          }
           if (!j?.ok) throw new Error(String(j?.error ?? "Failed to load options"));
 
           const teams = Array.isArray(j.teams) ? j.teams : [];
@@ -222,6 +240,10 @@ export default function CardsPage() {
             playersByTeam?: Record<string, string[]>;
           };
           if (!active) return;
+          if (isAuthError(r.status, j?.error)) {
+            redirectToLogin();
+            return;
+          }
           if (!j?.ok) throw new Error(String(j?.error ?? "Failed to load compare options"));
 
           const teams = Array.isArray(j.teams) ? j.teams : [];
@@ -262,6 +284,10 @@ export default function CardsPage() {
     while (true) {
       const r = await fetch(`/api/jobs/${id}`, { cache: "no-store" });
       const j = (await r.json()) as JobPollResponse;
+      if (isAuthError(r.status, j?.error)) {
+        redirectToLogin();
+        throw new Error("UNAUTHENTICATED");
+      }
       if (!j?.ok || !j.job) {
         throw new Error(String(j?.error ?? "Failed to poll job"));
       }
@@ -364,6 +390,10 @@ export default function CardsPage() {
           body: JSON.stringify({ jobType: "card", request: req }),
         });
         const data = (await res.json()) as JobApiResponse;
+        if (isAuthError(res.status, data?.error)) {
+          redirectToLogin();
+          throw new Error("UNAUTHENTICATED");
+        }
         if (!data?.ok || !data.id) throw new Error(String(data?.error ?? "Failed to start job"));
         return data.id;
       };

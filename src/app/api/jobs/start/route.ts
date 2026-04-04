@@ -43,9 +43,18 @@ export async function POST(req: NextRequest) {
     const job = await loadJob(id);
     return NextResponse.json({ ok: true, id, job });
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    const status =
+      message === "UNAUTHENTICATED"
+        ? 401
+        : message === "FORBIDDEN_SCOPE" || message === "FORBIDDEN"
+          ? 403
+          : message === "ACCOUNT_EXPIRED"
+            ? 403
+            : 500;
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
+      { ok: false, error: message },
+      { status },
     );
   }
 }
