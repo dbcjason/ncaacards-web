@@ -83,7 +83,7 @@ function cardBuildProvider(gender: Gender): CardBuildProvider {
   if (gender === "women") {
     return parseCardBuildProvider(process.env.CARD_BUILD_PROVIDER_WOMEN, "precomputed");
   }
-  return parseCardBuildProvider(process.env.CARD_BUILD_PROVIDER, "github");
+  return parseCardBuildProvider(process.env.CARD_BUILD_PROVIDER, "precomputed");
 }
 const seasonVersionMemo = new Map<string, { value: string; ts: number }>();
 const VERSION_TTL_MS = 1000 * 60 * 10;
@@ -467,15 +467,24 @@ async function getSeasonDataVersion(season: number, cfg: RuntimeCfg): Promise<st
   const memo = seasonVersionMemo.get(memoKey);
   if (memo && now - memo.ts < VERSION_TTL_MS) return memo.value;
   try {
-    const [btTag, enrichedTag] = await Promise.all([
+    const [btTag, enrichedTag, phaseTag] = await Promise.all([
       fetchRawFileEtag(cfg, cfg.dataBt2026Path),
       fetchRawFileEtag(cfg, cfg.dataEnrichedManifestPath),
+      dbQuery<{ version: string }>(
+        `select coalesce(
+            to_char(max(updated_at), 'YYYYMMDDHH24MISS.US'),
+            'none'
+          ) as version
+         from public.player_payload_phase_backup
+         where season = $1`,
+        [season],
+      ).then((rows) => rows[0]?.version || "none").catch(() => "none"),
     ]);
-    const value = `bt:${btTag}|en:${enrichedTag}`.slice(0, 180);
+    const value = `bt:${btTag}|en:${enrichedTag}|pb:${phaseTag}|rv:20260404b`.slice(0, 180);
     seasonVersionMemo.set(memoKey, { value, ts: now });
     return value;
   } catch {
-    const fallback = `day:${new Date().toISOString().slice(0, 10)}`;
+    const fallback = `day:${new Date().toISOString().slice(0, 10)}|rv:20260404b`;
     seasonVersionMemo.set(memoKey, { value: fallback, ts: now });
     return fallback;
   }
@@ -515,142 +524,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
   }
 
   const provider = cardBuildProvider(gender);
-  const wantsLiveTransferPanel = provider === "precomputed" && mode === "transfer" && githubReady(cfg);
   if (provider === "precomputed") {
-    if (wantsLiveTransferPanel) {
-      const state = (req.__cardState ?? {}) as Record<string, unknown>;
-      const outputFilename =
-        String(state.outputFilename ?? "").trim() ||
-        `web_${season}_${safeFilePart(team)}_${safeFilePart(player)}_${mode}_${safeFilePart(
-          destinationConference || "na",
-        )}.html`;
-
-      let dispatchedAt = String(state.dispatchedAt ?? "").trim();
-      let runId = Number(state.runId ?? 0);
-
-      if (!dispatchedAt) {
-        await dispatchCardWorkflow({
-          cfg,
-          year: season,
-          player,
-          team,
-          mode,
-          destinationConference,
-          outputFilename,
-        });
-        dispatchedAt = new Date().toISOString();
-        await updateJob(job.id, {
-          progress: 30,
-          message: "Dispatched live transfer model",
-          request_json: {
-            ...req,
-            team,
-            player,
-            __cardState: { outputFilename, dispatchedAt },
-          },
-        } as Partial<JobRow>);
-        return (await loadJob(job.id)) ?? job;
-      }
-
-      if (!Number.isFinite(runId) || runId <= 0) {
-        const found = await findDispatchedRunId(cfg, dispatchedAt);
-        if (!found) {
-          await updateJob(job.id, {
-            progress: 45,
-            message: "Waiting for live transfer model run",
-          });
-          return (await loadJob(job.id)) ?? job;
-        }
-        runId = found;
-        await updateJob(job.id, {
-          progress: 55,
-          message: `Live transfer model detected (#${runId})`,
-          request_json: {
-            ...req,
-            team,
-            player,
-            __cardState: { outputFilename, dispatchedAt, runId },
-          },
-        } as Partial<JobRow>);
-        return (await loadJob(job.id)) ?? job;
-      }
-
-      const run = await getRun(cfg, runId);
-      if (!run) {
-        await updateJob(job.id, { progress: 60, message: "Checking live transfer model status" });
-        return (await loadJob(job.id)) ?? job;
-      }
-      if (run.status !== "completed") {
-        await updateJob(job.id, { progress: 75, message: `Live transfer model ${run.status}` });
-        return (await loadJob(job.id)) ?? job;
-      }
-      if (run.conclusion !== "success") {
-        throw new Error(`Live transfer model failed (conclusion=${run.conclusion ?? "unknown"})`);
-      }
-
-      await updateJob(job.id, { progress: 85, message: "Injecting live transfer projection" });
-      const liveCardHtml = await fetchCommittedCardHtml(cfg, outputFilename);
-      const liveTransferHtml =
-        extractBalancedDivByClass(liveCardHtml, "panel draft-proj-panel") ??
-        extractBalancedDivByClass(liveCardHtml, "panel");
-
-      const staticPayload = await loadStaticPayload(season, team, player, gender);
-      const patchedPayload = {
-        ...staticPayload,
-        sections_html: {
-          ...(staticPayload.sections_html ?? {}),
-          draft_projection_html:
-            liveTransferHtml || String(staticPayload.sections_html?.draft_projection_html ?? ""),
-        },
-      };
-      const cardHtml = renderCardHtmlFromPayload(patchedPayload, {
-        gender,
-        mode,
-        destinationConference,
-      });
-      const payload: Record<string, unknown> = {
-        ok: true,
-        source: "precomputed_sections_with_live_transfer",
-        generatedAt: new Date().toISOString(),
-        input: {
-          gender,
-          season,
-          team,
-          player,
-          mode,
-          destinationConference,
-        },
-        dataVersion,
-        cardHtml,
-        staticPayload: patchedPayload,
-      };
-      await upsertCardPayload({
-        season,
-        team,
-        player,
-        mode,
-        destinationConference,
-        payload,
-      });
-      const cacheKey = cardCacheKey({
-        gender,
-        season,
-        team,
-        player,
-        mode,
-        destinationConference,
-        dataVersion,
-      });
-      await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
-      await updateJob(job.id, {
-        status: "done",
-        progress: 100,
-        message: "Completed from precomputed payload + live transfer model",
-        result_json: { ...payload, cache: "miss" },
-      });
-      return (await loadJob(job.id)) ?? job;
-    }
-
     const staticPayload = await loadStaticPayload(season, team, player, gender);
     const cardHtml = renderCardHtmlFromPayload(staticPayload, {
       gender,

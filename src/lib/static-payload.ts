@@ -91,6 +91,8 @@ const PHASE_ORDER = [
   "finalize",
 ] as const;
 
+const WOMEN_AGE_GATED_COMPS_MESSAGE = "Missing target age for strict +/-1 year age comps.";
+
 function parseGender(raw?: string): Gender {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
 }
@@ -498,7 +500,22 @@ function mergeSectionMaps(
   return Object.keys(merged).length ? merged : undefined;
 }
 
-function mergePayloadWithFallback(primary: CardPayload, fallback: CardPayload): CardPayload {
+function mergePayloadWithFallback(primary: CardPayload, fallback: CardPayload, gender: Gender): CardPayload {
+  const primarySections = {
+    ...(primary.sections_html ?? {}),
+  } as Record<string, unknown>;
+  const fallbackSections = {
+    ...(fallback.sections_html ?? {}),
+  } as Record<string, unknown>;
+
+  if (
+    gender === "women" &&
+    String(primarySections.player_comparisons_html ?? "").includes(WOMEN_AGE_GATED_COMPS_MESSAGE) &&
+    String(fallbackSections.player_comparisons_html ?? "").trim()
+  ) {
+    primarySections.player_comparisons_html = fallbackSections.player_comparisons_html;
+  }
+
   return {
     ...fallback,
     ...primary,
@@ -514,10 +531,7 @@ function mergePayloadWithFallback(primary: CardPayload, fallback: CardPayload): 
       ...(fallback.shot_chart ?? {}),
       ...(primary.shot_chart ?? {}),
     },
-    sections_html: mergeSectionMaps(
-      primary.sections_html as Record<string, unknown> | undefined,
-      fallback.sections_html as Record<string, unknown> | undefined,
-    ) as CardSections | undefined,
+    sections_html: mergeSectionMaps(primarySections, fallbackSections) as CardSections | undefined,
     section_bundles: {
       core: mergeSectionMaps(primary.section_bundles?.core, fallback.section_bundles?.core),
       heavy: mergeSectionMaps(primary.section_bundles?.heavy, fallback.section_bundles?.heavy),
@@ -543,7 +557,7 @@ export async function loadStaticPayload(
   if (backedUp) {
     try {
       const fallback = await loadFromStaticIndex(season, team, player, cfg);
-      return await enrichPayloadBio(mergePayloadWithFallback(backedUp, fallback), cfg);
+      return await enrichPayloadBio(mergePayloadWithFallback(backedUp, fallback, gender), cfg);
     } catch {
       return await enrichPayloadBio(backedUp, cfg);
     }
@@ -557,7 +571,7 @@ export async function loadStaticPayload(
         if (!isMissingAnyCriticalSection(payload)) return await enrichPayloadBio(payload, cfg);
         try {
           const fallback = await loadFromStaticIndex(season, team, player, cfg);
-          return await enrichPayloadBio(mergePayloadWithFallback(payload, fallback), cfg);
+          return await enrichPayloadBio(mergePayloadWithFallback(payload, fallback, gender), cfg);
         } catch {
           return await enrichPayloadBio(payload, cfg);
         }
