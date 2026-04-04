@@ -4,6 +4,7 @@ type SeasonOptions = {
   allPlayers: string[];
   loadedAt: number;
 };
+import women2026Options from "@/data/options/women-2026.json";
 
 type Gender = "men" | "women";
 type SourceCfg = {
@@ -22,6 +23,18 @@ const TTL_MS = 1000 * 60 * 60;
 
 function parseGender(raw?: string): Gender {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
+}
+
+function loadBundledSeasonOptions(season: number, gender: Gender): SeasonOptions | null {
+  if (gender === "women" && season === 2026) {
+    return {
+      teams: [...women2026Options.teams],
+      playersByTeam: { ...women2026Options.playersByTeam },
+      allPlayers: [...women2026Options.allPlayers],
+      loadedAt: Date.now(),
+    };
+  }
+  return null;
 }
 
 function getSourceCfg(gender: Gender): SourceCfg {
@@ -359,6 +372,11 @@ export async function getSeasonOptions(season: number, genderRaw?: string): Prom
   const cacheKey = `${gender}:${season}`;
   const cached = seasonCache.get(cacheKey);
   if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached;
+  const bundled = loadBundledSeasonOptions(season, gender);
+  if (bundled) {
+    seasonCache.set(cacheKey, bundled);
+    return bundled;
+  }
   let fresh: SeasonOptions;
   try {
     fresh = await fetchSeasonOptionsFromGithubLargeFile(season, cfg);
