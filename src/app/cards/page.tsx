@@ -57,7 +57,7 @@ export default function CardsPage() {
   const [compare, setCompare] = useState(false);
   const [teamB, setTeamB] = useState("");
   const [playerB, setPlayerB] = useState("");
-  const [mode, setMode] = useState<"draft" | "transfer">("draft");
+  const [mode, setMode] = useState<"draft" | "transfer">("transfer");
   const [dest, setDest] = useState("SEC");
 
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
@@ -612,8 +612,8 @@ export default function CardsPage() {
             value={mode}
             onChange={(e) => setMode(e.target.value as "draft" | "transfer")}
           >
-            <option value="draft">{draftLabel}</option>
             <option value="transfer">Transfer</option>
+            <option value="draft">{draftLabel}</option>
           </select>
 
           <label className="flex items-center gap-2 rounded bg-zinc-900 px-3 py-3">

@@ -10,6 +10,7 @@ type SourceCfg = {
   dataOwner: string;
   dataRepo: string;
   dataRef: string;
+  dataToken: string;
   staticRoot: string;
   btPlayerstatJsonTemplate: string;
   btCsvPath: string;
@@ -29,6 +30,7 @@ function getSourceCfg(gender: Gender): SourceCfg {
       dataOwner: process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason",
       dataRepo: process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards",
       dataRef: process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main",
+      dataToken: (process.env.GITHUB_TOKEN_WOMEN || process.env.GITHUB_TOKEN || "").trim(),
       staticRoot:
         process.env.GITHUB_STATIC_PAYLOAD_ROOT_WOMEN ||
         process.env.GITHUB_STATIC_PAYLOAD_ROOT ||
@@ -48,6 +50,7 @@ function getSourceCfg(gender: Gender): SourceCfg {
     dataOwner: process.env.GITHUB_DATA_OWNER || "dbcjason",
     dataRepo: process.env.GITHUB_DATA_REPO || "NCAACards",
     dataRef: process.env.GITHUB_DATA_REF || "main",
+    dataToken: (process.env.GITHUB_TOKEN || "").trim(),
     staticRoot: process.env.GITHUB_STATIC_PAYLOAD_ROOT || "player_cards_pipeline/public/cards",
     btPlayerstatJsonTemplate:
       process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE ||
@@ -68,6 +71,47 @@ function btCsvCandidates(cfg: SourceCfg): string[] {
   "player_cards_pipeline/data/bt/bt_advstats_2010_2025.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2026.csv",
   ];
+}
+
+async function fetchRepoFileText(path: string, cfg: SourceCfg): Promise<string> {
+  const token = cfg.dataToken || "";
+  const encodedPath = path
+    .split("/")
+    .filter((p) => p.length > 0)
+    .map((p) => encodeURIComponent(p))
+    .join("/");
+  const apiUrl = `https://api.github.com/repos/${cfg.dataOwner}/${cfg.dataRepo}/contents/${encodedPath}?ref=${encodeURIComponent(cfg.dataRef)}`;
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers["X-GitHub-Api-Version"] = "2022-11-28";
+  }
+  const apiRes = await fetch(apiUrl, { cache: "no-store", headers });
+  if (apiRes.ok) {
+    const payload = (await apiRes.json()) as {
+      content?: string;
+      encoding?: string;
+      download_url?: string;
+    };
+    if (payload?.content && payload.encoding === "base64") {
+      return Buffer.from(payload.content, "base64").toString("utf-8");
+    }
+    if (payload?.download_url) {
+      const dlHeaders: Record<string, string> = {};
+      if (token) dlHeaders.Authorization = `Bearer ${token}`;
+      const dlRes = await fetch(payload.download_url, { cache: "no-store", headers: dlHeaders });
+      if (dlRes.ok) return await dlRes.text();
+      throw new Error(`GitHub download failed (${dlRes.status})`);
+    }
+  }
+  const rawUrl = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
+  const rawHeaders: Record<string, string> = {};
+  if (token) rawHeaders.Authorization = `Bearer ${token}`;
+  const rawRes = await fetch(rawUrl, { cache: "no-store", headers: rawHeaders });
+  if (!rawRes.ok) throw new Error(`Failed to fetch repo file (${rawRes.status})`);
+  return await rawRes.text();
 }
 
 function parseCsvLine(line: string): string[] {
@@ -166,10 +210,8 @@ async function fetchSeasonOptionsFromBart(season: number, cfg: SourceCfg): Promi
 
 async function fetchSeasonOptionsFromStaticIndex(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
   const path = `${cfg.staticRoot}/${season}/index.json`;
-  const url = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch static index (${res.status})`);
-  const arr = (await res.json()) as Array<{ player?: string; team?: string }>;
+  const text = await fetchRepoFileText(path, cfg);
+  const arr = JSON.parse(text) as Array<{ player?: string; team?: string }>;
   if (!Array.isArray(arr) || arr.length === 0) throw new Error("Static index empty");
   const byTeam = new Map<string, Set<string>>();
   const allPlayersSet = new Set<string>();
@@ -265,10 +307,7 @@ function pickJsonKey(obj: Record<string, unknown>, keys: string[]): string | nul
 
 async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
   const path = cfg.btPlayerstatJsonTemplate.replace("{season}", String(season));
-  const url = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch repo playerstat JSON (${res.status})`);
-  const text = await res.text();
+  const text = await fetchRepoFileText(path, cfg);
   const arr = JSON.parse(text) as unknown[];
   if (!Array.isArray(arr) || arr.length === 0) throw new Error("Playerstat JSON empty");
 
@@ -300,16 +339,14 @@ async function fetchSeasonOptionsFromGithubPlayerstatJson(season: number, cfg: S
 async function fetchSeasonOptionsFromGithubLargeFile(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
   let lastErr = "";
   for (const path of btCsvCandidates(cfg)) {
-    const url = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) {
-      lastErr = `${path}: ${res.status}`;
-      continue;
+    try {
+      const text = await fetchRepoFileText(path, cfg);
+      const parsed = parseOptionsFromCsvText(text, { season });
+      if (parsed.teams.length > 0) return parsed;
+      lastErr = `${path}: no teams`;
+    } catch (e) {
+      lastErr = `${path}: ${e instanceof Error ? e.message : String(e)}`;
     }
-    const text = await res.text();
-    const parsed = parseOptionsFromCsvText(text, { season });
-    if (parsed.teams.length > 0) return parsed;
-    lastErr = `${path}: no teams`;
   }
   throw new Error(`Failed to fetch repo all-years CSV (${lastErr || "no valid path"})`);
 }
@@ -322,23 +359,23 @@ export async function getSeasonOptions(season: number, genderRaw?: string): Prom
   if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached;
   let fresh: SeasonOptions;
   try {
-    fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season, cfg);
-  } catch (ghJsonErr) {
+    fresh = await fetchSeasonOptionsFromGithubLargeFile(season, cfg);
+  } catch (ghLargeErr) {
     try {
-      fresh = await fetchSeasonOptionsFromStaticIndex(season, cfg);
-    } catch (staticErr) {
+      fresh = await fetchSeasonOptionsFromBart(season, cfg);
+    } catch (bartErr) {
       try {
-        fresh = await fetchSeasonOptionsFromBart(season, cfg);
-      } catch (bartErr) {
+        fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season, cfg);
+      } catch (ghJsonErr) {
         try {
-          fresh = await fetchSeasonOptionsFromGithubLargeFile(season, cfg);
-        } catch (ghLargeErr) {
+          fresh = await fetchSeasonOptionsFromStaticIndex(season, cfg);
+        } catch (staticErr) {
+          const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
+          const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
           const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
           const s = staticErr instanceof Error ? staticErr.message : String(staticErr);
-          const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
-          const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
           throw new Error(
-            `Repo playerstat failed: ${gs} | Static index failed: ${s} | Bart failed: ${b} | Repo all-years failed: ${gl}`,
+            `Repo all-years failed: ${gl} | Bart failed: ${b} | Repo playerstat failed: ${gs} | Static index failed: ${s}`,
           );
         }
       }
