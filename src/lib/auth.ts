@@ -370,6 +370,16 @@ export async function createOrganizationAccount(params: {
       `insert into public.organizations
         (name, account_type, access_scope, status, requires_payment, notes, contract_starts_at, contract_ends_at, expires_at)
        values ($1,$2,$3,'active',$4,$5,$6,$7,$8)
+       on conflict (name) do update
+         set account_type = excluded.account_type,
+             access_scope = excluded.access_scope,
+             status = 'active',
+             requires_payment = excluded.requires_payment,
+             notes = excluded.notes,
+             contract_starts_at = excluded.contract_starts_at,
+             contract_ends_at = excluded.contract_ends_at,
+             expires_at = excluded.expires_at,
+             updated_at = now()
        returning id, name`,
       [
         params.organizationName.trim(),
