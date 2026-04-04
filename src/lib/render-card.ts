@@ -25,6 +25,17 @@ function pctBadge(value: unknown): string {
   return `${Math.round(parsed)}%`;
 }
 
+function normalizeHeightDisplay(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "N/A";
+  const compact = raw.replace(/\s+/g, "");
+  const match = compact.match(/^(\d+)[-'](\d{1,2})(?:"|”)?$/);
+  if (match) {
+    return `${match[1]}'${match[2]}"`;
+  }
+  return raw;
+}
+
 function buildSubtitleHtml(
   payload: CardPayload,
   input: { mode?: string; destinationConference?: string } = {},
@@ -36,15 +47,15 @@ function buildSubtitleHtml(
     `Position: ${esc(bio.position || "N/A")}`,
   ];
 
-  bits.push(`Height: ${esc(bio.height || "N/A")}`);
+  bits.push(`Height: ${esc(normalizeHeightDisplay(bio.height || "N/A"))}`);
 
-  const statHeightRaw = String(
+  const statHeightRaw = normalizeHeightDisplay(
     bio.statistical_height_text ??
       bio.statistical_height ??
       bio.stat_height ??
       bio.statisticalHeight ??
       "N/A",
-  ).trim();
+  );
   const statHeightDelta = num(
     bio.statistical_height_delta ??
       bio.stat_height_delta ??
@@ -56,6 +67,10 @@ function buildSubtitleHtml(
   if (statHeightDelta !== null) {
     if (statHeightDelta > 1.0) statHeightClass = "stat-height-above";
     else if (statHeightDelta < -1.0) statHeightClass = "stat-height-below";
+    if (Math.abs(statHeightDelta) >= 0.01) {
+      const signed = statHeightDelta > 0 ? `+${statHeightDelta.toFixed(2)}` : statHeightDelta.toFixed(2);
+      statHeightText = `${statHeightText}, ${signed} in`;
+    }
   }
 
   bits.push(
