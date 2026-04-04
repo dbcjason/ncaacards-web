@@ -72,9 +72,18 @@ function runtimeCfg(gender: Gender): RuntimeCfg {
   };
 }
 
-function cardBuildProvider(): CardBuildProvider {
-  const raw = String(process.env.CARD_BUILD_PROVIDER || "github").trim().toLowerCase();
-  return raw === "precomputed" ? "precomputed" : "github";
+function parseCardBuildProvider(raw: string | undefined, fallback: CardBuildProvider): CardBuildProvider {
+  const normalized = String(raw || "").trim().toLowerCase();
+  if (normalized === "precomputed") return "precomputed";
+  if (normalized === "github") return "github";
+  return fallback;
+}
+
+function cardBuildProvider(gender: Gender): CardBuildProvider {
+  if (gender === "women") {
+    return parseCardBuildProvider(process.env.CARD_BUILD_PROVIDER_WOMEN, "precomputed");
+  }
+  return parseCardBuildProvider(process.env.CARD_BUILD_PROVIDER, "github");
 }
 const seasonVersionMemo = new Map<string, { value: string; ts: number }>();
 const VERSION_TTL_MS = 1000 * 60 * 10;
@@ -478,7 +487,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
     return (await loadJob(job.id)) ?? job;
   }
 
-  const provider = cardBuildProvider();
+  const provider = cardBuildProvider(gender);
   if (provider === "precomputed") {
     const staticPayload = await loadStaticPayload(season, team, player, gender);
     const cardHtml = renderCardHtmlFromPayload(staticPayload, {
