@@ -178,6 +178,11 @@ export function renderCardHtmlFromPayload(
   const makes = num(shotChart.makes) ?? 0;
   const fgPct = attempts > 0 ? (100 * makes) / attempts : num(shotChart.fg_pct) ?? 0;
   const subtitleHtml = buildSubtitleHtml(payload, input);
+  const projectionHtml =
+    input.mode === "transfer"
+      ? String(sections.transfer_projection_html ?? "").trim() ||
+        `<div class="panel"><h3>Transfer Projection</h3><div class="shot-meta">Loading transfer projection...</div></div>`
+      : String(sections.draft_projection_html ?? "");
 
   return `<!doctype html>
 <html lang="en">
@@ -334,7 +339,7 @@ body { margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI"
             <div class="shot-meta">${esc(shotChart.pps_over_expectation_line || "Points per Shot Over Expectation: N/A")}</div>
             ${shotSvg(shots)}
           </div>
-          ${sections.draft_projection_html || ""}
+          ${projectionHtml}
         </div>
         <div class="right-wrap">
           <div class="right-col">

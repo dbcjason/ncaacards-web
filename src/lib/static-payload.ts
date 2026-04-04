@@ -1,4 +1,6 @@
 import { gunzipSync } from "node:zlib";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { dbQuery } from "@/lib/db";
 import { loadJsonPayloadFromObjectKey } from "@/lib/object-store";
 
@@ -77,6 +79,18 @@ type BackedUpPayloadRow = {
   payload_json: CardPayload;
 };
 
+type BundledBioLookupRow = {
+  player?: string;
+  team?: string;
+  enriched_position?: string;
+  enriched_height?: string;
+  jason_position?: string;
+  listed_height?: string;
+  statistical_height?: string;
+  statistical_height_delta?: string;
+  bt_height?: string;
+};
+
 const PHASE_ORDER = [
   "base_metadata",
   "per_game_percentiles",
@@ -92,6 +106,7 @@ const PHASE_ORDER = [
 ] as const;
 
 const WOMEN_AGE_GATED_COMPS_MESSAGE = "Missing target age for strict +/-1 year age comps.";
+const bundledBioLookupMemo = new Map<string, Promise<Record<string, BundledBioLookupRow>>>();
 
 function parseGender(raw?: string): Gender {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
@@ -340,11 +355,70 @@ async function loadBtBioFallback(
   }
 }
 
-async function enrichPayloadBio(payload: CardPayload, cfg: SourceCfg): Promise<CardPayload> {
+async function loadBundledBioLookup(
+  gender: Gender,
+  season: number,
+): Promise<Record<string, BundledBioLookupRow>> {
+  const key = `${gender}:${season}`;
+  if (!bundledBioLookupMemo.has(key)) {
+    bundledBioLookupMemo.set(
+      key,
+      (async () => {
+        try {
+          const path = join(process.cwd(), "src", "data", "card-bio-lookups", `${gender}-${season}.json`);
+          const raw = await readFile(path, "utf-8");
+          const parsed = JSON.parse(raw) as Record<string, BundledBioLookupRow>;
+          return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+          return {};
+        }
+      })(),
+    );
+  }
+  return bundledBioLookupMemo.get(key)!;
+}
+
+async function loadBundledBioFallback(
+  season: number,
+  team: string,
+  player: string,
+  gender: Gender,
+): Promise<Record<string, string>> {
+  const lookup = await loadBundledBioLookup(gender, season);
+  const directKey = `${normTeam(team)}::${normPlayer(player)}`;
+  const direct = lookup[directKey];
+  const row =
+    direct ||
+    Object.values(lookup).find((candidate) => normPlayer(candidate.player || "") === normPlayer(player));
+  if (!row) return {};
+  return {
+    position: String(row.enriched_position || row.jason_position || "").trim(),
+    height: String(row.bt_height || row.listed_height || row.enriched_height || "").trim(),
+    statistical_height: String(row.statistical_height || "").trim(),
+    statistical_height_delta: String(row.statistical_height_delta || "").trim(),
+  };
+}
+
+async function enrichPayloadBio(payload: CardPayload, cfg: SourceCfg, gender: Gender): Promise<CardPayload> {
   const bio = payload.bio ?? {};
   const needsPosition = !String(bio.position ?? "").trim();
   const needsHeight = !String(bio.height ?? "").trim();
-  if (!needsPosition && !needsHeight) return payload;
+  const needsStatHeight =
+    !String(
+      bio.statistical_height_text ??
+        bio.statistical_height ??
+        bio.stat_height ??
+        bio.statisticalHeight ??
+        "",
+    ).trim();
+  if (!needsPosition && !needsHeight && !needsStatHeight) return payload;
+
+  const bundledBio = await loadBundledBioFallback(
+    Number(payload.season || 0),
+    payload.team,
+    payload.player,
+    gender,
+  );
 
   const btBio = await loadBtBioFallback(
     Number(payload.season || 0),
@@ -352,14 +426,41 @@ async function enrichPayloadBio(payload: CardPayload, cfg: SourceCfg): Promise<C
     payload.player,
     cfg,
   );
-  if (!String(btBio.position || "").trim() && !String(btBio.height || "").trim()) return payload;
+  const nextPosition =
+    String(bio.position ?? "").trim() ||
+    String(bundledBio.position || "").trim() ||
+    String(btBio.position || "").trim();
+  const nextHeight =
+    String(bio.height ?? "").trim() ||
+    String(btBio.height || "").trim() ||
+    String(bundledBio.height || "").trim();
+  const nextStatHeight =
+    String(
+      bio.statistical_height_text ??
+        bio.statistical_height ??
+        bio.stat_height ??
+        bio.statisticalHeight ??
+        "",
+    ).trim() || String(bundledBio.statistical_height || "").trim();
+  const nextStatHeightDelta =
+    String(
+      bio.statistical_height_delta ??
+        bio.stat_height_delta ??
+        bio.statisticalHeightDelta ??
+        "",
+    ).trim() || String(bundledBio.statistical_height_delta || "").trim();
+
+  if (!nextPosition && !nextHeight && !nextStatHeight) return payload;
 
   return {
     ...payload,
     bio: {
       ...bio,
-      position: String(bio.position ?? "").trim() || btBio.position || "",
-      height: String(bio.height ?? "").trim() || btBio.height || "",
+      position: nextPosition,
+      height: nextHeight,
+      statistical_height: nextStatHeight,
+      statistical_height_text: nextStatHeight,
+      statistical_height_delta: nextStatHeightDelta,
     },
   };
 }
@@ -557,9 +658,9 @@ export async function loadStaticPayload(
   if (backedUp) {
     try {
       const fallback = await loadFromStaticIndex(season, team, player, cfg);
-      return await enrichPayloadBio(mergePayloadWithFallback(backedUp, fallback, gender), cfg);
+      return await enrichPayloadBio(mergePayloadWithFallback(backedUp, fallback, gender), cfg, gender);
     } catch {
-      return await enrichPayloadBio(backedUp, cfg);
+      return await enrichPayloadBio(backedUp, cfg, gender);
     }
   }
 
@@ -568,12 +669,12 @@ export async function loadStaticPayload(
     try {
       const payload = await loadFromIndexRow(indexed, cfg);
       if (payload) {
-        if (!isMissingAnyCriticalSection(payload)) return await enrichPayloadBio(payload, cfg);
+        if (!isMissingAnyCriticalSection(payload)) return await enrichPayloadBio(payload, cfg, gender);
         try {
           const fallback = await loadFromStaticIndex(season, team, player, cfg);
-          return await enrichPayloadBio(mergePayloadWithFallback(payload, fallback, gender), cfg);
+          return await enrichPayloadBio(mergePayloadWithFallback(payload, fallback, gender), cfg, gender);
         } catch {
-          return await enrichPayloadBio(payload, cfg);
+          return await enrichPayloadBio(payload, cfg, gender);
         }
       }
     } catch {
@@ -581,5 +682,5 @@ export async function loadStaticPayload(
     }
   }
 
-  return await enrichPayloadBio(await loadFromStaticIndex(season, team, player, cfg), cfg);
+  return await enrichPayloadBio(await loadFromStaticIndex(season, team, player, cfg), cfg, gender);
 }

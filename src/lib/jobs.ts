@@ -480,11 +480,11 @@ async function getSeasonDataVersion(season: number, cfg: RuntimeCfg): Promise<st
         [season],
       ).then((rows) => rows[0]?.version || "none").catch(() => "none"),
     ]);
-    const value = `bt:${btTag}|en:${enrichedTag}|pb:${phaseTag}|rv:20260404b`.slice(0, 180);
+    const value = `bt:${btTag}|en:${enrichedTag}|pb:${phaseTag}|rv:20260404c`.slice(0, 180);
     seasonVersionMemo.set(memoKey, { value, ts: now });
     return value;
   } catch {
-    const fallback = `day:${new Date().toISOString().slice(0, 10)}|rv:20260404b`;
+    const fallback = `day:${new Date().toISOString().slice(0, 10)}|rv:20260404c`;
     seasonVersionMemo.set(memoKey, { value: fallback, ts: now });
     return fallback;
   }
