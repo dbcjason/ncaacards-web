@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertGenderAccess, requireUser } from "@/lib/auth";
 
 type GradeRow = Record<string, string>;
 
@@ -153,7 +154,9 @@ async function fetchTransferRowsWithFallback(
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await requireUser();
     const gender = parseGender(req.nextUrl.searchParams.get("gender") ?? "men");
+    assertGenderAccess(user, gender);
     const season = String(req.nextUrl.searchParams.get("season") ?? "2026").trim();
     const cfgs = sourceCfgs(gender, season);
     const loaded = await fetchTransferRowsWithFallback(cfgs);

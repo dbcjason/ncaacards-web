@@ -1,0 +1,44 @@
+import { requireUser } from "@/lib/auth";
+
+export default async function ProfilePage() {
+  const user = await requireUser();
+
+  return (
+    <div className="min-h-screen px-6 py-8">
+      <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="dashboard-card">
+          <div className="dashboard-section-title">Account Profile</div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <ProfileItem label="Email" value={user.email} />
+            <ProfileItem label="Role" value={user.role} />
+            <ProfileItem label="Organization" value={user.organization_name} />
+            <ProfileItem label="Access Scope" value={user.access_scope} />
+            <ProfileItem label="Organization Access" value={user.organization_access_scope} />
+            <ProfileItem label="Organization Type" value={user.organization_account_type} />
+            <ProfileItem label="Account Status" value={user.status} />
+            <ProfileItem label="Expiration Date" value={user.expires_at ? new Date(user.expires_at).toLocaleDateString("en-US") : "No expiration set"} />
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <div className="dashboard-section-title">Quick Links</div>
+          <div className="mt-4 space-y-3 text-sm">
+            {user.access_scope !== "women" && <a className="dashboard-link block" href="/cards?gender=men">Open Men Player Profiles</a>}
+            {user.access_scope !== "men" && <a className="dashboard-link block" href="/cards?gender=women">Open Women Player Profiles</a>}
+            <a className="dashboard-link block" href={`/transfer-grades?gender=${user.access_scope === "women" ? "women" : "men"}&season=2026`}>Open Transfer Grades</a>
+            {user.role === "admin" && <a className="dashboard-link block" href="/dashboard">Open Admin Dashboard</a>}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ProfileItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--panel)] p-4">
+      <div className="text-xs uppercase tracking-[0.2em] text-[color:var(--accent-soft)]">{label}</div>
+      <div className="mt-2 text-base text-[color:var(--foreground)]">{value}</div>
+    </div>
+  );
+}

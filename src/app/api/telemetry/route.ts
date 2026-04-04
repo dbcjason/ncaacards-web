@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logUsageEvent, requireUser } from "@/lib/auth";
 import { logTelemetryEvent } from "@/lib/telemetry";
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await requireUser();
     const body = (await req.json()) as {
       eventType?: "transfer_search";
       gender?: string;
@@ -17,12 +19,24 @@ export async function POST(req: NextRequest) {
     if (q.length < 2) {
       return NextResponse.json({ ok: true, skipped: true });
     }
+    const gender = String(body.gender || "").toLowerCase() === "women" ? "women" : "men";
     await logTelemetryEvent(req, {
       eventType: "transfer_search",
       path: "/transfer-grades",
-      gender: String(body.gender || ""),
+      gender,
       season: Number(body.season || 0) || null,
       queryText: q,
+      source: String(body.source || "transfer_grades_filter"),
+    });
+    await logUsageEvent({
+      organizationId: user.organization_id,
+      userId: user.id,
+      eventType: "transfer_search",
+      email: user.email,
+      gender,
+      season: Number(body.season || 0) || null,
+      queryText: q,
+      path: "/transfer-grades",
       source: String(body.source || "transfer_grades_filter"),
     });
     return NextResponse.json({ ok: true });
@@ -33,4 +47,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

@@ -1,26 +1,151 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5ecdc;
+  --foreground: #1c1711;
+  --surface: rgba(255, 248, 235, 0.84);
+  --panel: rgba(255, 251, 244, 0.92);
+  --border: rgba(93, 69, 31, 0.18);
+  --muted: #6f6049;
+  --accent: #a53d2e;
+  --accent-soft: #8c6d34;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background:
+    radial-gradient(circle at top left, rgba(165, 61, 46, 0.14), transparent 36%),
+    radial-gradient(circle at bottom right, rgba(140, 109, 52, 0.16), transparent 28%),
+    linear-gradient(180deg, #f8f0df 0%, #efe2ca 100%);
 }
 
 body {
-  background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.app-shell {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(175, 60, 46, 0.12), transparent 30%),
+    radial-gradient(circle at 85% 80%, rgba(114, 78, 31, 0.14), transparent 35%);
+}
+
+.auth-page {
+  background:
+    linear-gradient(135deg, rgba(255, 250, 243, 0.72), rgba(247, 234, 212, 0.58)),
+    repeating-linear-gradient(135deg, rgba(140, 109, 52, 0.04) 0 10px, transparent 10px 20px);
+}
+
+.auth-input {
+  width: 100%;
+  border-radius: 1.2rem;
+  border: 1px solid var(--border);
+  background: rgba(255, 251, 246, 0.95);
+  padding: 0.9rem 1rem;
+  color: var(--foreground);
+  outline: none;
+}
+
+.auth-input:focus {
+  border-color: rgba(165, 61, 46, 0.55);
+  box-shadow: 0 0 0 4px rgba(165, 61, 46, 0.1);
+}
+
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #af3c2e, #7d281d);
+  color: #fff8f0;
+  padding: 0.9rem 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.primary-button:hover {
+  filter: brightness(1.03);
+}
+
+.auth-tab {
+  flex: 1;
+  border-radius: 999px;
+  padding: 0.8rem 1rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.auth-tab-active {
+  background: rgba(255, 248, 238, 0.94);
+  color: var(--foreground);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+}
+
+.dashboard-card {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 2rem;
+  padding: 1.5rem;
+  box-shadow: 0 20px 60px rgba(49, 34, 16, 0.08);
+}
+
+.dashboard-section-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.dashboard-section-copy {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.dashboard-table {
+  width: 100%;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.94rem;
+}
+
+.dashboard-table th,
+.dashboard-table td {
+  border-bottom: 1px solid rgba(93, 69, 31, 0.14);
+  padding: 0.85rem 0.9rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.dashboard-table th {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--accent-soft);
+}
+
+.dashboard-pill {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  color: var(--muted);
+  background: rgba(255, 249, 240, 0.75);
+}
+
+.dashboard-pill-active {
+  background: linear-gradient(135deg, #af3c2e, #7d281d);
+  color: #fff8f0;
+  border-color: transparent;
+}
+
+.dashboard-link,
+.app-nav-link {
+  color: var(--accent);
+}
+
+.dashboard-link:hover,
+.app-nav-link:hover {
+  text-decoration: underline;
 }
