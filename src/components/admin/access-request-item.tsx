@@ -81,5 +81,7 @@ export function AccessRequestItem({ request }: AccessRequestItemProps) {
 
 function formatDateTime(value: string | null) {
   if (!value) return "—";
-  return new Date(value).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 }

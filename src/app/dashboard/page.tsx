@@ -147,16 +147,32 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               <div className="mt-4 grid gap-6 xl:grid-cols-2">
                 <div className="overflow-x-auto">
                   <table className="dashboard-table">
-                    <thead><tr><th>User</th><th>Org</th><th>Role</th><th>Scope</th><th>Expires</th><th>Last Login</th></tr></thead>
+                    <thead><tr><th>User</th><th>Org</th><th>Role</th><th>Scope</th><th>Expires</th><th>Last Login</th><th>Actions</th></tr></thead>
                     <tbody>
-                      {users.map((user) => (
-                        <tr key={user.id}>
-                          <td>{user.email}</td>
-                          <td>{user.organization_name}</td>
-                          <td>{user.role}</td>
-                          <td>{user.access_scope}</td>
-                          <td>{formatDate(user.expires_at)}</td>
-                          <td>{formatDateTime(user.last_login_at)}</td>
+                      {users.map((account) => (
+                        <tr key={account.id}>
+                          <td>{account.email}</td>
+                          <td>{account.organization_name}</td>
+                          <td>{account.role}</td>
+                          <td>{account.access_scope}</td>
+                          <td>{formatDate(account.expires_at)}</td>
+                          <td>{formatDateTime(account.last_login_at)}</td>
+                          <td>
+                            {account.id === user.id ? (
+                              <span className="text-xs text-zinc-500">Current admin</span>
+                            ) : (
+                              <form action="/api/admin/users/delete" method="post">
+                                <input type="hidden" name="userId" value={account.id} />
+                                <input type="hidden" name="email" value={account.email} />
+                                <button
+                                  type="submit"
+                                  className="site-button-secondary border-rose-800 text-rose-200 hover:bg-rose-950/40"
+                                >
+                                  Delete
+                                </button>
+                              </form>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -367,21 +383,30 @@ function Banner({ tone, children }: { tone: "success" | "error"; children: React
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("en-US");
+  const parsed = parseDateValue(value);
+  if (!parsed) return "—";
+  return parsed.toLocaleDateString("en-US");
 }
 
 function formatDateTime(value: string | null) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  const parsed = parseDateValue(value);
+  if (!parsed) return "—";
+  return parsed.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 }
 
 function daysLeft(value: string | null) {
-  if (!value) return "—";
-  const diff = Math.ceil((new Date(value).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  const parsed = parseDateValue(value);
+  if (!parsed) return "—";
+  const diff = Math.ceil((parsed.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   return Number.isFinite(diff) ? `${diff}` : "—";
 }
 
 function unwrapSettled<T>(result: PromiseSettledResult<T>): T extends Array<infer U> ? U[] : T | [] {
   return (result.status === "fulfilled" ? result.value : []) as T extends Array<infer U> ? U[] : T | [];
+}
+
+function parseDateValue(value: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

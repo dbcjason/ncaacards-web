@@ -13,7 +13,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const userPromise = getCurrentUser();
+  const userPromise = getCurrentUser().catch(() => null);
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full bg-zinc-950 text-zinc-100">
