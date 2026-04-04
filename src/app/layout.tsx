@@ -37,7 +37,7 @@ async function AppChrome({
       <header className="border-b border-zinc-900 bg-black">
         <div className="mx-auto flex w-full max-w-[1900px] items-center justify-between px-6 py-5">
           <div className="space-y-1">
-            <Link href={user ? "/cards" : "/"} className="text-[15px] font-semibold tracking-[0.28em] text-[#d7c193] uppercase">
+            <Link href={user ? "/cards" : "/"} className="text-[15px] font-semibold tracking-[0.28em] text-white uppercase">
               DBCJASON
             </Link>
           </div>

@@ -19,7 +19,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     ? (params.tab as (typeof TABS)[number])
     : "accounts";
 
-  const [organizations, users, accessCodes, accessRequests, billing, usageSummary, usageEvents] = await Promise.all([
+  const [
+    organizationsResult,
+    usersResult,
+    accessCodesResult,
+    accessRequestsResult,
+    billingResult,
+    usageSummaryResult,
+    usageEventsResult,
+  ] = await Promise.allSettled([
     listOrganizations(),
     listUsers(),
     listAccessCodes(),
@@ -29,6 +37,23 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     listUsageEvents(params.org || null),
   ]);
 
+  const organizations = unwrapSettled(organizationsResult);
+  const users = unwrapSettled(usersResult);
+  const accessCodes = unwrapSettled(accessCodesResult);
+  const accessRequests = unwrapSettled(accessRequestsResult);
+  const billing = unwrapSettled(billingResult);
+  const usageSummary = unwrapSettled(usageSummaryResult);
+  const usageEvents = unwrapSettled(usageEventsResult);
+  const hasDataError = [
+    organizationsResult,
+    usersResult,
+    accessCodesResult,
+    accessRequestsResult,
+    billingResult,
+    usageSummaryResult,
+    usageEventsResult,
+  ].some((result) => result.status === "rejected");
+
   return (
     <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
       <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -36,6 +61,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
         {params.notice && <Banner tone="success">{params.notice}</Banner>}
         {params.error && <Banner tone="error">{params.error}</Banner>}
+        {hasDataError && (
+          <Banner tone="error">
+            Some dashboard data could not be loaded, but your account is fine. The page is using partial results until I finish cleaning up the failing query.
+          </Banner>
+        )}
 
         <div className="flex flex-wrap gap-2">
           {TABS.map((item) => (
@@ -372,4 +402,8 @@ function daysLeft(value: string | null) {
   if (!value) return "—";
   const diff = Math.ceil((new Date(value).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   return Number.isFinite(diff) ? `${diff}` : "—";
+}
+
+function unwrapSettled<T>(result: PromiseSettledResult<T>): T extends Array<infer U> ? U[] : T | [] {
+  return (result.status === "fulfilled" ? result.value : []) as T extends Array<infer U> ? U[] : T | [];
 }
