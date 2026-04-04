@@ -396,25 +396,25 @@ export default function CardsPage() {
 
   async function captureCardCanvas(iframe: HTMLIFrameElement) {
     const doc = iframe.contentDocument;
-    const root = doc?.body;
-    if (!doc || !root) {
+    if (!doc?.body) {
       throw new Error("Card preview is still loading.");
     }
 
+    const cardRoot =
+      (doc.querySelector(".wrap > .card") as HTMLElement | null) ??
+      (doc.querySelector(".card") as HTMLElement | null) ??
+      doc.body;
+
     const width = Math.max(
-      iframe.clientWidth,
-      doc.documentElement.scrollWidth,
-      doc.body.scrollWidth,
-      1200,
+      Math.ceil(cardRoot.scrollWidth || cardRoot.clientWidth || cardRoot.getBoundingClientRect().width),
+      900,
     );
     const height = Math.max(
-      iframe.clientHeight,
-      doc.documentElement.scrollHeight,
-      doc.body.scrollHeight,
-      1600,
+      Math.ceil(cardRoot.scrollHeight || cardRoot.clientHeight || cardRoot.getBoundingClientRect().height),
+      1200,
     );
 
-    return toCanvas(root, {
+    return toCanvas(cardRoot, {
       cacheBust: true,
       backgroundColor: "#09090b",
       pixelRatio: 1,
