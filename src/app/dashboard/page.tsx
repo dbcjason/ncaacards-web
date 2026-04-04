@@ -1,6 +1,7 @@
 import { requireAdminUser } from "@/lib/auth";
 import { listAccessCodes, listAccessRequests, listBillingRecords, listOrganizations, listUsageEvents, listUsageSummary, listUsers } from "@/lib/admin";
 import { CreateOrganizationForm } from "@/components/admin/create-organization-form";
+import { ReviewAccessRequestForm } from "@/components/admin/review-access-request-form";
 
 type DashboardPageProps = {
   searchParams: Promise<{
@@ -178,27 +179,46 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         )}
 
         {tab === "requests" && (
-          <section className="site-panel rounded-xl p-6">
+          <section className="space-y-4">
             <div className="text-lg font-semibold text-zinc-100">Access Code Requests</div>
-            <div className="mt-4 overflow-x-auto">
-              <table className="dashboard-table">
-                <thead><tr><th>When</th><th>Email</th><th>Organization</th><th>Who They Are</th><th>Notes</th><th>Status</th></tr></thead>
-                <tbody>
-                  {accessRequests.map((request) => (
-                    <tr key={request.id}>
-                      <td>{formatDateTime(request.created_at)}</td>
-                      <td>{request.email}</td>
-                      <td>{request.organization}</td>
-                      <td>{request.requester_name}</td>
-                      <td>{request.notes || "—"}</td>
-                      <td>{request.status}</td>
-                    </tr>
-                  ))}
-                  {!accessRequests.length && (
-                    <tr><td colSpan={6}>No access requests yet.</td></tr>
+            <div className="grid gap-4">
+              {accessRequests.map((request) => (
+                <div key={request.id} className="site-panel rounded-xl p-6">
+                  <div className="flex flex-col gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-1">
+                      <div className="text-sm text-zinc-400">{formatDateTime(request.created_at)}</div>
+                      <div className="text-xl font-semibold text-zinc-100">{request.organization}</div>
+                      <div className="text-sm text-zinc-300">{request.email}</div>
+                      <div className="text-sm text-zinc-300">{request.requester_name}</div>
+                    </div>
+                    <div className="space-y-1 text-sm text-zinc-300 md:text-right">
+                      <div>Status: {request.status === "disabled" ? "Completed" : request.status}</div>
+                      <div>Reviewed: {formatDateTime(request.reviewed_at)}</div>
+                      <div>By: {request.reviewed_by_email || "—"}</div>
+                      <div>Code: {request.fulfilled_access_code || "—"}</div>
+                    </div>
+                  </div>
+
+                  {request.notes && (
+                    <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3 text-sm text-zinc-300">
+                      {request.notes}
+                    </div>
                   )}
-                </tbody>
-              </table>
+
+                  {request.status === "pending" ? (
+                    <div className="mt-5">
+                      <ReviewAccessRequestForm request={request} />
+                    </div>
+                  ) : (
+                    <div className="mt-4 text-sm text-zinc-400">
+                      This request has already been handled.
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!accessRequests.length && (
+                <div className="site-panel rounded-xl p-6 text-zinc-400">No access requests yet.</div>
+              )}
             </div>
           </section>
         )}

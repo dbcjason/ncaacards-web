@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withDbTransaction } from "@/lib/db";
 import { sendAccessRequestNotification } from "@/lib/email";
+import { ensureAccessRequestSchema } from "@/lib/access-requests";
 
 function redirectHome(req: NextRequest, kind: "notice" | "error", message: string) {
   const url = req.nextUrl.clone();
@@ -23,6 +24,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    await ensureAccessRequestSchema();
     await withDbTransaction(async (client) => {
       await client.query(
         `insert into public.access_requests

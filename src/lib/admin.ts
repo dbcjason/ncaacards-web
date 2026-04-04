@@ -1,6 +1,7 @@
 import "server-only";
 
 import { dbQuery } from "@/lib/db";
+import { ensureAccessRequestSchema } from "@/lib/access-requests";
 
 export type DashboardOrganization = {
   id: string;
@@ -241,9 +242,14 @@ export type DashboardAccessRequest = {
   notes: string | null;
   status: string;
   created_at: string;
+  reviewed_at: string | null;
+  reviewed_by_email: string | null;
+  fulfilled_organization_id: string | null;
+  fulfilled_access_code: string | null;
 };
 
 export async function listAccessRequests(): Promise<DashboardAccessRequest[]> {
+  await ensureAccessRequestSchema();
   return dbQuery<DashboardAccessRequest>(
     `select
         id,
@@ -252,7 +258,11 @@ export async function listAccessRequests(): Promise<DashboardAccessRequest[]> {
         requester_name,
         notes,
         status,
-        created_at
+        created_at,
+        reviewed_at,
+        reviewed_by_email,
+        fulfilled_organization_id,
+        fulfilled_access_code
       from public.access_requests
       order by created_at desc
       limit 250`,
