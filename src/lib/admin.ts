@@ -189,9 +189,24 @@ export type DashboardUsageEvent = {
   created_at: string;
 };
 
-export async function listUsageEvents(organizationId?: string | null): Promise<DashboardUsageEvent[]> {
-  const where = organizationId ? `where ue.organization_id = $1` : "";
-  const params = organizationId ? [organizationId] : [];
+export async function listUsageEvents(
+  organizationId?: string | null,
+  eventType?: "login" | "logout" | "card_build" | "transfer_search" | null,
+): Promise<DashboardUsageEvent[]> {
+  const clauses: string[] = [];
+  const params: string[] = [];
+
+  if (organizationId) {
+    params.push(organizationId);
+    clauses.push(`ue.organization_id = $${params.length}`);
+  }
+
+  if (eventType) {
+    params.push(eventType);
+    clauses.push(`ue.event_type = $${params.length}`);
+  }
+
+  const where = clauses.length ? `where ${clauses.join(" and ")}` : "";
   return dbQuery<DashboardUsageEvent>(
     `select
         ue.id,

@@ -8,6 +8,7 @@ type DashboardPageProps = {
     notice?: string;
     error?: string;
     org?: string;
+    eventType?: string;
   }>;
 };
 
@@ -35,7 +36,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     listAccessRequests(),
     listBillingRecords(),
     listUsageSummary(),
-    listUsageEvents(params.org || null),
+    listUsageEvents(params.org || null, normalizeEventType(params.eventType)),
   ]);
 
   const organizations = unwrapSettled(organizationsResult);
@@ -257,7 +258,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               <div>
                 <div className="text-lg font-semibold text-zinc-100">Specific Usage</div>
               </div>
-              <form action="/dashboard" method="get" className="flex gap-2">
+              <form action="/dashboard" method="get" className="flex flex-col gap-2 md:flex-row">
                 <input type="hidden" name="tab" value="activity" />
                 <select className="site-input min-w-72" name="org" defaultValue={params.org || ""}>
                   <option value="">All organizations</option>
@@ -265,26 +266,34 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     <option key={org.id} value={org.id}>{org.name}</option>
                   ))}
                 </select>
+                <select className="site-input min-w-56" name="eventType" defaultValue={params.eventType || ""}>
+                  <option value="">All activity</option>
+                  <option value="login">Log-ins</option>
+                  <option value="logout">Log-outs</option>
+                  <option value="card_build">Profile Builds</option>
+                  <option value="transfer_search">Transfer Portal Searches</option>
+                </select>
                 <button type="submit" className="site-button">Apply Filter</button>
               </form>
             </div>
             <div className="mt-4 overflow-x-auto">
               <table className="dashboard-table">
-                <thead><tr><th>When</th><th>Organization</th><th>Email</th><th>Event</th><th>Gender</th><th>Player</th><th>Team</th><th>Query</th><th>Location</th></tr></thead>
+                <thead><tr><th>When</th><th>Organization</th><th>Email</th><th>Event</th><th>Details</th><th>Gender</th><th>Location</th></tr></thead>
                 <tbody>
                   {usageEvents.map((event) => (
                     <tr key={event.id}>
                       <td>{formatDateTime(event.created_at)}</td>
                       <td>{event.organization_name}</td>
                       <td>{event.email || "—"}</td>
-                      <td>{event.event_type}</td>
+                      <td>{labelForEvent(event.event_type)}</td>
+                      <td>{detailForEvent(event)}</td>
                       <td>{event.gender || "—"}</td>
-                      <td>{event.player || "—"}</td>
-                      <td>{event.team || "—"}</td>
-                      <td>{event.query_text || "—"}</td>
                       <td>{[event.city, event.region, event.country].filter(Boolean).join(", ") || "—"}</td>
                     </tr>
                   ))}
+                  {!usageEvents.length && (
+                    <tr><td colSpan={7}>No matching activity yet.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -301,6 +310,48 @@ function labelForTab(tab: string) {
   if (tab === "payments") return "Payments";
   if (tab === "usage") return "Usage Overview";
   return "Specific Usage";
+}
+
+function normalizeEventType(value?: string | null) {
+  if (value === "login" || value === "logout" || value === "card_build" || value === "transfer_search") {
+    return value;
+  }
+  return null;
+}
+
+function labelForEvent(value: "login" | "logout" | "card_build" | "transfer_search") {
+  if (value === "card_build") return "Profile Build";
+  if (value === "transfer_search") return "Transfer Search";
+  if (value === "login") return "Log-In";
+  return "Log-Out";
+}
+
+function detailForEvent(event: {
+  event_type: "login" | "logout" | "card_build" | "transfer_search";
+  player: string | null;
+  team: string | null;
+  season: number | null;
+  source: string | null;
+  query_text: string | null;
+}) {
+  if (event.event_type === "card_build") {
+    const parts = [
+      event.player || null,
+      event.team || null,
+      event.season ? String(event.season) : null,
+      event.source ? `mode=${event.source}` : null,
+    ].filter(Boolean);
+    return parts.join(" | ") || "—";
+  }
+  if (event.event_type === "transfer_search") {
+    const parts = [
+      event.query_text || null,
+      event.season ? String(event.season) : null,
+      event.source ? `source=${event.source}` : null,
+    ].filter(Boolean);
+    return parts.join(" | ") || "—";
+  }
+  return event.source || "—";
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
