@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const SESSION_COOKIE = "dbcjason_session";
+const CANONICAL_HOST = "www.dbcjason.com";
 
 const PUBLIC_PATHS = new Set([
   "/",
@@ -23,6 +24,14 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export function proxy(req: NextRequest) {
+  const host = String(req.headers.get("host") ?? "").trim().toLowerCase();
+  if (host.endsWith(".vercel.app")) {
+    const url = req.nextUrl.clone();
+    url.protocol = "https:";
+    url.host = CANONICAL_HOST;
+    return NextResponse.redirect(url, 307);
+  }
+
   const { pathname, search } = req.nextUrl;
   if (isPublicPath(pathname)) {
     return NextResponse.next();
