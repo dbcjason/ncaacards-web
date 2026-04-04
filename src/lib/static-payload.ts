@@ -18,6 +18,17 @@ export type CardPayload = {
   };
 };
 
+const SECTION_KEYS = [
+  "grade_boxes_html",
+  "bt_percentiles_html",
+  "self_creation_html",
+  "playstyles_html",
+  "team_impact_html",
+  "shot_diet_html",
+  "player_comparisons_html",
+  "draft_projection_html",
+] as const;
+
 type Gender = "men" | "women";
 
 type SourceCfg = {
@@ -195,6 +206,49 @@ export function mergedSectionsHtml(payload: CardPayload): Record<string, string>
   return merged;
 }
 
+function mergeSectionMaps(
+  primary?: Record<string, unknown>,
+  fallback?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const merged = {
+    ...(fallback ?? {}),
+    ...(primary ?? {}),
+  };
+  return Object.keys(merged).length ? merged : undefined;
+}
+
+function mergePayloadWithFallback(primary: CardPayload, fallback: CardPayload): CardPayload {
+  return {
+    ...fallback,
+    ...primary,
+    bio: {
+      ...(fallback.bio ?? {}),
+      ...(primary.bio ?? {}),
+    },
+    per_game: {
+      ...(fallback.per_game ?? {}),
+      ...(primary.per_game ?? {}),
+    },
+    shot_chart: {
+      ...(fallback.shot_chart ?? {}),
+      ...(primary.shot_chart ?? {}),
+    },
+    sections_html: mergeSectionMaps(
+      primary.sections_html as Record<string, unknown> | undefined,
+      fallback.sections_html as Record<string, unknown> | undefined,
+    ) as CardSections | undefined,
+    section_bundles: {
+      core: mergeSectionMaps(primary.section_bundles?.core, fallback.section_bundles?.core),
+      heavy: mergeSectionMaps(primary.section_bundles?.heavy, fallback.section_bundles?.heavy),
+    },
+  };
+}
+
+function isMissingAnyCriticalSection(payload: CardPayload): boolean {
+  const sections = mergedSectionsHtml(payload);
+  return SECTION_KEYS.some((key) => !String(sections[key] ?? "").trim());
+}
+
 export async function loadStaticPayload(
   season: number,
   team: string,
@@ -208,7 +262,15 @@ export async function loadStaticPayload(
   if (indexed) {
     try {
       const payload = await loadFromIndexRow(indexed, cfg);
-      if (payload) return payload;
+      if (payload) {
+        if (!isMissingAnyCriticalSection(payload)) return payload;
+        try {
+          const fallback = await loadFromStaticIndex(season, team, player, cfg);
+          return mergePayloadWithFallback(payload, fallback);
+        } catch {
+          return payload;
+        }
+      }
     } catch {
       // Fall back to the existing GitHub static index path if index metadata is stale.
     }
