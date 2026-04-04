@@ -196,7 +196,7 @@ export function renderCardHtmlFromPayload(
   const projectionHtml =
     input.mode === "transfer"
       ? String(sections.transfer_projection_html ?? "").trim() ||
-        `<div class="panel"><h3>Transfer Projection</h3><div class="shot-meta">Loading transfer projection...</div></div>`
+        `<div class="panel" id="transfer-projection-panel" data-transfer-status="loading"><h3>Transfer Projection</h3><div class="shot-meta">Loading transfer projection...</div></div>`
       : String(sections.draft_projection_html ?? "");
 
   return `<!doctype html>

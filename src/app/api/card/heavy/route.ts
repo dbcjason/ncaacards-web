@@ -7,8 +7,9 @@ export async function POST(req: NextRequest) {
       season: number;
       team: string;
       player: string;
-      part: "comparisons" | "draft";
+      part: "comparisons" | "draft" | "transfer";
       gender?: "men" | "women";
+      destinationConference?: string;
     };
     const payload = await loadStaticPayload(
       Number(body.season),
@@ -17,16 +18,24 @@ export async function POST(req: NextRequest) {
       String(body.gender ?? "men"),
     );
     const sections = (payload.sections_html ?? {}) as Record<string, unknown>;
-    const part = body.part === "draft" ? "draft" : "comparisons";
+    const part =
+      body.part === "draft" ? "draft" : body.part === "transfer" ? "transfer" : "comparisons";
 
     // Brief stagger so UI progress bars have time to animate.
-    await new Promise((res) => setTimeout(res, part === "draft" ? 900 : 700));
+    await new Promise((res) => setTimeout(res, part === "draft" ? 900 : part === "transfer" ? 500 : 700));
 
     if (part === "comparisons") {
       return NextResponse.json({
         ok: true,
         part,
         html: String(sections.player_comparisons_html ?? ""),
+      });
+    }
+    if (part === "transfer") {
+      return NextResponse.json({
+        ok: true,
+        part,
+        html: String(sections.transfer_projection_html ?? ""),
       });
     }
     return NextResponse.json({

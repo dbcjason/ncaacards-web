@@ -85,6 +85,52 @@ export default function CardsPage() {
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
   const playerOptionsB = useMemo(() => playersByTeamB[teamB] ?? [], [playersByTeamB, teamB]);
 
+  async function waitForIframeReady(iframe: HTMLIFrameElement) {
+    if (iframe.contentDocument?.readyState === "complete") return;
+    await new Promise<void>((resolve) => {
+      const onLoad = () => {
+        iframe.removeEventListener("load", onLoad);
+        resolve();
+      };
+      iframe.addEventListener("load", onLoad, { once: true });
+    });
+  }
+
+  async function hydrateTransferPanel(
+    iframe: HTMLIFrameElement,
+    req: {
+      season: number;
+      team: string;
+      player: string;
+      gender: "men" | "women";
+      destinationConference: string;
+    },
+  ) {
+    await waitForIframeReady(iframe);
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    const placeholder = doc.getElementById("transfer-projection-panel");
+    if (!placeholder) return;
+
+    const res = await fetch("/api/card/heavy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        season: req.season,
+        team: req.team,
+        player: req.player,
+        gender: req.gender,
+        destinationConference: req.destinationConference,
+        part: "transfer",
+      }),
+    });
+    const data = (await res.json()) as { ok?: boolean; html?: string };
+    if (!res.ok || !data?.ok) return;
+    const html = String(data.html ?? "").trim();
+    if (!html) return;
+    placeholder.outerHTML = html;
+  }
+
   function persistActiveRun(run: PersistedCardRun) {
     if (typeof window === "undefined") return;
     window.sessionStorage.setItem(CARD_RUN_STORAGE_KEY, JSON.stringify(run));
@@ -516,6 +562,32 @@ export default function CardsPage() {
       setExportBusy("");
     }
   }
+
+  useEffect(() => {
+    if (!resultHtml || mode !== "transfer") return;
+    const iframe = iframeRefA.current;
+    if (!iframe || !team || !player) return;
+    void hydrateTransferPanel(iframe, {
+      season,
+      team,
+      player,
+      gender,
+      destinationConference: dest,
+    });
+  }, [resultHtml, mode, season, team, player, gender, dest]);
+
+  useEffect(() => {
+    if (!compare || !resultHtmlB || mode !== "transfer") return;
+    const iframe = iframeRefB.current;
+    if (!iframe || !teamB || !playerB) return;
+    void hydrateTransferPanel(iframe, {
+      season: seasonB,
+      team: teamB,
+      player: playerB,
+      gender,
+      destinationConference: dest,
+    });
+  }, [compare, resultHtmlB, mode, seasonB, teamB, playerB, gender, dest]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
