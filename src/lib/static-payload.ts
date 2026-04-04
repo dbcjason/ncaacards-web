@@ -1,3 +1,4 @@
+import { gunzipSync } from "node:zlib";
 import { dbQuery } from "@/lib/db";
 import { loadJsonPayloadFromObjectKey } from "@/lib/object-store";
 
@@ -53,6 +54,42 @@ type PayloadIndexRow = {
   payload_json: CardPayload | null;
 };
 
+type PhaseSummaryRow = {
+  phase: string;
+  chunk_rows: number;
+  min_chunk_count: number;
+  max_chunk_count: number;
+  chunk_indexes: number[];
+};
+
+type BackupChunkRow = {
+  chunk_index: number;
+  chunk_count: number;
+  row_count: number;
+  payload_gzip_base64: string;
+};
+
+type BackedUpPayloadRow = {
+  player: string;
+  team: string;
+  season: string | number;
+  payload_json: CardPayload;
+};
+
+const PHASE_ORDER = [
+  "base_metadata",
+  "per_game_percentiles",
+  "grade_boxes_html",
+  "bt_percentiles_html",
+  "self_creation_html",
+  "playstyles_html",
+  "team_impact_html",
+  "shot_diet_html",
+  "player_comparisons_html",
+  "draft_projection_html",
+  "finalize",
+] as const;
+
 function parseGender(raw?: string): Gender {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
 }
@@ -90,6 +127,38 @@ function normPlayer(v: string): string {
     .replace(/\b(jr|sr|ii|iii|iv|v|vi)\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function phaseRank(phase: string): number {
+  const index = PHASE_ORDER.indexOf(phase as (typeof PHASE_ORDER)[number]);
+  return index === -1 ? -1 : index;
+}
+
+function isContiguousChunkSet(indexes: number[], expectedCount: number): boolean {
+  if (indexes.length !== expectedCount) return false;
+  const sorted = [...indexes].sort((a, b) => a - b);
+  for (let i = 0; i < expectedCount; i += 1) {
+    if (sorted[i] !== i) return false;
+  }
+  return true;
+}
+
+function decodeChunkPayload(payloadGzipBase64: string): BackedUpPayloadRow[] {
+  const compressed = Buffer.from(payloadGzipBase64, "base64");
+  const json = gunzipSync(compressed).toString("utf-8");
+  const parsed = JSON.parse(json) as { rows?: unknown };
+  const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
+  return rows.filter((row): row is BackedUpPayloadRow => {
+    if (!row || typeof row !== "object") return false;
+    const value = row as Record<string, unknown>;
+    return (
+      typeof value.player === "string" &&
+      typeof value.team === "string" &&
+      (typeof value.season === "string" || typeof value.season === "number") &&
+      typeof value.payload_json === "object" &&
+      value.payload_json !== null
+    );
+  });
 }
 
 async function fetchAbsoluteJson<T>(url: string, cfg: SourceCfg): Promise<T> {
@@ -191,6 +260,62 @@ async function loadFromStaticIndex(
   return await fetchRepoJson<CardPayload>(payloadPath, cfg);
 }
 
+async function loadFromLatestPhaseBackup(
+  season: number,
+  team: string,
+  player: string,
+  gender: Gender,
+): Promise<CardPayload | null> {
+  try {
+    const summaries = await dbQuery<PhaseSummaryRow>(
+      `select
+         phase,
+         count(*)::int as chunk_rows,
+         min(chunk_count)::int as min_chunk_count,
+         max(chunk_count)::int as max_chunk_count,
+         array_agg(chunk_index order by chunk_index) as chunk_indexes
+       from public.player_payload_phase_backup
+       where gender = $1 and season = $2
+       group by phase`,
+      [gender, season],
+    );
+
+    const complete = summaries
+      .filter((summary) => {
+        if (!summary.phase || summary.min_chunk_count !== summary.max_chunk_count) return false;
+        if (summary.min_chunk_count < 1) return false;
+        return isContiguousChunkSet(summary.chunk_indexes ?? [], summary.min_chunk_count);
+      })
+      .sort((a, b) => phaseRank(b.phase) - phaseRank(a.phase));
+
+    if (!complete.length) return null;
+
+    const nt = normTeam(team);
+    const np = normPlayer(player);
+
+    for (const summary of complete) {
+      const chunks = await dbQuery<BackupChunkRow>(
+        `select chunk_index, chunk_count, row_count, payload_gzip_base64
+         from public.player_payload_phase_backup
+         where gender = $1 and season = $2 and phase = $3
+         order by chunk_index asc`,
+        [gender, season, summary.phase],
+      );
+
+      for (const chunk of chunks) {
+        const rows = decodeChunkPayload(chunk.payload_gzip_base64);
+        const match =
+          rows.find((row) => normTeam(row.team) === nt && normPlayer(row.player) === np) ||
+          rows.find((row) => normPlayer(row.player) === np);
+        if (match?.payload_json) return match.payload_json;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function mergedSectionsHtml(payload: CardPayload): Record<string, string> {
   const merged: Record<string, string> = {};
   const sections = payload.sections_html ?? {};
@@ -257,6 +382,16 @@ export async function loadStaticPayload(
 ): Promise<CardPayload> {
   const gender = parseGender(genderRaw);
   const cfg = getSourceCfg(gender);
+  const backedUp = await loadFromLatestPhaseBackup(season, team, player, gender);
+
+  if (backedUp) {
+    try {
+      const fallback = await loadFromStaticIndex(season, team, player, cfg);
+      return mergePayloadWithFallback(backedUp, fallback);
+    } catch {
+      return backedUp;
+    }
+  }
 
   const indexed = await findIndexedPayload(season, team, player, gender);
   if (indexed) {
