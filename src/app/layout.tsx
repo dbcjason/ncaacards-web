@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "DBCJASON-NCAAM",
+  title: "DBCJASON",
   description: "Player Profiles and Roster Construction",
 };
 
