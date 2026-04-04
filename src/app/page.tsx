@@ -48,31 +48,37 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         )}
 
         {activeTab === "create-account" && (
-          <form action="/api/auth/signup" method="post" className="space-y-4">
-            <input className="site-input" name="email" type="email" placeholder="Email" defaultValue={params.email || ""} required />
-            <input className="site-input" name="password" type="password" placeholder="Create Password" required />
-            <input
-              className="site-input"
-              name="accessCode"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              placeholder="6-digit access code"
-              defaultValue={params.code || ""}
-              required
-            />
-            <button type="submit" className="site-button w-full">Create Account</button>
-          </form>
+          <div className="space-y-4">
+            <form action="/api/auth/signup" method="post" className="space-y-4">
+              <input className="site-input" name="email" type="email" placeholder="Email" defaultValue={params.email || ""} required />
+              <input className="site-input" name="password" type="password" placeholder="Create Password" required />
+              <input
+                className="site-input"
+                name="accessCode"
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                placeholder="6-digit access code"
+                defaultValue={params.code || ""}
+                required
+              />
+              <button type="submit" className="site-button w-full">Create Account</button>
+            </form>
+            <a href="/" className="site-button-secondary block text-center">Back to Log-In</a>
+          </div>
         )}
 
         {activeTab === "request-access" && (
-          <form action="/api/access-requests" method="post" className="space-y-4">
-            <input className="site-input" name="email" type="email" placeholder="Email" required />
-            <input className="site-input" name="organization" type="text" placeholder="Organization" required />
-            <input className="site-input" name="requesterName" type="text" placeholder="Who are you?" required />
-            <textarea className="site-input min-h-28" name="notes" placeholder="Anything else we should know?" />
-            <button type="submit" className="site-button w-full">Request Access Code</button>
-          </form>
+          <div className="space-y-4">
+            <form action="/api/access-requests" method="post" className="space-y-4">
+              <input className="site-input" name="email" type="email" placeholder="Email" required />
+              <input className="site-input" name="organization" type="text" placeholder="Organization" required />
+              <input className="site-input" name="requesterName" type="text" placeholder="Who are you?" required />
+              <textarea className="site-input min-h-28" name="notes" placeholder="Anything else we should know?" />
+              <button type="submit" className="site-button w-full">Request Access Code</button>
+            </form>
+            <a href="/" className="site-button-secondary block text-center">Back to Log-In</a>
+          </div>
         )}
       </div>
     </div>
