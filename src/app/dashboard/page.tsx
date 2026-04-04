@@ -1,5 +1,6 @@
 import { requireAdminUser } from "@/lib/auth";
 import { listAccessCodes, listAccessRequests, listBillingRecords, listOrganizations, listUsageEvents, listUsageSummary, listUsers } from "@/lib/admin";
+import { CreateOrganizationForm } from "@/components/admin/create-organization-form";
 
 type DashboardPageProps = {
   searchParams: Promise<{
@@ -76,84 +77,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </div>
 
         {tab === "accounts" && (
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-6">
             <section className="site-panel space-y-6 rounded-xl p-6">
               <div>
                 <div className="text-lg font-semibold text-zinc-100">Create Organization</div>
               </div>
-              <form action="/api/admin/organizations" method="post" className="grid gap-4 md:grid-cols-2">
-                <Field label="Organization Name"><input className="site-input" name="organizationName" required /></Field>
-                <Field label="Account Type">
-                  <select className="site-input" name="accountType" defaultValue="paid">
-                    <option value="paid">Paid</option>
-                    <option value="free">Free</option>
-                    <option value="trial">Trial</option>
-                    <option value="expired">Expired</option>
-                  </select>
-                </Field>
-                <Field label="Access Scope">
-                  <select className="site-input" name="accessScope" defaultValue="both">
-                    <option value="both">Both</option>
-                    <option value="men">Men</option>
-                    <option value="women">Women</option>
-                  </select>
-                </Field>
-                <label className="flex items-center gap-3 pt-8 text-sm text-zinc-100">
-                  <input type="checkbox" name="requiresPayment" defaultChecked className="h-4 w-4" />
-                  Requires payment
-                </label>
-                <Field label="Contract Start"><input className="site-input" type="date" name="contractStartsAt" /></Field>
-                <Field label="Contract End"><input className="site-input" type="date" name="contractEndsAt" /></Field>
-                <Field label="Expiration Date"><input className="site-input" type="date" name="expiresAt" /></Field>
-                <Field label="Notes"><textarea className="site-input min-h-28" name="notes" /></Field>
-                <div className="md:col-span-2"><button className="site-button" type="submit">Create Organization</button></div>
-              </form>
+              <CreateOrganizationForm />
             </section>
 
             <section className="site-panel space-y-6 rounded-xl p-6">
-              <div>
-                <div className="text-lg font-semibold text-zinc-100">Generate One-Time Access Code</div>
-              </div>
-              <form action="/api/admin/access-codes" method="post" className="grid gap-4">
-                <Field label="Organization">
-                  <select className="site-input" name="organizationId" required defaultValue="">
-                    <option value="" disabled>Select organization</option>
-                    {organizations.map((org) => (
-                      <option key={org.id} value={org.id}>{org.name}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Access Scope">
-                  <select className="site-input" name="accessScope" defaultValue="both">
-                    <option value="both">Both</option>
-                    <option value="men">Men</option>
-                    <option value="women">Women</option>
-                  </select>
-                </Field>
-                <Field label="Account Type">
-                  <select className="site-input" name="accountType" defaultValue="paid">
-                    <option value="paid">Paid</option>
-                    <option value="free">Free</option>
-                    <option value="trial">Trial</option>
-                  </select>
-                </Field>
-                <Field label="Recipient Email (optional unless sending invite)">
-                  <input className="site-input" name="recipientEmail" type="email" placeholder="coach@program.com" />
-                </Field>
-                <Field label="Code Expiration"><input className="site-input" type="date" name="expiresAt" /></Field>
-                <label className="flex items-center gap-3 text-sm text-zinc-100">
-                  <input type="checkbox" name="requiresPayment" defaultChecked className="h-4 w-4" />
-                  Require payment before signup completes
-                </label>
-                <label className="flex items-center gap-3 text-sm text-zinc-100">
-                  <input type="checkbox" name="sendInvite" className="h-4 w-4" />
-                  Send invite email with signup link
-                </label>
-                <button className="site-button" type="submit">Generate Access Code</button>
-              </form>
-            </section>
-
-            <section className="site-panel space-y-6 rounded-xl p-6 lg:col-span-2">
               <div>
                 <div className="text-lg font-semibold text-zinc-100">Create Free User Directly</div>
               </div>
@@ -180,7 +112,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               </form>
             </section>
 
-            <section className="site-panel rounded-xl p-6 lg:col-span-2">
+            <section className="site-panel rounded-xl p-6">
               <div className="text-lg font-semibold text-zinc-100">Organizations</div>
               <div className="mt-4 overflow-x-auto">
                 <table className="dashboard-table">
@@ -202,7 +134,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               </div>
             </section>
 
-            <section className="site-panel rounded-xl p-6 lg:col-span-2">
+            <section className="site-panel rounded-xl p-6">
               <div className="text-lg font-semibold text-zinc-100">Users + Codes</div>
               <div className="mt-4 grid gap-6 xl:grid-cols-2">
                 <div className="overflow-x-auto">
