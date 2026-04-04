@@ -135,35 +135,43 @@ export async function createSessionForUser(userId: string): Promise<void> {
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const jar = await cookies();
-  const rawToken = jar.get(SESSION_COOKIE)?.value?.trim();
-  if (!rawToken) return null;
-  const tokenHash = sha256(rawToken);
-  const user = await dbQueryOne<AuthUser>(
-    `select
-        u.id,
-        u.email,
-        u.role,
-        u.access_scope,
-        u.status,
-        u.expires_at,
-        u.organization_id,
-        o.name as organization_name,
-        o.access_scope as organization_access_scope,
-        o.account_type as organization_account_type,
-        o.status as organization_status
-      from public.user_sessions s
-      join public.app_users u on u.id = s.user_id
-      join public.organizations o on o.id = u.organization_id
-      where s.token_hash = $1
-        and s.expires_at > now()
-        and u.status = 'active'
-        and o.status = 'active'
-      order by s.created_at desc
-      limit 1`,
-    [tokenHash],
-  );
-  return user;
+  try {
+    const jar = await cookies();
+    const rawToken = jar.get(SESSION_COOKIE)?.value?.trim();
+    if (!rawToken) return null;
+    const tokenHash = sha256(rawToken);
+    const user = await dbQueryOne<AuthUser>(
+      `select
+          u.id,
+          u.email,
+          u.role,
+          u.access_scope,
+          u.status,
+          u.expires_at,
+          u.organization_id,
+          o.name as organization_name,
+          o.access_scope as organization_access_scope,
+          o.account_type as organization_account_type,
+          o.status as organization_status
+        from public.user_sessions s
+        join public.app_users u on u.id = s.user_id
+        join public.organizations o on o.id = u.organization_id
+        where s.token_hash = $1
+          and s.expires_at > now()
+          and u.status = 'active'
+          and o.status = 'active'
+        order by s.created_at desc
+        limit 1`,
+      [tokenHash],
+    );
+    return user;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("Dynamic server usage")) {
+      console.error("[auth] getCurrentUser failed", error);
+    }
+    return null;
+  }
 }
 
 export async function requireUser(): Promise<AuthUser> {
