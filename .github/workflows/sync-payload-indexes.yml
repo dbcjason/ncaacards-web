@@ -26,8 +26,18 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout
+      - name: Checkout (sparse)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            .github
+            scripts
+            src
+            supabase
+            package.json
+            package-lock.json
 
       - name: Setup Node
         uses: actions/setup-node@v4
