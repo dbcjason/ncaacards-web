@@ -83,5 +83,9 @@ function formatDateTime(value: string | null) {
   if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "—";
-  return parsed.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  return parsed.toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "America/New_York",
+  });
 }
