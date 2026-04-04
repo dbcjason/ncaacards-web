@@ -69,6 +69,124 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       usageSummaryResult,
       usageEventsResult,
     ].some((result) => result.status === "rejected");
+    const accountSections = [
+      renderSafeSection("Create Organization", () => (
+        <section className="site-panel space-y-6 rounded-xl p-6">
+          <div>
+            <div className="text-lg font-semibold text-zinc-100">Create Organization</div>
+          </div>
+          <CreateOrganizationForm />
+        </section>
+      )),
+      renderSafeSection("Create Free User Directly", () => (
+        <section className="site-panel space-y-6 rounded-xl p-6">
+          <div>
+            <div className="text-lg font-semibold text-zinc-100">Create Free User Directly</div>
+          </div>
+          <form action="/api/admin/free-users" method="post" className="grid gap-4 md:grid-cols-4">
+            <Field label="Organization">
+              <select className="site-input" name="organizationId" required defaultValue="">
+                <option value="" disabled>Select organization</option>
+                {organizations.map((org) => (
+                  <option key={org.id} value={org.id}>{org.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Email"><input className="site-input" name="email" type="email" required /></Field>
+            <Field label="Temporary Password"><input className="site-input" name="password" type="text" required /></Field>
+            <Field label="Access Scope">
+              <select className="site-input" name="accessScope" defaultValue="both">
+                <option value="both">Both</option>
+                <option value="men">Men</option>
+                <option value="women">Women</option>
+              </select>
+            </Field>
+            <Field label="Expiration Date"><input className="site-input" type="date" name="expiresAt" /></Field>
+            <div className="md:col-span-4"><button className="site-button" type="submit">Create Free Account</button></div>
+          </form>
+        </section>
+      )),
+      renderSafeSection("Organizations", () => (
+        <section className="site-panel rounded-xl p-6">
+          <div className="text-lg font-semibold text-zinc-100">Organizations</div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="dashboard-table">
+              <thead><tr><th>Organization</th><th>Type</th><th>Scope</th><th>Users</th><th>Active Codes</th><th>Contract End</th><th>Expires</th></tr></thead>
+              <tbody>
+                {organizations.map((org) => (
+                  <tr key={org.id}>
+                    <td>{org.name}</td>
+                    <td>{org.account_type}</td>
+                    <td>{org.access_scope}</td>
+                    <td>{org.user_count}</td>
+                    <td>{org.active_code_count}</td>
+                    <td>{formatDate(org.contract_ends_at)}</td>
+                    <td>{formatDate(org.expires_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )),
+      renderSafeSection("Users + Codes", () => (
+        <section className="site-panel rounded-xl p-6">
+          <div className="text-lg font-semibold text-zinc-100">Users + Codes</div>
+          <div className="mt-4 grid gap-6 xl:grid-cols-2">
+            <div className="overflow-x-auto">
+              <table className="dashboard-table">
+                <thead><tr><th>User</th><th>Org</th><th>Role</th><th>Scope</th><th>Expires</th><th>Last Login</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {users.map((account) => (
+                    <tr key={account.id}>
+                      <td>{account.email}</td>
+                      <td>{account.organization_name}</td>
+                      <td>{account.role}</td>
+                      <td>{account.access_scope}</td>
+                      <td>{formatDate(account.expires_at)}</td>
+                      <td>{formatDateTime(account.last_login_at)}</td>
+                      <td>
+                        {account.id === user.id ? (
+                          <span className="text-xs text-zinc-500">Current admin</span>
+                        ) : (
+                          <form action="/api/admin/users/delete" method="post">
+                            <input type="hidden" name="userId" value={account.id} />
+                            <input type="hidden" name="email" value={account.email} />
+                            <button
+                              type="submit"
+                              className="site-button-secondary border-rose-800 text-rose-200 hover:bg-rose-950/40"
+                            >
+                              Delete
+                            </button>
+                          </form>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="dashboard-table">
+                <thead><tr><th>Code</th><th>Org</th><th>Scope</th><th>Status</th><th>Uses</th><th>Expires</th></tr></thead>
+                <tbody>
+                  {accessCodes.map((code) => (
+                    <tr key={code.id}>
+                      <td className="font-semibold tracking-[0.18em]">{code.code}</td>
+                      <td>{code.organization_name}</td>
+                      <td>{code.access_scope}</td>
+                      <td>{code.status}</td>
+                      <td>{code.used_count}/{code.max_uses}</td>
+                      <td>{formatDate(code.expires_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )),
+    ];
 
     return (
       <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
@@ -93,117 +211,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
           {tab === "accounts" && (
             <div className="grid gap-6">
-              <section className="site-panel space-y-6 rounded-xl p-6">
-                <div>
-                  <div className="text-lg font-semibold text-zinc-100">Create Organization</div>
-                </div>
-                <CreateOrganizationForm />
-              </section>
-
-              <section className="site-panel space-y-6 rounded-xl p-6">
-                <div>
-                  <div className="text-lg font-semibold text-zinc-100">Create Free User Directly</div>
-                </div>
-                <form action="/api/admin/free-users" method="post" className="grid gap-4 md:grid-cols-4">
-                  <Field label="Organization">
-                    <select className="site-input" name="organizationId" required defaultValue="">
-                      <option value="" disabled>Select organization</option>
-                      {organizations.map((org) => (
-                        <option key={org.id} value={org.id}>{org.name}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Email"><input className="site-input" name="email" type="email" required /></Field>
-                  <Field label="Temporary Password"><input className="site-input" name="password" type="text" required /></Field>
-                  <Field label="Access Scope">
-                    <select className="site-input" name="accessScope" defaultValue="both">
-                      <option value="both">Both</option>
-                      <option value="men">Men</option>
-                      <option value="women">Women</option>
-                    </select>
-                  </Field>
-                  <Field label="Expiration Date"><input className="site-input" type="date" name="expiresAt" /></Field>
-                  <div className="md:col-span-4"><button className="site-button" type="submit">Create Free Account</button></div>
-                </form>
-              </section>
-
-              <section className="site-panel rounded-xl p-6">
-                <div className="text-lg font-semibold text-zinc-100">Organizations</div>
-                <div className="mt-4 overflow-x-auto">
-                  <table className="dashboard-table">
-                    <thead><tr><th>Organization</th><th>Type</th><th>Scope</th><th>Users</th><th>Active Codes</th><th>Contract End</th><th>Expires</th></tr></thead>
-                    <tbody>
-                      {organizations.map((org) => (
-                        <tr key={org.id}>
-                          <td>{org.name}</td>
-                          <td>{org.account_type}</td>
-                          <td>{org.access_scope}</td>
-                          <td>{org.user_count}</td>
-                          <td>{org.active_code_count}</td>
-                          <td>{formatDate(org.contract_ends_at)}</td>
-                          <td>{formatDate(org.expires_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <section className="site-panel rounded-xl p-6">
-                <div className="text-lg font-semibold text-zinc-100">Users + Codes</div>
-                <div className="mt-4 grid gap-6 xl:grid-cols-2">
-                  <div className="overflow-x-auto">
-                    <table className="dashboard-table">
-                      <thead><tr><th>User</th><th>Org</th><th>Role</th><th>Scope</th><th>Expires</th><th>Last Login</th><th>Actions</th></tr></thead>
-                      <tbody>
-                        {users.map((account) => (
-                          <tr key={account.id}>
-                            <td>{account.email}</td>
-                            <td>{account.organization_name}</td>
-                            <td>{account.role}</td>
-                            <td>{account.access_scope}</td>
-                            <td>{formatDate(account.expires_at)}</td>
-                            <td>{formatDateTime(account.last_login_at)}</td>
-                            <td>
-                              {account.id === user.id ? (
-                                <span className="text-xs text-zinc-500">Current admin</span>
-                              ) : (
-                                <form action="/api/admin/users/delete" method="post">
-                                  <input type="hidden" name="userId" value={account.id} />
-                                  <input type="hidden" name="email" value={account.email} />
-                                  <button
-                                    type="submit"
-                                    className="site-button-secondary border-rose-800 text-rose-200 hover:bg-rose-950/40"
-                                  >
-                                    Delete
-                                  </button>
-                                </form>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="dashboard-table">
-                      <thead><tr><th>Code</th><th>Org</th><th>Scope</th><th>Status</th><th>Uses</th><th>Expires</th></tr></thead>
-                      <tbody>
-                        {accessCodes.map((code) => (
-                          <tr key={code.id}>
-                            <td className="font-semibold tracking-[0.18em]">{code.code}</td>
-                            <td>{code.organization_name}</td>
-                            <td>{code.access_scope}</td>
-                            <td>{code.status}</td>
-                            <td>{code.used_count}/{code.max_uses}</td>
-                            <td>{formatDate(code.expires_at)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </section>
+              {accountSections}
             </div>
           )}
 
@@ -459,4 +467,20 @@ function parseDateValue(value: string | null) {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function renderSafeSection(label: string, render: () => React.ReactNode) {
+  try {
+    return render();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unexpected section error.";
+    return (
+      <section key={label} className="site-panel rounded-xl p-6">
+        <div className="text-lg font-semibold text-zinc-100">{label}</div>
+        <div className="mt-4 rounded-xl border border-rose-900/60 bg-rose-950/30 px-4 py-3 text-sm text-rose-200">
+          This section could not be rendered yet. {message}
+        </div>
+      </section>
+    );
+  }
 }
