@@ -36,9 +36,6 @@ function buildSubtitleHtml(
     `Position: ${esc(bio.position || "N/A")}`,
   ];
 
-  const age = String(bio.age_june25 ?? "").trim();
-  if (age) bits.push(`Age: ${esc(age)}`);
-
   bits.push(`Height: ${esc(bio.height || "N/A")}`);
 
   const statHeightRaw = String(
@@ -65,40 +62,108 @@ function buildSubtitleHtml(
     `Statistical Height: <span class="${statHeightClass}">${esc(statHeightText)}</span>`,
   );
 
-  const rsci = String(bio.rsci ?? "").trim();
-  if (rsci) bits.push(`RSCI: ${esc(rsci)}`);
-
-  if (String(input.mode || "").toLowerCase() === "transfer") {
-    bits.push(`Transfer: ${esc(input.destinationConference || "N/A")}`);
-  }
-
   return bits.join(" | ");
 }
 
 function shotSvg(shots: Array<Record<string, unknown>>): string {
   const width = 355;
   const height = 250;
-  const dots = shots
-    .filter((shot) => Number.isFinite(Number(shot.x)) && Number.isFinite(Number(shot.y)))
-    .slice(0, 400)
-    .map((shot) => {
-      const x = Math.max(10, Math.min(width - 10, Number(shot.x)));
-      const y = Math.max(10, Math.min(height - 10, Number(shot.y)));
-      const made = Boolean(shot.made);
-      const fill = made ? "#22c55e" : "#ef4444";
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" fill="${fill}" fill-opacity="0.85" />`;
-    })
-    .join("");
+  const filtered = shots.filter(
+    (shot) => Number.isFinite(Number(shot.x)) && Number.isFinite(Number(shot.y)),
+  );
+
+  const courtLen = 940.0;
+  const courtWid = 500.0;
+  const halfLen = courtLen / 2.0;
+  const margin = 20.0;
+
+  function mapX(fullY: number): number {
+    const y2 = Math.max(0.0, Math.min(courtWid, fullY));
+    return margin + (y2 * (width - 2 * margin)) / courtWid;
+  }
+
+  function mapY(fullX: number): number {
+    const x2 = Math.max(0.0, Math.min(courtLen, fullX));
+    const xHalf = Math.min(x2, courtLen - x2);
+    return margin + (xHalf * (height - 2 * margin)) / halfLen;
+  }
+
+  function pt(fullX: number, fullY: number): [number, number] {
+    return [mapX(fullY), mapY(fullX)];
+  }
+
+  const misses: string[] = [];
+  const makes: string[] = [];
+  for (const shot of filtered) {
+    const x = Number(shot.x);
+    const y = Number(shot.y);
+    const made = Boolean(shot.made);
+    const fill = made ? "#22c55e" : "#ef4444";
+    const dot = `<circle cx="${mapX(y).toFixed(1)}" cy="${mapY(x).toFixed(1)}" r="4.2" fill="${fill}" fill-opacity="0.8" />`;
+    if (made) makes.push(dot);
+    else misses.push(dot);
+  }
+
+  const hoopX = 40.0;
+  const hoopY = 250.0;
+  const laneX = 190.0;
+  const laneYMin = 190.0;
+  const laneYMax = 310.0;
+  const ftR = 60.0;
+  const restrictedR = 40.0;
+  const threeR = 221.46;
+  const cornerYMin = 30.0;
+  const cornerYMax = 470.0;
+  const threeJoinX =
+    hoopX + Math.sqrt(Math.max(0.0, threeR * threeR - (hoopY - cornerYMin) ** 2));
+
+  const [ox1, oy1] = pt(0.0, 0.0);
+  const [ox2, oy2] = pt(halfLen, courtWid);
+  const [lx1, ly1] = pt(0.0, laneYMin);
+  const [lx2, ly2] = pt(laneX, laneYMax);
+  const [hx, hy] = pt(hoopX, hoopY);
+  const [bb1x, bb1y] = pt(40.0 - 7.5, 220.0);
+  const [bb2x, bb2y] = pt(40.0 - 7.5, 280.0);
+  const [ftcx, ftcy] = pt(laneX, hoopY);
+  const [c1x1, c1y1] = pt(0.0, cornerYMin);
+  const [c1x2, c1y2] = pt(threeJoinX, cornerYMin);
+  const [c2x1, c2y1] = pt(0.0, cornerYMax);
+  const [c2x2, c2y2] = pt(threeJoinX, cornerYMax);
+
+  const arcPoints: string[] = [];
+  for (let i = 0; i <= 80; i += 1) {
+    const yy = cornerYMin + ((cornerYMax - cornerYMin) * i) / 80.0;
+    const dx = Math.sqrt(Math.max(0.0, threeR * threeR - (yy - hoopY) ** 2));
+    const xx = hoopX + dx;
+    const [px, py] = pt(xx, yy);
+    arcPoints.push(`${px.toFixed(1)},${py.toFixed(1)}`);
+  }
+
+  const pxPerUnitY = (width - 2 * margin) / courtWid;
+  const pxPerUnitX = (height - 2 * margin) / halfLen;
+  const rrX = restrictedR * pxPerUnitY;
+  const rrY = restrictedR * pxPerUnitX;
+  const ftRx = ftR * pxPerUnitY;
+  const ftRy = ftR * pxPerUnitX;
+
+  const court = `
+<rect x="${ox1.toFixed(1)}" y="${oy1.toFixed(1)}" width="${(ox2 - ox1).toFixed(1)}" height="${(oy2 - oy1).toFixed(1)}" fill="#000000" stroke="#ffffff" stroke-width="2"/>
+<rect x="${lx1.toFixed(1)}" y="${ly1.toFixed(1)}" width="${(lx2 - lx1).toFixed(1)}" height="${(ly2 - ly1).toFixed(1)}" fill="none" stroke="#ffffff" stroke-width="2"/>
+<line x1="${bb1x.toFixed(1)}" y1="${bb1y.toFixed(1)}" x2="${bb2x.toFixed(1)}" y2="${bb2y.toFixed(1)}" stroke="#ffffff" stroke-width="2"/>
+<ellipse cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" rx="6.0" ry="6.0" fill="none" stroke="#ffffff" stroke-width="2"/>
+<path d="M ${mapX(hoopY - restrictedR).toFixed(1)} ${hy.toFixed(1)} A ${rrX.toFixed(1)} ${rrY.toFixed(1)} 0 0 1 ${mapX(hoopY + restrictedR).toFixed(1)} ${hy.toFixed(1)}" fill="none" stroke="#ffffff" stroke-width="2"/>
+<ellipse cx="${ftcx.toFixed(1)}" cy="${ftcy.toFixed(1)}" rx="${ftRx.toFixed(1)}" ry="${ftRy.toFixed(1)}" fill="none" stroke="#ffffff" stroke-width="2"/>
+<line x1="${c1x1.toFixed(1)}" y1="${c1y1.toFixed(1)}" x2="${c1x2.toFixed(1)}" y2="${c1y2.toFixed(1)}" stroke="#ffffff" stroke-width="2"/>
+<line x1="${c2x1.toFixed(1)}" y1="${c2y1.toFixed(1)}" x2="${c2x2.toFixed(1)}" y2="${c2y2.toFixed(1)}" stroke="#ffffff" stroke-width="2"/>
+<polyline points="${arcPoints.join(" ")}" fill="none" stroke="#ffffff" stroke-width="2"/>
+<line x1="${ox1.toFixed(1)}" y1="${oy2.toFixed(1)}" x2="${ox2.toFixed(1)}" y2="${oy2.toFixed(1)}" stroke="#ffffff" stroke-width="2"/>
+`;
 
   return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" aria-label="Shot chart">
-    <rect x="1" y="1" width="${width - 2}" height="${height - 2}" fill="#0f0f0f" stroke="#3b3b3b" stroke-width="2"/>
-    <rect x="${width * 0.25}" y="20" width="${width * 0.5}" height="80" fill="none" stroke="#3b3b3b" stroke-width="2"/>
-    <path d="M ${width * 0.18} 180 A ${width * 0.32} ${width * 0.32} 0 0 0 ${width * 0.82} 180" fill="none" stroke="#3b3b3b" stroke-width="2"/>
-    <line x1="${width * 0.18}" y1="180" x2="${width * 0.18}" y2="${height - 10}" stroke="#3b3b3b" stroke-width="2"/>
-    <line x1="${width * 0.82}" y1="180" x2="${width * 0.82}" y2="${height - 10}" stroke="#3b3b3b" stroke-width="2"/>
-    <circle cx="${width / 2}" cy="55" r="18" fill="none" stroke="#3b3b3b" stroke-width="2"/>
-    ${dots}
-  </svg>`;
+  ${court}
+  ${misses.join("")}
+  ${makes.join("")}
+</svg>`;
 }
 
 export function renderCardHtmlFromPayload(

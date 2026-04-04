@@ -38,6 +38,7 @@ type SourceCfg = {
   dataRef: string;
   dataToken: string;
   staticRoot: string;
+  btCsvPath: string;
 };
 
 type IndexRow = {
@@ -105,6 +106,10 @@ function getSourceCfg(gender: Gender): SourceCfg {
         process.env.GITHUB_STATIC_PAYLOAD_ROOT_WOMEN ||
         process.env.GITHUB_STATIC_PAYLOAD_ROOT ||
         "player_cards_pipeline/public/cards",
+      btCsvPath:
+        process.env.GITHUB_BT_CSV_PATH_WOMEN ||
+        process.env.GITHUB_BT_CSV_PATH ||
+        "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
     };
   }
   return {
@@ -113,6 +118,9 @@ function getSourceCfg(gender: Gender): SourceCfg {
     dataRef: process.env.GITHUB_DATA_REF || "main",
     dataToken: (process.env.GITHUB_TOKEN || "").trim(),
     staticRoot: process.env.GITHUB_STATIC_PAYLOAD_ROOT || "player_cards_pipeline/public/cards",
+    btCsvPath:
+      process.env.GITHUB_BT_CSV_PATH ||
+      "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
   };
 }
 
@@ -172,6 +180,17 @@ async function fetchAbsoluteJson<T>(url: string, cfg: SourceCfg): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function fetchAbsoluteText(url: string, cfg: SourceCfg): Promise<string> {
+  const headers: Record<string, string> = {};
+  if (cfg.dataToken && url.includes("github")) {
+    headers.Authorization = `Bearer ${cfg.dataToken}`;
+    headers["X-GitHub-Api-Version"] = "2022-11-28";
+  }
+  const res = await fetch(url, { cache: "no-store", headers });
+  if (!res.ok) throw new Error(`Payload fetch failed (${res.status})`);
+  return await res.text();
+}
+
 async function fetchRepoJson<T>(path: string, cfg: SourceCfg): Promise<T> {
   const encodedPath = path
     .split("/")
@@ -204,6 +223,143 @@ async function fetchRepoJson<T>(path: string, cfg: SourceCfg): Promise<T> {
 
   const rawUrl = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
   return await fetchAbsoluteJson<T>(rawUrl, cfg);
+}
+
+async function fetchRepoText(path: string, cfg: SourceCfg): Promise<string> {
+  const encodedPath = path
+    .split("/")
+    .filter((part) => part.length > 0)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  const apiUrl = `https://api.github.com/repos/${cfg.dataOwner}/${cfg.dataRepo}/contents/${encodedPath}?ref=${encodeURIComponent(cfg.dataRef)}`;
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+  };
+  if (cfg.dataToken) {
+    headers.Authorization = `Bearer ${cfg.dataToken}`;
+    headers["X-GitHub-Api-Version"] = "2022-11-28";
+  }
+
+  const apiRes = await fetch(apiUrl, { cache: "no-store", headers });
+  if (apiRes.ok) {
+    const payload = (await apiRes.json()) as {
+      content?: string;
+      encoding?: string;
+      download_url?: string;
+    };
+    if (payload?.content && payload.encoding === "base64") {
+      return Buffer.from(payload.content, "base64").toString("utf-8");
+    }
+    if (payload?.download_url) {
+      return await fetchAbsoluteText(payload.download_url, cfg);
+    }
+  }
+
+  const rawUrl = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
+  return await fetchAbsoluteText(rawUrl, cfg);
+}
+
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === "," && !inQuotes) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+function normalizeColName(s: string): string {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function findCol(header: string[], names: string[]): number {
+  const normalized = header.map((h) => normalizeColName(h));
+  const targets = names.map((n) => normalizeColName(n));
+  for (const target of targets) {
+    const idx = normalized.findIndex((h) => h === target);
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+async function loadBtBioFallback(
+  season: number,
+  team: string,
+  player: string,
+  cfg: SourceCfg,
+): Promise<Record<string, string>> {
+  try {
+    const text = await fetchRepoText(cfg.btCsvPath, cfg);
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 2) return {};
+    const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
+    const pIdx = findCol(header, ["player_name", "player", "name", "plyr"]);
+    const tIdx = findCol(header, ["team", "school", "tm", "team_name"]);
+    const yIdx = findCol(header, ["year", "season", "yr"]);
+    const posIdx = findCol(header, ["pos", "position"]);
+    const htIdx = findCol(header, ["ht", "height"]);
+    if (pIdx < 0 || tIdx < 0 || yIdx < 0) return {};
+
+    const np = normPlayer(player);
+    const nt = normTeam(team);
+    const ys = String(season);
+    for (let i = 1; i < lines.length; i += 1) {
+      const cols = parseCsvLine(lines[i]);
+      const p = String(cols[pIdx] ?? "").trim();
+      const t = String(cols[tIdx] ?? "").trim();
+      const y = String(cols[yIdx] ?? "").trim();
+      if (!p || !t || y !== ys) continue;
+      if (normPlayer(p) !== np || normTeam(t) !== nt) continue;
+      return {
+        position: posIdx >= 0 ? String(cols[posIdx] ?? "").trim() : "",
+        height: htIdx >= 0 ? String(cols[htIdx] ?? "").trim() : "",
+      };
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+async function enrichPayloadBio(payload: CardPayload, cfg: SourceCfg): Promise<CardPayload> {
+  const bio = payload.bio ?? {};
+  const needsPosition = !String(bio.position ?? "").trim();
+  const needsHeight = !String(bio.height ?? "").trim();
+  if (!needsPosition && !needsHeight) return payload;
+
+  const btBio = await loadBtBioFallback(
+    Number(payload.season || 0),
+    payload.team,
+    payload.player,
+    cfg,
+  );
+  if (!String(btBio.position || "").trim() && !String(btBio.height || "").trim()) return payload;
+
+  return {
+    ...payload,
+    bio: {
+      ...bio,
+      position: String(bio.position ?? "").trim() || btBio.position || "",
+      height: String(bio.height ?? "").trim() || btBio.height || "",
+    },
+  };
 }
 
 async function findIndexedPayload(
@@ -387,9 +543,9 @@ export async function loadStaticPayload(
   if (backedUp) {
     try {
       const fallback = await loadFromStaticIndex(season, team, player, cfg);
-      return mergePayloadWithFallback(backedUp, fallback);
+      return await enrichPayloadBio(mergePayloadWithFallback(backedUp, fallback), cfg);
     } catch {
-      return backedUp;
+      return await enrichPayloadBio(backedUp, cfg);
     }
   }
 
@@ -398,12 +554,12 @@ export async function loadStaticPayload(
     try {
       const payload = await loadFromIndexRow(indexed, cfg);
       if (payload) {
-        if (!isMissingAnyCriticalSection(payload)) return payload;
+        if (!isMissingAnyCriticalSection(payload)) return await enrichPayloadBio(payload, cfg);
         try {
           const fallback = await loadFromStaticIndex(season, team, player, cfg);
-          return mergePayloadWithFallback(payload, fallback);
+          return await enrichPayloadBio(mergePayloadWithFallback(payload, fallback), cfg);
         } catch {
-          return payload;
+          return await enrichPayloadBio(payload, cfg);
         }
       }
     } catch {
@@ -411,5 +567,5 @@ export async function loadStaticPayload(
     }
   }
 
-  return await loadFromStaticIndex(season, team, player, cfg);
+  return await enrichPayloadBio(await loadFromStaticIndex(season, team, player, cfg), cfg);
 }
