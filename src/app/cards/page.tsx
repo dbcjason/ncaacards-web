@@ -752,7 +752,6 @@ function CardsPageInner() {
             onChange={(e) => setMode(e.target.value as "draft" | "transfer")}
           >
             <option value="transfer">Transfer</option>
-            <option value="draft">{draftLabel}</option>
           </select>
 
           <label className="flex items-center gap-2 rounded bg-zinc-900 px-3 py-3">
