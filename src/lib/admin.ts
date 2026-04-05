@@ -13,6 +13,8 @@ export type DashboardOrganization = {
   contract_starts_at: string | null;
   contract_ends_at: string | null;
   expires_at: string | null;
+  favorite_team: string | null;
+  favorite_conference: string | null;
   notes: string | null;
   user_count: number;
   active_code_count: number;
@@ -51,6 +53,10 @@ export type DashboardUser = {
   last_login_at: string | null;
   organization_id: string;
   organization_name: string;
+  favorite_team: string | null;
+  favorite_conference: string | null;
+  organization_favorite_team: string | null;
+  organization_favorite_conference: string | null;
 };
 
 export async function listUsers(): Promise<DashboardUser[]> {
@@ -65,7 +71,11 @@ export async function listUsers(): Promise<DashboardUser[]> {
         u.created_at,
         u.last_login_at,
         u.organization_id,
-        o.name as organization_name
+        o.name as organization_name,
+        nullif(trim(u.favorite_team), '') as favorite_team,
+        nullif(trim(u.favorite_conference), '') as favorite_conference,
+        nullif(trim(o.favorite_team), '') as organization_favorite_team,
+        nullif(trim(o.favorite_conference), '') as organization_favorite_conference
       from public.app_users u
       join public.organizations o on o.id = u.organization_id
       order by u.created_at desc`,

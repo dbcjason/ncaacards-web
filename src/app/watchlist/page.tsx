@@ -24,6 +24,8 @@ type WatchlistItem = {
   grades?: { label: string; value: string }[];
 };
 
+type TransferGradeRow = Record<string, string>;
+
 type JobApiResponse = {
   ok?: boolean;
   id?: string;
@@ -70,9 +72,12 @@ function WatchlistPageInner() {
   const [playerSearch, setPlayerSearch] = useState("");
   const [mode, setMode] = useState<"draft" | "transfer">("transfer");
   const [dest, setDest] = useState("SEC");
+  const [favoriteTeam, setFavoriteTeam] = useState("");
+  const [favoriteConference, setFavoriteConference] = useState("SEC");
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
   const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
   const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [transferRows, setTransferRows] = useState<TransferGradeRow[]>([]);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [cardHtmlById, setCardHtmlById] = useState<Record<string, string>>({});
   const [cardLoadingById, setCardLoadingById] = useState<Record<string, boolean>>({});
@@ -92,6 +97,29 @@ function WatchlistPageInner() {
   useEffect(() => {
     let active = true;
     (async () => {
+      try {
+        const res = await fetch("/api/me/preferences", { cache: "no-store" });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          favoriteTeam?: string;
+          favoriteConference?: string;
+        };
+        if (!active || !res.ok || !data.ok) return;
+        const nextFavoriteTeam = String(data.favoriteTeam ?? "").trim();
+        const nextFavoriteConference = String(data.favoriteConference ?? "SEC").trim() || "SEC";
+        setFavoriteTeam(nextFavoriteTeam);
+        setFavoriteConference(nextFavoriteConference);
+        setDest((current) => (current === "SEC" ? nextFavoriteConference : current));
+      } catch {}
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
       setOptionsError("");
       try {
         const res = await fetch(`/api/options?season=${season}&gender=${gender}`, { cache: "no-store" });
@@ -105,7 +133,11 @@ function WatchlistPageInner() {
         if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load options");
         const nextTeams = Array.isArray(data.teams) ? data.teams : [];
         const nextPlayersByTeam = data.playersByTeam ?? {};
-        const nextTeam = nextTeams.includes(team) ? team : nextTeams[0] ?? "";
+        const nextTeam = nextTeams.includes(team)
+          ? team
+          : favoriteTeam && nextTeams.includes(favoriteTeam)
+            ? favoriteTeam
+            : nextTeams[0] ?? "";
         const nextPlayers = nextPlayersByTeam[nextTeam] ?? [];
         const nextPlayer = nextPlayers.includes(player) ? player : nextPlayers[0] ?? "";
         setTeamOptions(nextTeams);
@@ -115,6 +147,23 @@ function WatchlistPageInner() {
       } catch (err) {
         if (!active) return;
         setOptionsError(err instanceof Error ? err.message : "Failed to load options");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [gender, season, favoriteTeam]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/transfer-grades?gender=${gender}&season=${season}`, { cache: "no-store" });
+        const data = (await res.json()) as { ok?: boolean; rows?: TransferGradeRow[] };
+        if (!active || !res.ok || !data.ok) return;
+        setTransferRows(Array.isArray(data.rows) ? data.rows : []);
+      } catch {
+        if (active) setTransferRows([]);
       }
     })();
     return () => {
@@ -149,6 +198,14 @@ function WatchlistPageInner() {
     return playerOptions.filter((option) => option.toLowerCase().includes(needle));
   }, [playerOptions, playerSearch]);
   const navSeason = season || 2026;
+  const transferRowByKey = useMemo(() => {
+    const map = new Map<string, TransferGradeRow>();
+    for (const row of transferRows) {
+      const key = `${String(row.season || "").trim()}::${String(row.team || "").trim().toLowerCase()}::${String(row.player || "").trim().toLowerCase()}`;
+      if (!map.has(key)) map.set(key, row);
+    }
+    return map;
+  }, [transferRows]);
 
   async function addPlayer() {
     if (!team || !player) return;
@@ -400,14 +457,26 @@ function WatchlistPageInner() {
                 }
               }}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_auto]">
                 <div>
                   <div className="text-xl font-bold">{index + 1}. {item.player}</div>
                   <div className="text-sm text-zinc-400">
-                    {item.team} | {item.season} | Position: {item.pos || "N/A"} | Height: {item.height || "N/A"} | Statistical Height: {item.statistical_height || "N/A"}
+                    {item.team} | {item.conference || "N/A"} | {item.season} | Class: {item.class || "N/A"} | Position: {item.pos || "N/A"} | Age: {fmtNumber(item.age)} | Height: {item.height || "N/A"} | Statistical Height: {item.statistical_height || "N/A"}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-start gap-2">
+                  {Array.isArray(item.grades) && item.grades.length ? item.grades.slice(0, 5).map((grade) => (
+                    <GradePill key={grade.label} label={grade.label} value={grade.value} />
+                  )) : null}
+                  <TransferGradePill
+                    conference={dest || favoriteConference || "SEC"}
+                    value={
+                      transferRowByKey.get(`${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`)?.[dest || favoriteConference || "SEC"] ||
+                      "N/A"
+                    }
+                  />
+                </div>
+                <div className="flex gap-2 xl:justify-end">
                   <button type="button" className="rounded bg-zinc-800 px-3 py-2 text-sm" onClick={() => void expandItem(item)}>
                     {expandedIds[item.id] ? "Collapse" : "Expand Card"}
                   </button>
@@ -417,15 +486,8 @@ function WatchlistPageInner() {
                 </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-6">
-                {Array.isArray(item.grades) && item.grades.length ? (
-                  <div className="col-span-full grid grid-cols-2 gap-2 md:grid-cols-5">
-                    {item.grades.slice(0, 5).map((grade) => (
-                      <GradePill key={grade.label} label={grade.label} value={grade.value} />
-                    ))}
-                  </div>
-                ) : null}
-                <Stat label="MPG" value={item.values.mpg} percentile={item.percentiles.mpg} />
+              <div className="mt-3">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-8">
                 <Stat label="PPG" value={item.values.ppg} percentile={item.percentiles.ppg} />
                 <Stat label="APG" value={item.values.apg} percentile={item.percentiles.apg} />
                 <Stat label="RPG" value={item.values.rpg} percentile={item.percentiles.rpg} />
@@ -434,6 +496,7 @@ function WatchlistPageInner() {
                 <Stat label="FG%" value={item.values.fg_pct} percentile={item.percentiles.fg_pct} />
                 <Stat label="3P%" value={item.values.tp_pct} percentile={item.percentiles.tp_pct} />
                 <Stat label="FT%" value={item.values.ft_pct} percentile={item.percentiles.ft_pct} />
+                </div>
               </div>
 
               {cardErrorById[item.id] ? <div className="mt-3 text-sm text-rose-400">{cardErrorById[item.id]}</div> : null}
@@ -461,7 +524,7 @@ function WatchlistPageInner() {
 
 function Stat({ label, value, percentile }: { label: string; value: number | null | undefined; percentile: number | null | undefined }) {
   return (
-    <div className="rounded border border-zinc-800 bg-zinc-950 p-3">
+    <div className="rounded border border-zinc-800 bg-zinc-950 px-3 py-2">
       <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
       <div className="text-lg font-semibold">{fmtStatValue(label, value)}</div>
       <div className="text-xs text-zinc-500">P{fmtNumber(percentile)}</div>
@@ -474,6 +537,15 @@ function GradePill({ label, value }: { label: string; value: string }) {
     <div className="rounded border border-zinc-800 bg-zinc-950 px-3 py-2">
       <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{label}</div>
       <div className="text-sm font-semibold text-zinc-100">{value}</div>
+    </div>
+  );
+}
+
+function TransferGradePill({ conference, value }: { conference: string; value: string }) {
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Transfer Grade ({conference || "SEC"})</div>
+      <div className="text-sm font-semibold text-zinc-100">{value || "N/A"}</div>
     </div>
   );
 }

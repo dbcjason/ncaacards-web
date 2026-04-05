@@ -55,6 +55,11 @@ export function CreateOrganizationForm() {
         <input className="site-input" type="date" name="expiresAt" />
       </label>
 
+      <label className="space-y-2">
+        <div className="text-sm font-medium text-zinc-100">Favorite Team</div>
+        <input className="site-input" name="favoriteTeam" placeholder="Optional default team" />
+      </label>
+
       <label className="space-y-2 md:col-span-2">
         <div className="text-sm font-medium text-zinc-100">Notes</div>
         <textarea className="site-input min-h-28" name="notes" />

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAccessCode, createBillingRecord, createOrganizationAccount, generateUniqueAccessCode, normalizeAccessScope, normalizeAccountType, requireAdminUser } from "@/lib/auth";
+import { createAccessCode, createBillingRecord, createOrganizationAccount, generateUniqueAccessCode, normalizeAccessScope, normalizeAccountType, requireAdminUser, resolveFavoriteConference } from "@/lib/auth";
 import { sendAccessCodeEmail } from "@/lib/email";
 
 function redirectDashboard(req: NextRequest, tab: string, kind: "notice" | "error", message: string) {
@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
     }
     const accountType = normalizeAccountType(String(form.get("accountType") || "paid"));
     const requiresPayment = String(form.get("requiresPayment") || "") === "on";
+    const favoriteTeam = String(form.get("favoriteTeam") || "").trim();
     const recipientEmail = String(form.get("recipientEmail") || "").trim().toLowerCase();
     const sendInvite = String(form.get("sendInvite") || "") === "on";
     if (sendInvite && !recipientEmail) {
@@ -31,6 +32,8 @@ export async function POST(req: NextRequest) {
       accountType,
       accessScope: normalizeAccessScope(String(form.get("accessScope") || "both")),
       requiresPayment,
+      favoriteTeam,
+      favoriteConference: favoriteTeam ? await resolveFavoriteConference(favoriteTeam) : null,
       notes: String(form.get("notes") || "").trim() || undefined,
       contractStartsAt: String(form.get("contractStartsAt") || "").trim() || null,
       contractEndsAt: String(form.get("contractEndsAt") || "").trim() || null,

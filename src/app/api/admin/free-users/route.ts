@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createFreeUser, normalizeAccessScope, requireAdminUser } from "@/lib/auth";
+import { createFreeUser, normalizeAccessScope, requireAdminUser, resolveFavoriteConference } from "@/lib/auth";
 
 function redirectDashboard(req: NextRequest, tab: string, kind: "notice" | "error", message: string) {
   const url = req.nextUrl.clone();
@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
     const organizationId = String(form.get("organizationId") || "").trim();
     const email = String(form.get("email") || "").trim().toLowerCase();
     const password = String(form.get("password") || "");
+    const favoriteTeam = String(form.get("favoriteTeam") || "").trim();
     if (!organizationId || !email || !password) {
       throw new Error("Organization, email, and password are required.");
     }
@@ -26,6 +27,8 @@ export async function POST(req: NextRequest) {
       email,
       password,
       accessScope: normalizeAccessScope(String(form.get("accessScope") || "both")),
+      favoriteTeam,
+      favoriteConference: favoriteTeam ? await resolveFavoriteConference(favoriteTeam) : null,
       expiresAt: String(form.get("expiresAt") || "").trim() || null,
     });
 

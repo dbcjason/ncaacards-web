@@ -316,11 +316,53 @@ async function main() {
       console.log(`[leaderboard-import] ${source.gender} rows=${rows.length}`);
       await client.query('begin');
       await client.query('delete from public.leaderboard_player_stats where gender = $1', [source.gender]);
-      for (const row of rows) {
+      const batchSize = Number(env('LEADERBOARD_BATCH_SIZE', '500'));
+      for (let start = 0; start < rows.length; start += batchSize) {
+        const batch = rows.slice(start, start + batchSize);
         await client.query(
           `insert into public.leaderboard_player_stats
             (gender, season, team, player, conference, class, pos, age, height, statistical_height, statistical_height_delta, rsci, values, percentiles, bt_row, enriched_row, height_profile, bio_extras, source_updated_at, updated_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18::jsonb,now(),now())
+           select
+             x.gender,
+             x.season,
+             x.team,
+             x.player,
+             x.conference,
+             x.class,
+             x.pos,
+             x.age,
+             x.height,
+             x.statistical_height,
+             x.statistical_height_delta,
+             x.rsci,
+             x.values,
+             x.percentiles,
+             x.bt_row,
+             x.enriched_row,
+             x.height_profile,
+             x.bio_extras,
+             now(),
+             now()
+           from jsonb_to_recordset($1::jsonb) as x(
+             gender text,
+             season int,
+             team text,
+             player text,
+             conference text,
+             class text,
+             pos text,
+             age numeric,
+             height text,
+             statistical_height text,
+             statistical_height_delta numeric,
+             rsci numeric,
+             values jsonb,
+             percentiles jsonb,
+             bt_row jsonb,
+             enriched_row jsonb,
+             height_profile jsonb,
+             bio_extras jsonb
+           )
            on conflict (gender, season, team, player)
            do update set
              conference = excluded.conference,
@@ -339,27 +381,11 @@ async function main() {
              bio_extras = excluded.bio_extras,
              source_updated_at = now(),
              updated_at = now()`,
-          [
-            row.gender,
-            row.season,
-            row.team,
-            row.player,
-            row.conference,
-            row.class,
-            row.pos,
-            row.age,
-            row.height,
-            row.statistical_height,
-            row.statistical_height_delta,
-            row.rsci,
-            JSON.stringify(row.values),
-            JSON.stringify(row.percentiles),
-            JSON.stringify(row.bt_row),
-            JSON.stringify(row.enriched_row),
-            JSON.stringify(row.height_profile),
-            JSON.stringify(row.bio_extras),
-          ],
+          [JSON.stringify(batch)],
         );
+        if ((start / batchSize) % 20 === 0 || start + batch.length >= rows.length) {
+          console.log(`[leaderboard-import] ${source.gender} upserted ${Math.min(start + batch.length, rows.length)}/${rows.length}`);
+        }
       }
       await client.query('commit');
     }

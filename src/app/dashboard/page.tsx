@@ -101,6 +101,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 <option value="women">Women</option>
               </select>
             </Field>
+            <Field label="Favorite Team"><input className="site-input" name="favoriteTeam" placeholder="Optional team" /></Field>
             <Field label="Expiration Date"><input className="site-input" type="date" name="expiresAt" /></Field>
             <div className="md:col-span-4"><button className="site-button" type="submit">Create Free Account</button></div>
           </form>
@@ -111,18 +112,27 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <div className="text-lg font-semibold text-zinc-100">Organizations</div>
           <div className="mt-4 overflow-x-auto">
                   <table className="dashboard-table">
-                    <thead><tr><th>Organization</th><th>Type</th><th>Scope</th><th>Users</th><th>Active Codes</th><th>Contract End</th><th>Expires</th></tr></thead>
+                    <thead><tr><th>Organization</th><th>Type</th><th>Scope</th><th>Favorite Team</th><th>Users</th><th>Active Codes</th><th>Contract End</th><th>Expires</th><th>Conference</th></tr></thead>
                     <tbody>
                       {organizations.map((org) => (
                         <tr key={org.id}>
                           <td>{org.name}</td>
                           <td>{formatDisplayValue(org.account_type)}</td>
                           <td>{formatDisplayValue(org.access_scope)}</td>
+                          <td>
+                            <form action="/api/admin/organizations/preferences" method="post" className="flex min-w-[220px] gap-2">
+                              <input type="hidden" name="organizationId" value={org.id} />
+                              <input type="hidden" name="organizationName" value={org.name} />
+                              <input className="site-input !min-w-0" name="favoriteTeam" defaultValue={org.favorite_team || ""} placeholder="Optional team" />
+                              <button type="submit" className="site-button-secondary whitespace-nowrap">Save</button>
+                            </form>
+                          </td>
                           <td>{org.user_count}</td>
                           <td>{org.active_code_count}</td>
                           <td>{formatDate(org.contract_ends_at)}</td>
-                    <td>{formatDate(org.expires_at)}</td>
-                  </tr>
+                          <td>{formatDate(org.expires_at)}</td>
+                          <td className="text-xs text-zinc-500">{org.favorite_conference || "SEC"}</td>
+                        </tr>
                 ))}
               </tbody>
             </table>
@@ -135,7 +145,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <div className="mt-4 grid gap-6 xl:grid-cols-2">
             <div className="overflow-x-auto">
                   <table className="dashboard-table">
-                    <thead><tr><th>User</th><th>Org</th><th>Role</th><th>Scope</th><th>Expires</th><th>Last Login</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>User</th><th>Org</th><th>Role</th><th>Scope</th><th>Favorite Team</th><th>Expires</th><th>Last Login</th><th>Actions</th></tr></thead>
                     <tbody>
                       {users.map((account) => (
                         <tr key={account.id}>
@@ -143,6 +153,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                           <td>{account.organization_name}</td>
                           <td>{formatDisplayValue(account.role)}</td>
                           <td>{formatDisplayValue(account.access_scope)}</td>
+                          <td>
+                            <form action="/api/admin/users/preferences" method="post" className="flex min-w-[220px] gap-2">
+                              <input type="hidden" name="userId" value={account.id} />
+                              <input type="hidden" name="email" value={account.email} />
+                              <input
+                                className="site-input !min-w-0"
+                                name="favoriteTeam"
+                                defaultValue={account.favorite_team || account.organization_favorite_team || ""}
+                                placeholder="Optional team"
+                              />
+                              <button type="submit" className="site-button-secondary whitespace-nowrap">Save</button>
+                            </form>
+                          </td>
                           <td>{formatDate(account.expires_at)}</td>
                           <td>{formatDateTime(account.last_login_at)}</td>
                       <td>

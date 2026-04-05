@@ -25,6 +25,12 @@ export type AuthUser = {
   organization_access_scope: AccessScope;
   organization_account_type: AccountType;
   organization_status: string;
+  favorite_team: string | null;
+  favorite_conference: string | null;
+  organization_favorite_team: string | null;
+  organization_favorite_conference: string | null;
+  effective_favorite_team: string | null;
+  effective_favorite_conference: string | null;
 };
 
 export function hashPassword(password: string): string {
@@ -152,7 +158,13 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
           o.name as organization_name,
           o.access_scope as organization_access_scope,
           o.account_type as organization_account_type,
-          o.status as organization_status
+          o.status as organization_status,
+          nullif(trim(u.favorite_team), '') as favorite_team,
+          nullif(trim(u.favorite_conference), '') as favorite_conference,
+          nullif(trim(o.favorite_team), '') as organization_favorite_team,
+          nullif(trim(o.favorite_conference), '') as organization_favorite_conference,
+          coalesce(nullif(trim(u.favorite_team), ''), nullif(trim(o.favorite_team), '')) as effective_favorite_team,
+          coalesce(nullif(trim(u.favorite_conference), ''), nullif(trim(o.favorite_conference), '')) as effective_favorite_conference
         from public.user_sessions s
         join public.app_users u on u.id = s.user_id
         join public.organizations o on o.id = u.organization_id
@@ -207,6 +219,12 @@ export async function authenticateUser(email: string, password: string): Promise
     organization_access_scope: AccessScope;
     organization_account_type: AccountType;
     organization_status: string;
+    favorite_team: string | null;
+    favorite_conference: string | null;
+    organization_favorite_team: string | null;
+    organization_favorite_conference: string | null;
+    effective_favorite_team: string | null;
+    effective_favorite_conference: string | null;
   }>(
     `select
         u.id,
@@ -220,7 +238,13 @@ export async function authenticateUser(email: string, password: string): Promise
         o.name as organization_name,
         o.access_scope as organization_access_scope,
         o.account_type as organization_account_type,
-        o.status as organization_status
+        o.status as organization_status,
+        nullif(trim(u.favorite_team), '') as favorite_team,
+        nullif(trim(u.favorite_conference), '') as favorite_conference,
+        nullif(trim(o.favorite_team), '') as organization_favorite_team,
+        nullif(trim(o.favorite_conference), '') as organization_favorite_conference,
+        coalesce(nullif(trim(u.favorite_team), ''), nullif(trim(o.favorite_team), '')) as effective_favorite_team,
+        coalesce(nullif(trim(u.favorite_conference), ''), nullif(trim(o.favorite_conference), '')) as effective_favorite_conference
       from public.app_users u
       join public.organizations o on o.id = u.organization_id
       where lower(u.email) = $1
@@ -368,6 +392,8 @@ export async function createOrganizationAccount(params: {
   accountType: AccountType;
   accessScope: AccessScope;
   requiresPayment: boolean;
+  favoriteTeam?: string | null;
+  favoriteConference?: string | null;
   notes?: string;
   contractStartsAt?: string | null;
   contractEndsAt?: string | null;
@@ -376,13 +402,15 @@ export async function createOrganizationAccount(params: {
   return withDbTransaction(async (client) => {
     const insert = await client.query(
       `insert into public.organizations
-        (name, account_type, access_scope, status, requires_payment, notes, contract_starts_at, contract_ends_at, expires_at)
-       values ($1,$2,$3,'active',$4,$5,$6,$7,$8)
+        (name, account_type, access_scope, status, requires_payment, favorite_team, favorite_conference, notes, contract_starts_at, contract_ends_at, expires_at)
+       values ($1,$2,$3,'active',$4,$5,$6,$7,$8,$9,$10)
        on conflict (name) do update
          set account_type = excluded.account_type,
              access_scope = excluded.access_scope,
              status = 'active',
              requires_payment = excluded.requires_payment,
+             favorite_team = excluded.favorite_team,
+             favorite_conference = excluded.favorite_conference,
              notes = excluded.notes,
              contract_starts_at = excluded.contract_starts_at,
              contract_ends_at = excluded.contract_ends_at,
@@ -394,6 +422,8 @@ export async function createOrganizationAccount(params: {
         params.accountType,
         params.accessScope,
         params.requiresPayment,
+        params.favoriteTeam?.trim() || null,
+        params.favoriteConference?.trim() || null,
         params.notes?.trim() || null,
         params.contractStartsAt || null,
         params.contractEndsAt || null,
@@ -444,6 +474,8 @@ export async function createFreeUser(params: {
   email: string;
   password: string;
   accessScope: AccessScope;
+  favoriteTeam?: string | null;
+  favoriteConference?: string | null;
   expiresAt?: string | null;
 }): Promise<{ id: string }> {
   return withDbTransaction(async (client) => {
@@ -452,13 +484,78 @@ export async function createFreeUser(params: {
     if (existing.rowCount) throw new Error("That email is already in use.");
     const insert = await client.query(
       `insert into public.app_users
-        (organization_id, email, password_hash, role, access_scope, status, expires_at)
-       values ($1,$2,$3,'member',$4,'active',$5)
+        (organization_id, email, password_hash, role, access_scope, status, favorite_team, favorite_conference, expires_at)
+       values ($1,$2,$3,'member',$4,'active',$5,$6,$7)
        returning id`,
-      [params.organizationId, email, hashPassword(params.password), params.accessScope, params.expiresAt || null],
+      [
+        params.organizationId,
+        email,
+        hashPassword(params.password),
+        params.accessScope,
+        params.favoriteTeam?.trim() || null,
+        params.favoriteConference?.trim() || null,
+        params.expiresAt || null,
+      ],
     );
     return { id: String((insert.rows[0] as { id: string } | undefined)?.id || "") };
   });
+}
+
+export async function resolveFavoriteConference(team: string): Promise<string> {
+  const trimmed = String(team || "").trim();
+  if (!trimmed) return "SEC";
+
+  const leaderboardMatch = await dbQueryOne<{ conference: string | null }>(
+    `select nullif(trim(conference), '') as conference
+       from public.leaderboard_player_stats
+      where lower(team) = lower($1)
+        and nullif(trim(conference), '') is not null
+      order by season desc, updated_at desc
+      limit 1`,
+    [trimmed],
+  );
+  if (leaderboardMatch?.conference) return String(leaderboardMatch.conference);
+
+  const payloadMatch = await dbQueryOne<{ conference: string | null }>(
+    `select nullif(trim(payload_json -> 'bio' ->> 'conference'), '') as conference
+       from public.player_payload_index
+      where lower(team) = lower($1)
+        and nullif(trim(payload_json -> 'bio' ->> 'conference'), '') is not null
+      order by season desc, updated_at desc nulls last
+      limit 1`,
+    [trimmed],
+  );
+  return payloadMatch?.conference ? String(payloadMatch.conference) : "SEC";
+}
+
+export async function updateUserFavoriteTeam(userId: string, favoriteTeam?: string | null) {
+  const team = String(favoriteTeam || "").trim();
+  const conference = team ? await resolveFavoriteConference(team) : null;
+  await dbQueryOne(
+    `update public.app_users
+        set favorite_team = $2,
+            favorite_conference = $3,
+            updated_at = now()
+      where id = $1
+      returning id`,
+    [userId, team || null, conference],
+  );
+  return { favoriteTeam: team || null, favoriteConference: conference };
+}
+
+export async function updateOrganizationFavoriteTeam(organizationId: string, favoriteTeam?: string | null) {
+  const team = String(favoriteTeam || "").trim();
+  const conference = team ? await resolveFavoriteConference(team) : null;
+  await dbQueryOne(
+    `update public.organizations
+        set favorite_team = $2,
+            favorite_conference = $3,
+            updated_at = now()
+      where id = $1
+      returning id`,
+    [organizationId, team || null, conference],
+  );
+  return { favoriteTeam: team || null, favoriteConference: conference };
 }
 
 export async function logUsageEvent(event: {

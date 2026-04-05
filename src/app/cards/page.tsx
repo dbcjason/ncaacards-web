@@ -68,6 +68,7 @@ function CardsPageInner() {
   const [playerB, setPlayerB] = useState("");
   const [mode, setMode] = useState<"draft" | "transfer">("transfer");
   const [dest, setDest] = useState("SEC");
+  const [favoriteTeam, setFavoriteTeam] = useState("");
 
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
   const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
@@ -93,6 +94,28 @@ function CardsPageInner() {
 
   const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
   const playerOptionsB = useMemo(() => playersByTeamB[teamB] ?? [], [playersByTeamB, teamB]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/me/preferences", { cache: "no-store" });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          favoriteTeam?: string;
+          favoriteConference?: string;
+        };
+        if (!active || !res.ok || !data.ok) return;
+        const nextFavoriteTeam = String(data.favoriteTeam ?? "").trim();
+        const nextFavoriteConference = String(data.favoriteConference ?? "SEC").trim() || "SEC";
+        setFavoriteTeam(nextFavoriteTeam);
+        setDest((current) => (current === "SEC" ? nextFavoriteConference : current));
+      } catch {}
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function redirectToLogin() {
     if (typeof window === "undefined") return;
@@ -206,7 +229,11 @@ function CardsPageInner() {
           setTeamOptions(teams);
           setPlayersByTeam(pbt);
 
-          const selectedTeam = teams.includes(team) ? team : teams[0] ?? "";
+          const selectedTeam = teams.includes(team)
+            ? team
+            : favoriteTeam && teams.includes(favoriteTeam)
+              ? favoriteTeam
+              : teams[0] ?? "";
           const selectedPlayers = pbt[selectedTeam] ?? [];
           const selectedPlayer = selectedPlayers.includes(player)
             ? player
@@ -231,7 +258,7 @@ function CardsPageInner() {
     return () => {
       active = false;
     };
-  }, [season, gender]);
+  }, [season, gender, favoriteTeam]);
 
   useEffect(() => {
     let active = true;

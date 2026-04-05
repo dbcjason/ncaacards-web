@@ -45,6 +45,7 @@ function RosterPageInner() {
   const [gender, setGender] = useState<"men" | "women">("men");
   const [season, setSeason] = useState(2026);
   const [team, setTeam] = useState("");
+  const [favoriteTeam, setFavoriteTeam] = useState("");
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
   const [allPlayers, setAllPlayers] = useState<string[]>([]);
   const [playerDefaults, setPlayerDefaults] = useState<Record<string, number>>({});
@@ -166,7 +167,22 @@ function RosterPageInner() {
     let active = true;
     (async () => {
       try {
-        await loadTeamRoster(season);
+        const res = await fetch("/api/me/preferences", { cache: "no-store" });
+        const data = (await res.json()) as { ok?: boolean; favoriteTeam?: string };
+        if (!active || !res.ok || !data.ok) return;
+        setFavoriteTeam(String(data.favoriteTeam ?? "").trim());
+      } catch {}
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        await loadTeamRoster(season, favoriteTeam || undefined);
       } catch (e) {
         if (!active) return;
         setOptionsError(e instanceof Error ? e.message : "Failed to load options");
@@ -175,7 +191,7 @@ function RosterPageInner() {
     return () => {
       active = false;
     };
-  }, [season, gender]);
+  }, [season, gender, favoriteTeam]);
 
   async function run() {
     if (!optionsLoaded || !team) return;
