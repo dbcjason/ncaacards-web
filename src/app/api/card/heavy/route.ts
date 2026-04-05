@@ -5,9 +5,17 @@ import { loadStaticPayload } from "@/lib/static-payload";
 
 function transferEndpointForGender(gender: "men" | "women"): string {
   if (gender === "women") {
-    return String(process.env.TRANSFER_MODEL_ENDPOINT_WOMEN ?? process.env.TRANSFER_MODEL_ENDPOINT ?? "").trim();
+    return String(
+      process.env.TRANSFER_MODEL_ENDPOINT_WOMEN ??
+        process.env.TRANSFER_MODEL_ENDPOINT ??
+        "https://ncaaw-transfer-api-production.up.railway.app/transfer",
+    ).trim();
   }
-  return String(process.env.TRANSFER_MODEL_ENDPOINT_MEN ?? process.env.TRANSFER_MODEL_ENDPOINT ?? "").trim();
+  return String(
+    process.env.TRANSFER_MODEL_ENDPOINT_MEN ??
+      process.env.TRANSFER_MODEL_ENDPOINT ??
+      "https://ncaam-transfer-api-production.up.railway.app/transfer",
+  ).trim();
 }
 
 function transferTokenForGender(gender: "men" | "women"): string {
