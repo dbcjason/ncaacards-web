@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, listAllKnownTeams } from "@/lib/auth";
 
 export default async function ProfilePage({
   searchParams,
@@ -8,7 +8,7 @@ export default async function ProfilePage({
   searchParams: Promise<{ notice?: string; error?: string }>;
 }) {
   const params = await searchParams;
-  const user = await getCurrentUser();
+  const [user, teams] = await Promise.all([getCurrentUser(), listAllKnownTeams()]);
   if (!user) {
     redirect("/?error=Please log in again.");
   }
@@ -39,12 +39,10 @@ export default async function ProfilePage({
           <form action="/api/profile/preferences" method="post" className="mt-4 space-y-4">
             <label className="block space-y-2">
               <div className="text-sm text-zinc-300">Favorite Team</div>
-              <input
-                className="site-input"
-                name="favoriteTeam"
-                defaultValue={user.favorite_team || user.organization_favorite_team || ""}
-                placeholder="Optional team"
-              />
+              <select className="site-input" name="favoriteTeam" defaultValue={user.favorite_team || user.organization_favorite_team || ""}>
+                <option value="">No favorite team</option>
+                {teams.map((team) => <option key={team} value={team}>{team}</option>)}
+              </select>
             </label>
             <div className="text-xs text-zinc-500">
               This controls the default team for player profiles, roster construction, and the default conference for transfer views and watchlist previews.

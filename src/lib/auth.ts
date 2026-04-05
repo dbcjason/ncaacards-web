@@ -2,7 +2,7 @@ import "server-only";
 
 import { cookies, headers } from "next/headers";
 import { randomBytes, randomInt, scryptSync, timingSafeEqual, createHash } from "node:crypto";
-import { dbQueryOne, withDbTransaction } from "@/lib/db";
+import { dbQuery, dbQueryOne, withDbTransaction } from "@/lib/db";
 
 const SESSION_COOKIE = "dbcjason_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -556,6 +556,20 @@ export async function updateOrganizationFavoriteTeam(organizationId: string, fav
     [organizationId, team || null, conference],
   );
   return { favoriteTeam: team || null, favoriteConference: conference };
+}
+
+export async function listAllKnownTeams(): Promise<string[]> {
+  const rows = await dbQuery<{ team: string }>(
+    `select team
+       from (
+         select distinct team from public.leaderboard_player_stats
+         union
+         select distinct team from public.player_payload_index
+       ) teams
+      where nullif(trim(team), '') is not null
+      order by lower(team) asc`,
+  );
+  return rows.map((row) => String(row.team || "").trim()).filter(Boolean);
 }
 
 export async function logUsageEvent(event: {

@@ -76,6 +76,7 @@ export type LeaderboardRow = {
   rsci: number | null;
   values: Record<string, number | null>;
   percentiles: Record<string, number | null>;
+  minutes_per_game: number | null;
   updated_at: string;
 };
 
@@ -84,6 +85,7 @@ type RawLeaderboardRow = Omit<LeaderboardRow, "values" | "percentiles"> & {
   percentiles: unknown;
   payload_json?: unknown;
   grade_boxes_html?: string | null;
+  bt_row?: unknown;
 };
 
 export type WatchlistGrade = {
@@ -131,6 +133,15 @@ function mergeValueMaps(primary: Record<string, number | null>, fallback: Record
   return { ...fallback, ...primary };
 }
 
+function normalizePositionCode(raw: unknown): string {
+  const text = String(raw ?? "").trim().toUpperCase();
+  if (!text) return "";
+  for (const code of ["PG", "SG", "SF", "PF", "C"] as const) {
+    if (text === code || text.includes(code)) return code;
+  }
+  return String(raw ?? "").trim();
+}
+
 export function parseLeaderboardGender(raw?: string): LeaderboardGender {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
 }
@@ -140,13 +151,16 @@ export function isLeaderboardMetric(raw?: string): raw is LeaderboardMetricKey {
 }
 
 function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
+  const btRow = safeAnyObject(row.bt_row);
   return {
     ...row,
+    pos: normalizePositionCode(row.pos),
     age: numericOrNull(row.age),
     rsci: numericOrNull(row.rsci),
     statistical_height_delta: numericOrNull(row.statistical_height_delta),
     values: safeObject(row.values),
     percentiles: safeObject(row.percentiles),
+    minutes_per_game: numericOrNull(btRow.mp),
   };
 }
 
@@ -181,6 +195,31 @@ function sortRows(
         return (aVal - bVal) * direction;
       }
     }
+    if (sortBy === "player") {
+      return a.player.localeCompare(b.player) * direction;
+    }
+    if (sortBy === "team") {
+      return a.team.localeCompare(b.team) * direction;
+    }
+    if (sortBy === "pos") {
+      return a.pos.localeCompare(b.pos) * direction;
+    }
+    if (sortBy === "height") {
+      return a.height.localeCompare(b.height) * direction;
+    }
+    if (sortBy === "statistical_height") {
+      return a.statistical_height.localeCompare(b.statistical_height) * direction;
+    }
+    if (sortBy === "age") {
+      const aVal = a.age ?? Number.NEGATIVE_INFINITY;
+      const bVal = b.age ?? Number.NEGATIVE_INFINITY;
+      if (aVal !== bVal) return (aVal - bVal) * direction;
+    }
+    if (sortBy === "rsci") {
+      const aVal = a.rsci ?? Number.NEGATIVE_INFINITY;
+      const bVal = b.rsci ?? Number.NEGATIVE_INFINITY;
+      if (aVal !== bVal) return (aVal - bVal) * direction;
+    }
     const teamCmp = a.team.localeCompare(b.team);
     if (teamCmp) return teamCmp;
     return a.player.localeCompare(b.player);
@@ -200,6 +239,7 @@ export async function queryLeaderboard(params: {
   sortDir?: "asc" | "desc";
   sortMode?: "stat" | "percentile";
   limit?: number;
+  minMpg?: number | null;
 }) {
   const sqlParams: unknown[] = [params.gender];
   const where: string[] = ["gender = $1"];
@@ -241,6 +281,7 @@ export async function queryLeaderboard(params: {
         rsci,
         values,
         percentiles,
+        bt_row,
         updated_at
       from public.leaderboard_player_stats
       where ${where.join(" and ")}
@@ -249,6 +290,11 @@ export async function queryLeaderboard(params: {
   );
 
   let normalized = rows.map(normalizeRow);
+  const minMpg = Number.isFinite(Number(params.minMpg)) ? Number(params.minMpg) : 10;
+  normalized = normalized.filter((row) => {
+    if (!Number.isFinite(minMpg) || minMpg <= 0) return true;
+    return typeof row.minutes_per_game === "number" && row.minutes_per_game >= minMpg;
+  });
   normalized = applyFilters(normalized, Array.isArray(params.filters) ? params.filters : []);
   normalized = sortRows(normalized, params.sortBy, params.sortDir, params.sortMode);
 
@@ -268,6 +314,7 @@ export async function queryLeaderboard(params: {
     positions,
     conferences,
     metrics: LEADERBOARD_METRICS,
+    minMpg,
   };
 }
 
@@ -322,6 +369,7 @@ export async function fetchWatchlistStats(params: {
 
   return rows.map((row): WatchlistRow => {
     const normalized = normalizeRow(row);
+    const { pos: _ignoredPos, ...normalizedRest } = normalized;
     const payload = safeAnyObject(row.payload_json);
     const payloadBio = safeAnyObject(payload.bio);
     const payloadPerGame = safeAnyObject(payload.per_game);
@@ -341,11 +389,11 @@ export async function fetchWatchlistStats(params: {
     return {
       id: row.id,
       sort_order: row.sort_order,
-      ...normalized,
-      pos: normalized.pos || String(payloadBio.position ?? ""),
+      ...normalizedRest,
       height: normalized.height || String(payloadBio.height ?? ""),
       values: mergeValueMaps(normalized.values, payloadValues),
       percentiles: mergeValueMaps(normalized.percentiles, payloadPercentiles),
+      pos: normalizePositionCode(normalized.pos || payloadBio.position),
       grades: parseGradeBoxesHtml(row.grade_boxes_html),
     };
   });

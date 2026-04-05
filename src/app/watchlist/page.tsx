@@ -25,6 +25,12 @@ type WatchlistItem = {
 };
 
 type TransferGradeRow = Record<string, string>;
+type PlayerChoice = {
+  value: string;
+  player: string;
+  team: string;
+  label: string;
+};
 
 type JobApiResponse = {
   ok?: boolean;
@@ -54,6 +60,61 @@ function fmtStatValue(label: string, value: number | null | undefined) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
+function fmtPercentile(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  return `${Math.round(value)}%tile`;
+}
+
+function percentileTone(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "text-zinc-500";
+  if (value >= 75) return "text-emerald-400";
+  if (value <= 25) return "text-rose-400";
+  return "text-zinc-500";
+}
+
+function transferConferenceCandidates(raw: string) {
+  const value = String(raw || "").trim();
+  const compact = value.toUpperCase().replace(/[^A-Z0-9]+/g, "");
+  const map: Record<string, string[]> = {
+    ACC: ["ACC"],
+    AMERICAEAST: ["AE", "America East"],
+    AMERICAN: ["AMER", "American"],
+    ASUN: ["ASUN"],
+    ATLANTIC10: ["A10", "Atlantic 10"],
+    BIGSKY: ["BSKY", "Big Sky"],
+    BIG12: ["B12", "Big 12"],
+    BIGEAST: ["BE", "Big East"],
+    BIGTEN: ["B10", "Big Ten"],
+    BIGWEST: ["BW", "Big West"],
+    CAA: ["CAA"],
+    CONFERENCEUSA: ["CUSA", "Conference USA"],
+    HORIZON: ["HORZ", "Horizon"],
+    IVY: ["Ivy"],
+    MAAC: ["MAAC"],
+    MAC: ["MAC"],
+    MEAC: ["MEAC"],
+    MISSOURIVALLEY: ["MVC", "Missouri Valley"],
+    MOUNTAINWEST: ["Mountain West"],
+    NORTHEAST: ["NEC", "Northeast"],
+    OHIOVALLEY: ["OVC", "Ohio Valley"],
+    PATRIOT: ["PAT", "Patriot"],
+    SEC: ["SEC"],
+    SOCON: ["SC", "SoCon"],
+    SOUTHLAND: ["SLND", "Southland"],
+    SUMMIT: ["SUM", "Summit"],
+    SUNBELT: ["SB", "Sun Belt"],
+    SWAC: ["SWAC"],
+    WAC: ["WAC"],
+    WCC: ["WCC"],
+  };
+  return map[compact] ?? [value];
+}
+
+function parseTransferGradeFromHtml(html: string) {
+  const match = html.match(/Transfer Grade:\s*([ABCDF][+-]?)/i);
+  return match ? String(match[1]).toUpperCase() : "";
+}
+
 export default function WatchlistPage() {
   return (
     <Suspense fallback={null}>
@@ -76,8 +137,10 @@ function WatchlistPageInner() {
   const [favoriteConference, setFavoriteConference] = useState("SEC");
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
   const [playersByTeam, setPlayersByTeam] = useState<Record<string, string[]>>({});
+  const [playerChoiceValue, setPlayerChoiceValue] = useState("");
   const [items, setItems] = useState<WatchlistItem[]>([]);
   const [transferRows, setTransferRows] = useState<TransferGradeRow[]>([]);
+  const [liveTransferGrades, setLiveTransferGrades] = useState<Record<string, string>>({});
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [cardHtmlById, setCardHtmlById] = useState<Record<string, string>>({});
   const [cardLoadingById, setCardLoadingById] = useState<Record<string, boolean>>({});
@@ -144,6 +207,7 @@ function WatchlistPageInner() {
         setPlayersByTeam(nextPlayersByTeam);
         setTeam(nextTeam);
         setPlayer(nextPlayer);
+        setPlayerChoiceValue(nextPlayer && nextTeam ? `${nextPlayer}|||${nextTeam}` : "");
       } catch (err) {
         if (!active) return;
         setOptionsError(err instanceof Error ? err.message : "Failed to load options");
@@ -191,12 +255,25 @@ function WatchlistPageInner() {
     void loadWatchlist();
   }, [gender, season]);
 
-  const playerOptions = useMemo(() => playersByTeam[team] ?? [], [playersByTeam, team]);
+  const allPlayerChoices = useMemo<PlayerChoice[]>(() => {
+    const out: PlayerChoice[] = [];
+    for (const [teamName, players] of Object.entries(playersByTeam)) {
+      for (const playerName of players) {
+        out.push({
+          value: `${playerName}|||${teamName}`,
+          player: playerName,
+          team: teamName,
+          label: `${playerName} - ${teamName}`,
+        });
+      }
+    }
+    return out.sort((a, b) => a.label.localeCompare(b.label));
+  }, [playersByTeam]);
   const filteredPlayerOptions = useMemo(() => {
     const needle = playerSearch.trim().toLowerCase();
-    if (!needle) return playerOptions;
-    return playerOptions.filter((option) => option.toLowerCase().includes(needle));
-  }, [playerOptions, playerSearch]);
+    if (!needle) return allPlayerChoices;
+    return allPlayerChoices.filter((option) => option.label.toLowerCase().includes(needle));
+  }, [allPlayerChoices, playerSearch]);
   const navSeason = season || 2026;
   const transferRowByKey = useMemo(() => {
     const map = new Map<string, TransferGradeRow>();
@@ -207,14 +284,64 @@ function WatchlistPageInner() {
     return map;
   }, [transferRows]);
 
+  useEffect(() => {
+    if (mode !== "transfer" || !items.length) return;
+    const conference = dest || favoriteConference || "SEC";
+    const missing = items.filter((item) => {
+      const baseKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
+      const row = transferRowByKey.get(baseKey);
+      const csvGrade = row
+        ? transferConferenceCandidates(conference)
+            .map((candidate) => String(row[candidate] || "").trim())
+            .find(Boolean)
+        : "";
+      return !csvGrade && !liveTransferGrades[`${baseKey}::${conference}`];
+    });
+    if (!missing.length) return;
+
+    let active = true;
+    (async () => {
+      for (const item of missing) {
+        const baseKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
+        try {
+          const res = await fetch("/api/card/heavy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              season: item.season,
+              team: item.team,
+              player: item.player,
+              gender,
+              destinationConference: conference,
+              part: "transfer",
+            }),
+          });
+          const data = (await res.json()) as { ok?: boolean; html?: string };
+          if (!active || !res.ok || !data.ok) continue;
+          const grade = parseTransferGradeFromHtml(String(data.html ?? ""));
+          if (grade) {
+            setLiveTransferGrades((current) => ({ ...current, [`${baseKey}::${conference}`]: grade }));
+          }
+        } catch {}
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [dest, favoriteConference, gender, items, liveTransferGrades, mode, transferRowByKey]);
+
   async function addPlayer() {
-    if (!team || !player) return;
+    const [selectedPlayer, selectedTeam] = String(playerChoiceValue || "").split("|||");
+    const nextPlayer = String(selectedPlayer || player || "").trim();
+    const nextTeam = String(selectedTeam || team || "").trim();
+    if (!nextTeam || !nextPlayer) return;
     setWatchlistError("");
     try {
       const res = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gender, season, team, player }),
+        body: JSON.stringify({ gender, season, team: nextTeam, player: nextPlayer }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to add player");
@@ -376,7 +503,6 @@ function WatchlistPageInner() {
             <Link href={`/jason-created-stats?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Leaderboard</Link>
             <Link href={`/watchlist?gender=${gender}&season=${navSeason}`} className="text-red-400">Watchlist</Link>
-            {gender === "men" && <Link href="/lineup-analysis" className="text-zinc-300">Lineup Analysis</Link>}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
@@ -387,27 +513,38 @@ function WatchlistPageInner() {
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {SEASONS.map((year) => <option key={year} value={year}>{year}</option>)}
             </select>
+            <input
+              className="rounded bg-zinc-800 p-2"
+              placeholder="Search any player"
+              value={playerSearch}
+              onChange={(e) => setPlayerSearch(e.target.value)}
+            />
             <select
               className="rounded bg-zinc-800 p-2"
               value={team}
               onChange={(e) => {
                 const nextTeam = e.target.value;
                 setTeam(nextTeam);
-                setPlayerSearch("");
                 const nextPlayers = playersByTeam[nextTeam] ?? [];
                 setPlayer(nextPlayers[0] ?? "");
+                setPlayerChoiceValue(nextPlayers[0] ? `${nextPlayers[0]}|||${nextTeam}` : "");
               }}
             >
               {teamOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
-            <input
+            <select
               className="rounded bg-zinc-800 p-2"
-              placeholder="Search player"
-              value={playerSearch}
-              onChange={(e) => setPlayerSearch(e.target.value)}
-            />
-            <select className="rounded bg-zinc-800 p-2" value={player} onChange={(e) => setPlayer(e.target.value)}>
-              {filteredPlayerOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              value={playerChoiceValue}
+              onChange={(e) => {
+                const value = e.target.value;
+                setPlayerChoiceValue(value);
+                const [nextPlayer, nextTeam] = value.split("|||");
+                setPlayer(nextPlayer || "");
+                if (nextTeam) setTeam(nextTeam);
+              }}
+            >
+              {!filteredPlayerOptions.length ? <option value="">No matching players</option> : null}
+              {filteredPlayerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
             <select className="rounded bg-zinc-800 p-2" value={mode} onChange={(e) => setMode(e.target.value === "draft" ? "draft" : "transfer")}>
               <option value="transfer">Transfer</option>
@@ -461,7 +598,7 @@ function WatchlistPageInner() {
                 <div>
                   <div className="text-xl font-bold">{index + 1}. {item.player}</div>
                   <div className="text-sm text-zinc-400">
-                    {item.team} | {item.conference || "N/A"} | {item.season} | Class: {item.class || "N/A"} | Position: {item.pos || "N/A"} | Age: {fmtNumber(item.age)} | Height: {item.height || "N/A"} | Statistical Height: {item.statistical_height || "N/A"}
+                    {item.team} | {item.conference || "N/A"} | {item.season} | Class: {item.class || "N/A"} | Position: {item.pos || "N/A"} | {gender === "men" ? `Age: ${fmtNumber(item.age)} | ` : ""}Height: {item.height || "N/A"} | Statistical Height: {item.statistical_height || "N/A"}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-start gap-2">
@@ -470,10 +607,17 @@ function WatchlistPageInner() {
                   )) : null}
                   <TransferGradePill
                     conference={dest || favoriteConference || "SEC"}
-                    value={
-                      transferRowByKey.get(`${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`)?.[dest || favoriteConference || "SEC"] ||
-                      "N/A"
-                    }
+                    value={(() => {
+                      const conference = dest || favoriteConference || "SEC";
+                      const baseKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
+                      const row = transferRowByKey.get(baseKey);
+                      const csvGrade = row
+                        ? transferConferenceCandidates(conference)
+                            .map((candidate) => String(row[candidate] || "").trim())
+                            .find(Boolean)
+                        : "";
+                      return csvGrade || liveTransferGrades[`${baseKey}::${conference}`] || "N/A";
+                    })()}
                   />
                 </div>
                 <div className="flex gap-2 xl:justify-end">
@@ -527,7 +671,7 @@ function Stat({ label, value, percentile }: { label: string; value: number | nul
     <div className="rounded border border-zinc-800 bg-zinc-950 px-3 py-2">
       <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
       <div className="text-lg font-semibold">{fmtStatValue(label, value)}</div>
-      <div className="text-xs text-zinc-500">P{fmtNumber(percentile)}</div>
+      <div className={`text-xs ${percentileTone(percentile)}`}>{fmtPercentile(percentile)}</div>
     </div>
   );
 }

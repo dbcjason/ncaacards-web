@@ -237,7 +237,6 @@ export default function LineupAnalysisPage() {
             <Link href="/roster?gender=men" className="text-zinc-300">Roster Construction</Link>
             <Link href="/transfer-grades?gender=men&season=2026" className="text-zinc-300">Transfer Grades</Link>
             <Link href="/jason-created-stats?gender=men&season=2026" className="text-zinc-300">Jason Created Stats</Link>
-            <Link href="/lineup-analysis" className="text-red-400">Lineup Analysis</Link>
           </div>
           <Link href="/?gender=men" className="text-zinc-400">Home</Link>
         </div>

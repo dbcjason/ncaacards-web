@@ -6,7 +6,7 @@ function generateSixDigitCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-export function CreateOrganizationForm() {
+export function CreateOrganizationForm({ teams }: { teams: string[] }) {
   const [accessCode, setAccessCode] = useState("");
 
   return (
@@ -57,7 +57,12 @@ export function CreateOrganizationForm() {
 
       <label className="space-y-2">
         <div className="text-sm font-medium text-zinc-100">Favorite Team</div>
-        <input className="site-input" name="favoriteTeam" placeholder="Optional default team" />
+        <select className="site-input" name="favoriteTeam" defaultValue="">
+          <option value="">No favorite team</option>
+          {teams.map((team) => (
+            <option key={team} value={team}>{team}</option>
+          ))}
+        </select>
       </label>
 
       <label className="space-y-2 md:col-span-2">

@@ -175,7 +175,6 @@ function JasonCreatedStatsPageInner() {
             <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-red-400">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">Leaderboard</Link>
             <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">Watchlist</Link>
-            {gender === "men" && <Link href="/lineup-analysis" className="text-zinc-300">Lineup Analysis</Link>}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>

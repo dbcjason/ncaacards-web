@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, listAllKnownTeams } from "@/lib/auth";
 import { listAccessCodes, listAccessRequests, listBillingRecords, listOrganizations, listUsageEvents, listUsageSummary, listUsers } from "@/lib/admin";
 import { CreateOrganizationForm } from "@/components/admin/create-organization-form";
 import { AccessRequestItem } from "@/components/admin/access-request-item";
@@ -42,6 +42,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       billingResult,
       usageSummaryResult,
       usageEventsResult,
+      favoriteTeamsResult,
     ] = await Promise.allSettled([
       listOrganizations(),
       listUsers(),
@@ -50,6 +51,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       listBillingRecords(),
       listUsageSummary(),
       listUsageEvents(params.org || null, normalizeEventType(params.eventType)),
+      listAllKnownTeams(),
     ]);
 
     const organizations = unwrapSettled(organizationsResult);
@@ -59,6 +61,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const billing = unwrapSettled(billingResult);
     const usageSummary = unwrapSettled(usageSummaryResult);
     const usageEvents = unwrapSettled(usageEventsResult);
+    const favoriteTeams = unwrapSettled(favoriteTeamsResult);
     const filteredAccessRequests = accessRequests.filter((request) => matchesRequestStatus(request.status, requestStatus));
     const hasDataError = [
       organizationsResult,
@@ -75,7 +78,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <div>
             <div className="text-lg font-semibold text-zinc-100">Create Organization</div>
           </div>
-          <CreateOrganizationForm />
+          <CreateOrganizationForm teams={favoriteTeams} />
         </section>
       )),
       renderSafeSection("Create Free User Directly", () => (
@@ -101,7 +104,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 <option value="women">Women</option>
               </select>
             </Field>
-            <Field label="Favorite Team"><input className="site-input" name="favoriteTeam" placeholder="Optional team" /></Field>
+            <Field label="Favorite Team">
+              <select className="site-input" name="favoriteTeam" defaultValue="">
+                <option value="">No favorite team</option>
+                {favoriteTeams.map((team) => <option key={team} value={team}>{team}</option>)}
+              </select>
+            </Field>
             <Field label="Expiration Date"><input className="site-input" type="date" name="expiresAt" /></Field>
             <div className="md:col-span-4"><button className="site-button" type="submit">Create Free Account</button></div>
           </form>
@@ -123,7 +131,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                             <form action="/api/admin/organizations/preferences" method="post" className="flex min-w-[220px] gap-2">
                               <input type="hidden" name="organizationId" value={org.id} />
                               <input type="hidden" name="organizationName" value={org.name} />
-                              <input className="site-input !min-w-0" name="favoriteTeam" defaultValue={org.favorite_team || ""} placeholder="Optional team" />
+                              <select className="site-input !min-w-0" name="favoriteTeam" defaultValue={org.favorite_team || ""}>
+                                <option value="">No favorite team</option>
+                                {favoriteTeams.map((team) => <option key={team} value={team}>{team}</option>)}
+                              </select>
                               <button type="submit" className="site-button-secondary whitespace-nowrap">Save</button>
                             </form>
                           </td>
@@ -157,12 +168,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                             <form action="/api/admin/users/preferences" method="post" className="flex min-w-[220px] gap-2">
                               <input type="hidden" name="userId" value={account.id} />
                               <input type="hidden" name="email" value={account.email} />
-                              <input
-                                className="site-input !min-w-0"
-                                name="favoriteTeam"
-                                defaultValue={account.favorite_team || account.organization_favorite_team || ""}
-                                placeholder="Optional team"
-                              />
+                              <select className="site-input !min-w-0" name="favoriteTeam" defaultValue={account.favorite_team || account.organization_favorite_team || ""}>
+                                <option value="">No favorite team</option>
+                                {favoriteTeams.map((team) => <option key={team} value={team}>{team}</option>)}
+                              </select>
                               <button type="submit" className="site-button-secondary whitespace-nowrap">Save</button>
                             </form>
                           </td>

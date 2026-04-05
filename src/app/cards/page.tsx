@@ -678,11 +678,6 @@ function CardsPageInner() {
             <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">
               Watchlist
             </Link>
-            {gender === "men" && (
-              <Link href="/lineup-analysis" className="text-zinc-300">
-                Lineup Analysis
-              </Link>
-            )}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">
             Home

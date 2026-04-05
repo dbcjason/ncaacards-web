@@ -24,6 +24,7 @@ type LeaderboardRow = {
   rsci: number | null;
   values: Record<string, number | null>;
   percentiles: Record<string, number | null>;
+  minutes_per_game?: number | null;
 };
 
 type FilterRow = {
@@ -43,12 +44,50 @@ type ApiResp = {
   positions?: string[];
   conferences?: string[];
   metrics?: MetricMeta[];
+  minMpg?: number;
 };
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
   if (Math.abs(value) >= 100 || Number.isInteger(value)) return String(value);
   return value.toFixed(1);
+}
+
+function fmtPercentile(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  return `${Math.round(value)}%tile`;
+}
+
+function percentileTone(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "text-zinc-500";
+  if (value >= 75) return "text-emerald-400";
+  if (value <= 25) return "text-rose-400";
+  return "text-zinc-500";
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sortBy,
+  sortDir,
+  onSort,
+  className = "text-left",
+}: {
+  label: string;
+  sortKey: string;
+  sortBy: string;
+  sortDir: "asc" | "desc";
+  onSort: (key: string) => void;
+  className?: string;
+}) {
+  return (
+    <th
+      className={`cursor-pointer border-b border-zinc-700 p-2 ${className}`}
+      onClick={() => onSort(sortKey)}
+    >
+      {label}{sortBy === sortKey ? (sortDir === "desc" ? " ▼" : " ▲") : ""}
+    </th>
+  );
 }
 
 export default function LeaderboardPage() {
@@ -81,6 +120,7 @@ function LeaderboardPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [total, setTotal] = useState(0);
+  const [minMpg, setMinMpg] = useState(10);
 
   useEffect(() => {
     const g = searchParams.get("gender");
@@ -111,6 +151,7 @@ function LeaderboardPageInner() {
             sortMode,
             sortDir,
             limit: 750,
+            minMpg,
             filters: filters
               .filter((filter) => filter.metric && filter.value.trim() !== "")
               .map((filter) => ({
@@ -131,6 +172,7 @@ function LeaderboardPageInner() {
         setConferences(Array.isArray(data.conferences) ? data.conferences : []);
         setMetrics(Array.isArray(data.metrics) ? data.metrics : []);
         setTotal(Number(data.total ?? 0));
+        setMinMpg(Number(data.minMpg ?? 10));
       } catch (err) {
         if (!active) return;
         setError(err instanceof Error ? err.message : "Failed to load leaderboard");
@@ -144,9 +186,20 @@ function LeaderboardPageInner() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [conferenceFilter, filters, gender, playerFilter, positionFilter, season, sortBy, sortDir, sortMode, teamFilter]);
+  }, [conferenceFilter, filters, gender, minMpg, playerFilter, positionFilter, season, sortBy, sortDir, sortMode, teamFilter]);
 
   const metricOptions = useMemo(() => metrics.length ? metrics : [{ key: "bpm", label: "BPM" }], [metrics]);
+  const onSort = (key: string) => {
+    if (sortBy === key) {
+      setSortDir((current) => (current === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setSortBy(key);
+    setSortDir("desc");
+    if (metricOptions.some((metric) => metric.key === key)) {
+      setSortMode("stat");
+    }
+  };
 
   const navSeason = season || 2026;
 
@@ -161,7 +214,6 @@ function LeaderboardPageInner() {
             <Link href={`/jason-created-stats?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${navSeason}`} className="text-red-400">Leaderboard</Link>
             <Link href={`/watchlist?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Watchlist</Link>
-            {gender === "men" && <Link href="/lineup-analysis" className="text-zinc-300">Lineup Analysis</Link>}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
@@ -177,7 +229,7 @@ function LeaderboardPageInner() {
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter position" value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)} list="leaderboard-positions" />
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter conference" value={conferenceFilter} onChange={(e) => setConferenceFilter(e.target.value)} list="leaderboard-conferences" />
             <div className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-400">
-              {loading ? "Loading..." : `${rows.length} shown / ${total} matched`}
+              {loading ? "Loading..." : `${rows.length} shown / ${total} matched / min ${minMpg} MPG`}
             </div>
           </div>
 
@@ -287,15 +339,23 @@ function LeaderboardPageInner() {
           <table className="w-max min-w-full border-collapse text-sm">
             <thead>
               <tr className="bg-zinc-800 text-zinc-100">
-                <th className="sticky left-0 z-20 border-b border-zinc-700 bg-zinc-800 p-2 text-left">Player</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Team</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Pos</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Height</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Stat Height</th>
-                <th className="border-b border-zinc-700 p-2 text-left">Age</th>
-                <th className="border-b border-zinc-700 p-2 text-left">RSCI</th>
+                <SortableHeader label="Player" sortKey="player" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="sticky left-0 z-20 bg-zinc-800 text-left" />
+                <SortableHeader label="Team" sortKey="team" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                <SortableHeader label="Pos" sortKey="pos" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                <SortableHeader label="Height" sortKey="height" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                <SortableHeader label="Stat Height" sortKey="statistical_height" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                <SortableHeader label="Age" sortKey="age" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                <SortableHeader label="RSCI" sortKey="rsci" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
                 {metricOptions.map((metric) => (
-                  <th key={metric.key} className="border-b border-zinc-700 p-2 text-center">{metric.label}</th>
+                  <SortableHeader
+                    key={metric.key}
+                    label={metric.label}
+                    sortKey={metric.key}
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={onSort}
+                    className="text-center"
+                  />
                 ))}
               </tr>
             </thead>
@@ -320,8 +380,8 @@ function LeaderboardPageInner() {
                   {metricOptions.map((metric) => (
                     <td key={metric.key} className="min-w-[84px] p-2 text-center">
                       <div>{fmtNumber(row.values?.[metric.key])}</div>
-                      <div className="text-xs text-zinc-500">
-                        P{fmtNumber(row.percentiles?.[metric.key])}
+                      <div className={`text-xs ${percentileTone(row.percentiles?.[metric.key])}`}>
+                        {fmtPercentile(row.percentiles?.[metric.key])}
                       </div>
                     </td>
                   ))}

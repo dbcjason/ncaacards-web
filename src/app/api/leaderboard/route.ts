@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       sortDir?: "asc" | "desc";
       sortMode?: "stat" | "percentile";
       limit?: number;
+      minMpg?: number;
     };
 
     const gender = parseLeaderboardGender(body.gender);
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
       sortDir: body.sortDir === "asc" ? "asc" : "desc",
       sortMode: body.sortMode === "percentile" ? "percentile" : "stat",
       limit: Number.isFinite(Number(body.limit)) ? Number(body.limit) : 500,
+      minMpg: Number.isFinite(Number(body.minMpg)) ? Number(body.minMpg) : 10,
     });
 
     return NextResponse.json({
@@ -77,4 +79,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: message }, { status });
   }
 }
-
