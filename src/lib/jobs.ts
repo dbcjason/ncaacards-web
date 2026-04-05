@@ -1,5 +1,6 @@
 import { dbQuery } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/cache";
+import { cacheVersionTag, isSeasonCacheable } from "@/lib/cache-policy";
 import { resolveTeamPlayerForSeason } from "@/lib/options";
 import { buildRosterPayload } from "@/lib/mock";
 import { loadJsonPayload, storeJsonPayload } from "@/lib/object-store";
@@ -108,6 +109,8 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
   const gender = parseGender(req.gender);
   const cfg = runtimeCfg(gender);
   const season = Number(req.season ?? 0);
+  const cacheAllowed = isSeasonCacheable(season);
+  const cacheVersion = cacheVersionTag();
   const requestedTeam = String(req.team ?? "");
   const requestedPlayer = String(req.player ?? "");
   const mode = String(req.mode ?? "draft");
@@ -124,30 +127,28 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
     mode,
     destinationConference,
     dataVersion,
+    cacheVersion,
   });
 
-  const cached = await cacheGet<Record<string, unknown>>(key);
-  if (cached) return { ...cached, cache: "hit" };
-  const legacyCached = await cacheGet<Record<string, unknown>>(
-    cardCacheKey({ gender, season, team, player, mode, destinationConference }),
-  );
-  if (legacyCached) {
-    await cacheSet(key, legacyCached, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
-    return { ...legacyCached, cache: "hit" };
+  if (cacheAllowed) {
+    const cached = await cacheGet<Record<string, unknown>>(key);
+    if (cached) return { ...cached, cache: "hit" };
   }
 
   let payload: Record<string, unknown> | null = null;
-  try {
-    const rows = await dbQuery<{ payload: unknown }>(
-      `SELECT payload
-       FROM card_payloads
-       WHERE season = $1 AND team = $2 AND player = $3 AND mode = $4 AND destination_conference = $5
-       LIMIT 1`,
-      [season, team, player, mode, destinationConference],
-    );
-    if (rows[0]?.payload) payload = await loadJsonPayload<Record<string, unknown>>(rows[0].payload);
-  } catch {
-    payload = null;
+  if (cacheAllowed) {
+    try {
+      const rows = await dbQuery<{ payload: unknown }>(
+        `SELECT payload
+         FROM card_payloads
+         WHERE season = $1 AND team = $2 AND player = $3 AND mode = $4 AND destination_conference = $5
+         LIMIT 1`,
+        [season, team, player, mode, destinationConference],
+      );
+      if (rows[0]?.payload) payload = await loadJsonPayload<Record<string, unknown>>(rows[0].payload);
+    } catch {
+      payload = null;
+    }
   }
 
   if (
@@ -157,15 +158,22 @@ async function getCardPayloadFromStore(req: Record<string, unknown>) {
   ) {
     payload = null;
   }
+  if (payload && String((payload as Record<string, unknown>).cacheVersion ?? "") !== cacheVersion) {
+    payload = null;
+  }
 
   if (!payload) return null;
 
-  await cacheSet(key, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
+  if (cacheAllowed) {
+    await cacheSet(key, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
+  }
   return { ...payload, cache: "miss" };
 }
 
 async function getRosterPayloadFromStore(req: Record<string, unknown>) {
   const season = Number(req.season ?? 0);
+  const cacheAllowed = isSeasonCacheable(season);
+  const cacheVersion = cacheVersionTag();
   const team = String(req.team ?? "");
   const addPlayers = Array.isArray(req.addPlayers) ? req.addPlayers.map(String) : [];
   const removePlayers = Array.isArray(req.removePlayers) ? req.removePlayers.map(String) : [];
@@ -183,13 +191,15 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
   const minutesHash = `inm=${addMinutes.map(([k, v]) => `${k}:${v}`).join(",")}|outm=${removeMinutes.map(([k, v]) => `${k}:${v}`).join(",")}`;
   const inHash = addPlayers.slice().sort().join("|");
   const outHash = removePlayers.slice().sort().join("|");
-  const key = `roster:${season}:${team}:in=${inHash}:out=${outHash}:mins=${minutesHash}`;
+  const key = `roster:${season}:${team}:in=${inHash}:out=${outHash}:mins=${minutesHash}:cv=${cacheVersion}`;
 
-  const cached = await cacheGet<Record<string, unknown>>(key);
-  if (cached) return { ...cached, cache: "hit" };
+  if (cacheAllowed) {
+    const cached = await cacheGet<Record<string, unknown>>(key);
+    if (cached) return { ...cached, cache: "hit" };
+  }
 
   let payload: Record<string, unknown> | null = null;
-  if (!addMinutes.length && !removeMinutes.length) {
+  if (cacheAllowed && !addMinutes.length && !removeMinutes.length) {
     try {
       const rows = await dbQuery<{ payload: unknown }>(
         `SELECT payload
@@ -203,17 +213,23 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
       payload = null;
     }
   }
+  if (payload && String((payload as Record<string, unknown>).__cacheVersion ?? "") !== cacheVersion) {
+    payload = null;
+  }
 
   if (!payload) {
-    const livePayload = buildRosterPayload({
-      season,
-      team,
-      addPlayers,
-      removePlayers,
-      addMinutes: Object.fromEntries(addMinutes),
-      removeMinutes: Object.fromEntries(removeMinutes),
-    }) as Record<string, unknown>;
-    if (!addMinutes.length && !removeMinutes.length) {
+    const livePayload = {
+      ...buildRosterPayload({
+        season,
+        team,
+        addPlayers,
+        removePlayers,
+        addMinutes: Object.fromEntries(addMinutes),
+        removeMinutes: Object.fromEntries(removeMinutes),
+      }),
+      __cacheVersion: cacheVersion,
+    } as Record<string, unknown>;
+    if (cacheAllowed && !addMinutes.length && !removeMinutes.length) {
       try {
         await upsertRosterPayload({
           season,
@@ -226,11 +242,15 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
         // Keep live generation resilient even if persistence fails.
       }
     }
-    await cacheSet(key, livePayload, 60 * 10);
+    if (cacheAllowed) {
+      await cacheSet(key, livePayload, 60 * 10);
+    }
     return { ...livePayload, cache: "live" };
   }
 
-  await cacheSet(key, payload, 60 * 30);
+  if (cacheAllowed) {
+    await cacheSet(key, payload, 60 * 30);
+  }
   return { ...payload, cache: "miss" };
 }
 
@@ -253,10 +273,12 @@ function cardCacheKey(input: {
   mode: string;
   destinationConference: string;
   dataVersion?: string;
+  cacheVersion?: string;
 }) {
   const suffix = input.dataVersion ? `:v=${input.dataVersion}` : "";
+  const cacheSuffix = input.cacheVersion ? `:cv=${input.cacheVersion}` : "";
   const g = parseGender(input.gender);
-  return `card:${g}:${input.season}:${input.team}:${input.player}:${input.mode}:${input.destinationConference}${suffix}`;
+  return `card:${g}:${input.season}:${input.team}:${input.player}:${input.mode}:${input.destinationConference}${suffix}${cacheSuffix}`;
 }
 
 async function ghApi(cfg: RuntimeCfg, path: string, init?: RequestInit): Promise<Response> {
@@ -393,6 +415,7 @@ async function upsertCardPayload(payloadKey: {
   destinationConference: string;
   payload: Record<string, unknown>;
 }) {
+  if (!isSeasonCacheable(payloadKey.season)) return;
   const storedPayload = await storeJsonPayload(payloadKey.payload, [
     "cards",
     String(payloadKey.season),
@@ -424,6 +447,7 @@ async function upsertRosterPayload(payloadKey: {
   removeHash: string;
   payload: Record<string, unknown>;
 }) {
+  if (!isSeasonCacheable(payloadKey.season)) return;
   const storedPayload = await storeJsonPayload(payloadKey.payload, [
     "rosters",
     String(payloadKey.season),
@@ -503,6 +527,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
   const team = resolved.team;
   const player = resolved.player;
   const dataVersion = await getSeasonDataVersion(season, cfg);
+  const cacheVersion = cacheVersionTag();
 
   const existing = await getCardPayloadFromStore({
     ...req,
@@ -512,6 +537,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
     player,
     mode,
     destinationConference,
+    cacheVersion,
   });
   if (existing) {
     await updateJob(job.id, {
@@ -544,6 +570,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
         destinationConference,
       },
       dataVersion,
+      cacheVersion,
       cardHtml,
       staticPayload,
     };
@@ -563,8 +590,11 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
       mode,
       destinationConference,
       dataVersion,
+      cacheVersion,
     });
-    await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
+    if (isSeasonCacheable(season)) {
+      await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
+    }
     await updateJob(job.id, {
       status: "done",
       progress: 100,
@@ -663,6 +693,7 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
       destinationConference: mode === "transfer" ? destinationConference : "",
     },
     dataVersion,
+    cacheVersion,
     cardHtml,
   };
   await upsertCardPayload({
@@ -681,8 +712,11 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
     mode,
     destinationConference,
     dataVersion,
+    cacheVersion,
   });
-  await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
+  if (isSeasonCacheable(season)) {
+    await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
+  }
   await updateJob(job.id, {
     status: "done",
     progress: 100,
