@@ -21,6 +21,7 @@ type WatchlistItem = {
   rsci: number | null;
   values: Record<string, number | null>;
   percentiles: Record<string, number | null>;
+  grades?: { label: string; value: string }[];
 };
 
 type JobApiResponse = {
@@ -42,6 +43,12 @@ type JobPollResponse = {
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function fmtStatValue(label: string, value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  if (label.includes("%")) return value.toFixed(1);
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
@@ -411,12 +418,22 @@ function WatchlistPageInner() {
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-6">
+                {Array.isArray(item.grades) && item.grades.length ? (
+                  <div className="col-span-full grid grid-cols-2 gap-2 md:grid-cols-5">
+                    {item.grades.slice(0, 5).map((grade) => (
+                      <GradePill key={grade.label} label={grade.label} value={grade.value} />
+                    ))}
+                  </div>
+                ) : null}
+                <Stat label="MPG" value={item.values.mpg} percentile={item.percentiles.mpg} />
                 <Stat label="PPG" value={item.values.ppg} percentile={item.percentiles.ppg} />
-                <Stat label="RPG" value={item.values.rpg} percentile={item.percentiles.rpg} />
                 <Stat label="APG" value={item.values.apg} percentile={item.percentiles.apg} />
-                <Stat label="TS%" value={item.values.ts_pct} percentile={item.percentiles.ts_pct} />
-                <Stat label="BPM" value={item.values.bpm} percentile={item.percentiles.bpm} />
-                <Stat label="AST%" value={item.values.ast_pct} percentile={item.percentiles.ast_pct} />
+                <Stat label="RPG" value={item.values.rpg} percentile={item.percentiles.rpg} />
+                <Stat label="SPG" value={item.values.spg} percentile={item.percentiles.spg} />
+                <Stat label="BPG" value={item.values.bpg} percentile={item.percentiles.bpg} />
+                <Stat label="FG%" value={item.values.fg_pct} percentile={item.percentiles.fg_pct} />
+                <Stat label="3P%" value={item.values.tp_pct} percentile={item.percentiles.tp_pct} />
+                <Stat label="FT%" value={item.values.ft_pct} percentile={item.percentiles.ft_pct} />
               </div>
 
               {cardErrorById[item.id] ? <div className="mt-3 text-sm text-rose-400">{cardErrorById[item.id]}</div> : null}
@@ -446,8 +463,17 @@ function Stat({ label, value, percentile }: { label: string; value: number | nul
   return (
     <div className="rounded border border-zinc-800 bg-zinc-950 p-3">
       <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="text-lg font-semibold">{fmtNumber(value)}</div>
+      <div className="text-lg font-semibold">{fmtStatValue(label, value)}</div>
       <div className="text-xs text-zinc-500">P{fmtNumber(percentile)}</div>
+    </div>
+  );
+}
+
+function GradePill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{label}</div>
+      <div className="text-sm font-semibold text-zinc-100">{value}</div>
     </div>
   );
 }

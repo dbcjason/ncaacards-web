@@ -82,6 +82,19 @@ export type LeaderboardRow = {
 type RawLeaderboardRow = Omit<LeaderboardRow, "values" | "percentiles"> & {
   values: unknown;
   percentiles: unknown;
+  payload_json?: unknown;
+  grade_boxes_html?: string | null;
+};
+
+export type WatchlistGrade = {
+  label: string;
+  value: string;
+};
+
+export type WatchlistRow = LeaderboardRow & {
+  id: string;
+  sort_order: number;
+  grades: WatchlistGrade[];
 };
 
 function safeObject(value: unknown): Record<string, number | null> {
@@ -97,6 +110,25 @@ function safeObject(value: unknown): Record<string, number | null> {
 function numericOrNull(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function safeAnyObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function parseGradeBoxesHtml(raw: string | null | undefined): WatchlistGrade[] {
+  const html = String(raw ?? "");
+  if (!html) return [];
+  const matches = [...html.matchAll(/<div class="grade-k">([^<]+)<\/div><div class="grade-v">([^<]+)<\/div>/g)];
+  return matches.map((match) => ({
+    label: String(match[1] ?? "").trim(),
+    value: String(match[2] ?? "").trim(),
+  }));
+}
+
+function mergeValueMaps(primary: Record<string, number | null>, fallback: Record<string, number | null>) {
+  return { ...fallback, ...primary };
 }
 
 export function parseLeaderboardGender(raw?: string): LeaderboardGender {
@@ -267,6 +299,8 @@ export async function fetchWatchlistStats(params: {
         l.rsci,
         coalesce(l.values, '{}'::jsonb) as values,
         coalesce(l.percentiles, '{}'::jsonb) as percentiles,
+        p.payload_json,
+        p.payload_json -> 'sections_html' ->> 'grade_boxes_html' as grade_boxes_html,
         coalesce(l.updated_at, w.updated_at) as updated_at
       from public.watchlist_items w
       left join public.leaderboard_player_stats l
@@ -274,6 +308,11 @@ export async function fetchWatchlistStats(params: {
        and l.season = w.season
        and l.team = w.team
        and l.player = w.player
+      left join public.player_payload_index p
+        on p.gender = w.gender
+       and p.season = w.season
+       and p.team = w.team
+       and p.player = w.player
       where w.user_id = $1
         and w.gender = $2
         and w.season = $3
@@ -281,9 +320,33 @@ export async function fetchWatchlistStats(params: {
     [params.userId, params.gender, params.season],
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    sort_order: row.sort_order,
-    ...normalizeRow(row),
-  }));
+  return rows.map((row): WatchlistRow => {
+    const normalized = normalizeRow(row);
+    const payload = safeAnyObject(row.payload_json);
+    const payloadBio = safeAnyObject(payload.bio);
+    const payloadPerGame = safeAnyObject(payload.per_game);
+    const payloadPercentiles = safeObject(payloadPerGame.percentiles);
+    const payloadValues = safeObject({
+      mpg: payloadPerGame.mpg,
+      ppg: payloadPerGame.ppg,
+      rpg: payloadPerGame.rpg,
+      apg: payloadPerGame.apg,
+      spg: payloadPerGame.spg,
+      bpg: payloadPerGame.bpg,
+      fg_pct: payloadPerGame.fg_pct,
+      tp_pct: payloadPerGame.tp_pct,
+      ft_pct: payloadPerGame.ft_pct,
+    });
+
+    return {
+      id: row.id,
+      sort_order: row.sort_order,
+      ...normalized,
+      pos: normalized.pos || String(payloadBio.position ?? ""),
+      height: normalized.height || String(payloadBio.height ?? ""),
+      values: mergeValueMaps(normalized.values, payloadValues),
+      percentiles: mergeValueMaps(normalized.percentiles, payloadPercentiles),
+      grades: parseGradeBoxesHtml(row.grade_boxes_html),
+    };
+  });
 }
