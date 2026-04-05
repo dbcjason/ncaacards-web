@@ -13,6 +13,10 @@ create table if not exists public.leaderboard_player_stats (
   rsci numeric,
   values jsonb not null default '{}'::jsonb,
   percentiles jsonb not null default '{}'::jsonb,
+  bt_row jsonb not null default '{}'::jsonb,
+  enriched_row jsonb not null default '{}'::jsonb,
+  height_profile jsonb not null default '{}'::jsonb,
+  bio_extras jsonb not null default '{}'::jsonb,
   source_updated_at timestamptz,
   updated_at timestamptz not null default now(),
   primary key (gender, season, team, player)
@@ -42,4 +46,3 @@ create index if not exists idx_watchlist_items_user_gender
 
 revoke all privileges on table public.leaderboard_player_stats from anon, authenticated;
 revoke all privileges on table public.watchlist_items from anon, authenticated;
-

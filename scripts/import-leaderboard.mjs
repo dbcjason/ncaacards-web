@@ -38,6 +38,14 @@ function normalizeColName(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+function normalizeKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function joinKey(...parts) {
+  return parts.map((part) => normalizeKey(part)).join('::');
+}
+
 function findCol(header, names) {
   const normalized = header.map((value) => normalizeColName(value));
   for (const name of names) {
@@ -48,7 +56,9 @@ function findCol(header, names) {
 }
 
 function toNum(value) {
-  const n = Number(String(value ?? '').trim());
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  const n = Number(text);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -69,6 +79,23 @@ function calcAgeOnJune25(dob, seasonYear) {
   return Number.isFinite(age) ? age : null;
 }
 
+function dominantPosition(posFreqs) {
+  if (!posFreqs || typeof posFreqs !== 'object') return '';
+  const order = [
+    ['pg', 'PG'],
+    ['sg', 'SG'],
+    ['sf', 'SF'],
+    ['pf', 'PF'],
+    ['c', 'C'],
+  ];
+  let best = ['', -1];
+  for (const [key, label] of order) {
+    const value = Number(posFreqs[key]);
+    if (Number.isFinite(value) && value > best[1]) best = [label, value];
+  }
+  return best[0];
+}
+
 const METRIC_ALIASES = {
   ppg: ['pts', 'ppg'],
   rpg: ['treb', 'reb', 'rpg'],
@@ -78,7 +105,7 @@ const METRIC_ALIASES = {
   fg_pct: ['efg', 'fg%'],
   ts_pct: ['ts_per', 'ts%'],
   tp_pct: ['tp_per', '3p%', '3pt%'],
-  tpa_100: ['3p/100?', '3pa/100'],
+  tpa_100: ['3pa100', '3p100', '3pa/100', '3p/100'],
   ftr: ['ftr'],
   ast_pct: ['ast_per', 'ast%'],
   ato: ['ast/tov', 'a/to'],
@@ -102,24 +129,28 @@ async function readCsv(filePath) {
   return { header, lines: lines.slice(1).map(parseCsvLine) };
 }
 
+async function loadBioLookup(filePath) {
+  try {
+    return JSON.parse(await fs.readFile(filePath, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
 async function loadHeightMap(filePath) {
   try {
     const { header, lines } = await readCsv(filePath);
     const seasonIdx = findCol(header, ['season']);
     const playerIdx = findCol(header, ['player_name', 'player']);
     const teamIdx = findCol(header, ['team']);
-    const statHeightIdx = findCol(header, ['predicted_profile_height']);
-    const deltaIdx = findCol(header, ['height_delta_inches']);
     const map = new Map();
     for (const row of lines) {
       const season = Number(row[seasonIdx]);
       const team = String(row[teamIdx] ?? '').trim();
       const player = String(row[playerIdx] ?? '').trim();
       if (!player || !team || !Number.isFinite(season)) continue;
-      map.set(`${season}::${team}::${player}`.toLowerCase(), {
-        statistical_height: String(row[statHeightIdx] ?? '').trim(),
-        statistical_height_delta: toNum(row[deltaIdx]),
-      });
+      const raw = Object.fromEntries(header.map((name, index) => [name, row[index] ?? '']));
+      map.set(joinKey(season, team, player), raw);
     }
     return map;
   } catch {
@@ -127,9 +158,30 @@ async function loadHeightMap(filePath) {
   }
 }
 
-async function loadGenderRows(gender, btPath, heightPath) {
-  const { header, lines } = await readCsv(btPath);
-  const heightMap = await loadHeightMap(heightPath);
+async function loadEnrichedMap(filePath) {
+  try {
+    const obj = JSON.parse(await fs.readFile(filePath, 'utf8'));
+    const players = Array.isArray(obj?.players) ? obj.players : [];
+    const map = new Map();
+    for (const player of players) {
+      const seasonMatch = String(player.year || '').match(/^(\d{4})/);
+      const season = seasonMatch ? Number(seasonMatch[1]) + 1 : null;
+      const team = String(player.team ?? '').trim();
+      const name = String(player.key ?? '').replace(/\s+/g, ' ').trim();
+      if (!season || !team || !name) continue;
+      map.set(joinKey(season, team, name), player);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+async function loadGenderRows(source) {
+  const { header, lines } = await readCsv(source.btPath);
+  const heightMap = await loadHeightMap(source.heightPath);
+  const enrichedMap = await loadEnrichedMap(source.enrichedPath);
+  const bioLookup = await loadBioLookup(source.bioLookupPath);
   const idx = {
     player: findCol(header, ['player_name', 'player']),
     team: findCol(header, ['team', 'school']),
@@ -138,7 +190,7 @@ async function loadGenderRows(gender, btPath, heightPath) {
     season: findCol(header, ['year', 'season']),
     role: findCol(header, ['role', 'pos', 'position']),
     height: findCol(header, ['ht', 'height']),
-    rsci: findCol(header, ['Rec Rank', 'rsci']),
+    rsci: findCol(header, ['rec rank', 'rsci']),
     dob: findCol(header, ['dob']),
   };
   const metricIdx = Object.fromEntries(
@@ -151,27 +203,59 @@ async function loadGenderRows(gender, btPath, heightPath) {
     const team = String(line[idx.team] ?? '').trim();
     const season = Number(line[idx.season]);
     if (!player || !team || !Number.isFinite(season)) continue;
+
+    const btRow = Object.fromEntries(header.map((name, index) => [name, line[index] ?? '']));
+    const lookupKey = joinKey(team, player);
+    const sourceKey = joinKey(season, team, player);
+    const heightProfile = heightMap.get(sourceKey) || {};
+    const enrichedRow = enrichedMap.get(sourceKey) || {};
+    const bioExtras = bioLookup[lookupKey] || {};
+
     const values = {};
     for (const key of METRIC_KEYS) {
       values[key] = metricIdx[key] >= 0 ? toNum(line[metricIdx[key]]) : null;
     }
-    const heightKey = `${season}::${team}::${player}`.toLowerCase();
-    const heightMeta = heightMap.get(heightKey) || { statistical_height: '', statistical_height_delta: null };
+
+    const rsci = toNum(line[idx.rsci]) ?? toNum(bioExtras.rsci);
+    const age = calcAgeOnJune25(String(line[idx.dob] ?? '').trim(), season) ?? toNum(bioExtras.age_june25);
+    const pos =
+      dominantPosition(enrichedRow.posFreqs) ||
+      String(bioExtras.enriched_position || bioExtras.jason_position || line[idx.role] || '').trim();
+    const listedHeight =
+      String(
+        heightProfile.listed_height ||
+          bioExtras.bt_height ||
+          bioExtras.listed_height ||
+          line[idx.height] ||
+          '',
+      ).trim();
+    const statisticalHeight = String(
+      heightProfile.predicted_profile_height ||
+        bioExtras.statistical_height ||
+        '',
+    ).trim();
+    const statisticalHeightDelta =
+      toNum(heightProfile.height_delta_inches) ?? toNum(bioExtras.statistical_height_delta);
+
     rows.push({
-      gender,
+      gender: source.gender,
       season,
       team,
       player,
-      conference: String(line[idx.conference] ?? '').trim(),
+      conference: String(line[idx.conference] ?? enrichedRow.conf ?? '').trim(),
       class: String(line[idx.class] ?? '').trim(),
-      pos: String(line[idx.role] ?? '').trim(),
-      age: calcAgeOnJune25(String(line[idx.dob] ?? '').trim(), season),
-      height: String(line[idx.height] ?? '').trim(),
-      statistical_height: String(heightMeta.statistical_height ?? '').trim(),
-      statistical_height_delta: toNum(heightMeta.statistical_height_delta),
-      rsci: toNum(line[idx.rsci]),
+      pos,
+      age,
+      height: listedHeight,
+      statistical_height: statisticalHeight,
+      statistical_height_delta: statisticalHeightDelta,
+      rsci,
       values,
       percentiles: {},
+      bt_row: btRow,
+      enriched_row: enrichedRow,
+      height_profile: heightProfile,
+      bio_extras: bioExtras,
     });
   }
 
@@ -211,11 +295,15 @@ async function main() {
       gender: 'men',
       btPath: env('MEN_BT_CSV', path.join(root, 'NCAACards_clean/player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv')),
       heightPath: env('MEN_HEIGHT_CSV', path.join(root, 'NCAACards_clean/player_cards_pipeline/output/height_profile_scores_2026.csv')),
+      enrichedPath: env('MEN_ENRICHED_JSON', path.join(root, 'NCAACards_clean/player_cards_pipeline/data/manual/enriched_players/by_script_season/players_all_Men_scriptSeason_2026_fromJsonYear_2025.json')),
+      bioLookupPath: env('MEN_BIO_LOOKUP_JSON', ''),
     },
     {
       gender: 'women',
       btPath: env('WOMEN_BT_CSV', path.join(root, 'NCAAWCards_clean/player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv')),
       heightPath: env('WOMEN_HEIGHT_CSV', path.join(root, 'NCAAWCards_clean/player_cards_pipeline/output/height_profile_scores_2026.csv')),
+      enrichedPath: env('WOMEN_ENRICHED_JSON', path.join(root, 'NCAAWCards_clean/player_cards_pipeline/data/manual/enriched_players/by_script_season/players_all_Women_scriptSeason_2026_fromJsonYear_2025.json')),
+      bioLookupPath: env('WOMEN_BIO_LOOKUP_JSON', path.join(process.cwd(), 'src/data/card-bio-lookups/women-2026.json')),
     },
   ];
 
@@ -224,15 +312,15 @@ async function main() {
 
   try {
     for (const source of sources) {
-      const rows = await loadGenderRows(source.gender, source.btPath, source.heightPath);
+      const rows = await loadGenderRows(source);
       console.log(`[leaderboard-import] ${source.gender} rows=${rows.length}`);
       await client.query('begin');
       await client.query('delete from public.leaderboard_player_stats where gender = $1', [source.gender]);
       for (const row of rows) {
         await client.query(
           `insert into public.leaderboard_player_stats
-            (gender, season, team, player, conference, class, pos, age, height, statistical_height, statistical_height_delta, rsci, values, percentiles, source_updated_at, updated_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,now(),now())
+            (gender, season, team, player, conference, class, pos, age, height, statistical_height, statistical_height_delta, rsci, values, percentiles, bt_row, enriched_row, height_profile, bio_extras, source_updated_at, updated_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18::jsonb,now(),now())
            on conflict (gender, season, team, player)
            do update set
              conference = excluded.conference,
@@ -245,6 +333,10 @@ async function main() {
              rsci = excluded.rsci,
              values = excluded.values,
              percentiles = excluded.percentiles,
+             bt_row = excluded.bt_row,
+             enriched_row = excluded.enriched_row,
+             height_profile = excluded.height_profile,
+             bio_extras = excluded.bio_extras,
              source_updated_at = now(),
              updated_at = now()`,
           [
@@ -262,6 +354,10 @@ async function main() {
             row.rsci,
             JSON.stringify(row.values),
             JSON.stringify(row.percentiles),
+            JSON.stringify(row.bt_row),
+            JSON.stringify(row.enriched_row),
+            JSON.stringify(row.height_profile),
+            JSON.stringify(row.bio_extras),
           ],
         );
       }
