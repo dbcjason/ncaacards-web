@@ -546,9 +546,8 @@ function WatchlistPageInner() {
               {!filteredPlayerOptions.length ? <option value="">No matching players</option> : null}
               {filteredPlayerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
-            <select className="rounded bg-zinc-800 p-2" value={mode} onChange={(e) => setMode(e.target.value === "draft" ? "draft" : "transfer")}>
+            <select className="rounded bg-zinc-800 p-2" value={mode} onChange={(e) => setMode("transfer")}>
               <option value="transfer">Transfer</option>
-              <option value="draft">{gender === "women" ? "WNBA Draft" : "NBA Draft"}</option>
             </select>
             <select className="rounded bg-zinc-800 p-2" value={dest} onChange={(e) => setDest(e.target.value)} disabled={mode !== "transfer"}>
               {CONFERENCES.map((conference) => <option key={conference} value={conference}>{conference}</option>)}
