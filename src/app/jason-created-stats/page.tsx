@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 type Row = Record<string, string>;
 type ApiResp = {
@@ -20,6 +21,15 @@ function toNum(v: string | undefined): number {
 }
 
 export default function JasonCreatedStatsPage() {
+  return (
+    <Suspense fallback={null}>
+      <JasonCreatedStatsPageInner />
+    </Suspense>
+  );
+}
+
+function JasonCreatedStatsPageInner() {
+  const searchParams = useSearchParams();
   const [gender, setGender] = useState<"men" | "women">("men");
   const [season, setSeason] = useState("All");
   const [classFilter, setClassFilter] = useState("All");
@@ -87,13 +97,11 @@ export default function JasonCreatedStatsPage() {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const qs = new URLSearchParams(window.location.search);
-    const g = qs.get("gender");
+    const g = searchParams.get("gender");
     setGender(g === "women" ? "women" : "men");
-    const s = qs.get("season");
+    const s = searchParams.get("season");
     if (s) setSeason(s);
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     let active = true;
@@ -165,6 +173,8 @@ export default function JasonCreatedStatsPage() {
             <Link href={`/roster?gender=${gender}`} className="text-zinc-300">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${season}`} className="text-zinc-300">Transfer Grades</Link>
             <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-red-400">Jason Created Stats</Link>
+            <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">Leaderboard</Link>
+            <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">Watchlist</Link>
             {gender === "men" && <Link href="/lineup-analysis" className="text-zinc-300">Lineup Analysis</Link>}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>

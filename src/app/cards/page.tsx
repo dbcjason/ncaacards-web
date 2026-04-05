@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { toCanvas } from "html-to-image";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
 
@@ -41,15 +42,23 @@ type PersistedCardRun = {
 const CARD_RUN_STORAGE_KEY = "ncaacards:player-profile:active-run";
 
 export default function CardsPage() {
+  return (
+    <Suspense fallback={null}>
+      <CardsPageInner />
+    </Suspense>
+  );
+}
+
+function CardsPageInner() {
+  const searchParams = useSearchParams();
   const [gender, setGender] = useState<"men" | "women">("men");
   const iframeRefA = useRef<HTMLIFrameElement | null>(null);
   const iframeRefB = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const g = new URLSearchParams(window.location.search).get("gender");
+    const g = searchParams.get("gender");
     setGender(g === "women" ? "women" : "men");
-  }, []);
+  }, [searchParams]);
   const [season, setSeason] = useState(2026);
   const [seasonB, setSeasonB] = useState(2026);
   const [team, setTeam] = useState("");
@@ -635,6 +644,12 @@ export default function CardsPage() {
             </Link>
             <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-zinc-300">
               Jason Created Stats
+            </Link>
+            <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">
+              Leaderboard
+            </Link>
+            <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">
+              Watchlist
             </Link>
             {gender === "men" && (
               <Link href="/lineup-analysis" className="text-zinc-300">

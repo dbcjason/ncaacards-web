@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { SEASONS } from "@/lib/ui-options";
 
 type RosterMetric = {
@@ -32,6 +33,15 @@ type TeamRosterResponse = {
 };
 
 export default function RosterPage() {
+  return (
+    <Suspense fallback={null}>
+      <RosterPageInner />
+    </Suspense>
+  );
+}
+
+function RosterPageInner() {
+  const searchParams = useSearchParams();
   const [gender, setGender] = useState<"men" | "women">("men");
   const [season, setSeason] = useState(2026);
   const [team, setTeam] = useState("");
@@ -148,10 +158,9 @@ export default function RosterPage() {
   }
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const g = new URLSearchParams(window.location.search).get("gender");
+    const g = searchParams.get("gender");
     setGender(g === "women" ? "women" : "men");
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     let active = true;
@@ -225,6 +234,8 @@ export default function RosterPage() {
             <Link href={`/roster?gender=${gender}`} className="text-red-400">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${season}`} className="text-zinc-300">Transfer Grades</Link>
             <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-zinc-300">Jason Created Stats</Link>
+            <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">Leaderboard</Link>
+            <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">Watchlist</Link>
             {gender === "men" && <Link href="/lineup-analysis" className="text-zinc-300">Lineup Analysis</Link>}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>

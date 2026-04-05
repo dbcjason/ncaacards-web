@@ -1,0 +1,281 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import pg from 'pg';
+
+const { Client } = pg;
+
+function env(name, fallback = '') {
+  return String(process.env[name] ?? fallback).trim();
+}
+
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === ',' && !inQuotes) {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+function normalizeColName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function findCol(header, names) {
+  const normalized = header.map((value) => normalizeColName(value));
+  for (const name of names) {
+    const idx = normalized.findIndex((value) => value === normalizeColName(name));
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+function toNum(value) {
+  const n = Number(String(value ?? '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+function percentile(values, value) {
+  if (!values.length || typeof value !== 'number' || !Number.isFinite(value)) return null;
+  let le = 0;
+  for (const current of values) if (current <= value) le += 1;
+  return Math.max(0, Math.min(100, Math.round((le / values.length) * 100)));
+}
+
+function calcAgeOnJune25(dob, seasonYear) {
+  const d = new Date(dob);
+  if (!Number.isFinite(d.getTime())) return null;
+  const ref = new Date(Date.UTC(seasonYear, 5, 25));
+  let age = ref.getUTCFullYear() - d.getUTCFullYear();
+  const m = ref.getUTCMonth() - d.getUTCMonth();
+  if (m < 0 || (m === 0 && ref.getUTCDate() < d.getUTCDate())) age -= 1;
+  return Number.isFinite(age) ? age : null;
+}
+
+const METRIC_ALIASES = {
+  ppg: ['pts', 'ppg'],
+  rpg: ['treb', 'reb', 'rpg'],
+  apg: ['ast', 'apg'],
+  spg: ['stl', 'spg'],
+  bpg: ['blk', 'bpg'],
+  fg_pct: ['efg', 'fg%'],
+  ts_pct: ['ts_per', 'ts%'],
+  tp_pct: ['tp_per', '3p%', '3pt%'],
+  tpa_100: ['3p/100?', '3pa/100'],
+  ftr: ['ftr'],
+  ast_pct: ['ast_per', 'ast%'],
+  ato: ['ast/tov', 'a/to'],
+  to_pct: ['to_per', 'to%'],
+  stl_pct: ['stl_per', 'stl%'],
+  blk_pct: ['blk_per', 'blk%'],
+  oreb_pct: ['orb_per', 'oreb%'],
+  dreb_pct: ['drb_per', 'dreb%'],
+  bpm: ['gbpm', 'bpm'],
+  rapm: ['dgbpm', 'dbpm'],
+  obpm: ['obpm', 'ogbpm'],
+  dbpm: ['dbpm', 'dgbpm'],
+};
+
+const METRIC_KEYS = Object.keys(METRIC_ALIASES);
+
+async function readCsv(filePath) {
+  const text = await fs.readFile(filePath, 'utf8');
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const header = parseCsvLine(lines[0]).map((value) => value.trim().replace(/^\uFEFF/, ''));
+  return { header, lines: lines.slice(1).map(parseCsvLine) };
+}
+
+async function loadHeightMap(filePath) {
+  try {
+    const { header, lines } = await readCsv(filePath);
+    const seasonIdx = findCol(header, ['season']);
+    const playerIdx = findCol(header, ['player_name', 'player']);
+    const teamIdx = findCol(header, ['team']);
+    const statHeightIdx = findCol(header, ['predicted_profile_height']);
+    const deltaIdx = findCol(header, ['height_delta_inches']);
+    const map = new Map();
+    for (const row of lines) {
+      const season = Number(row[seasonIdx]);
+      const team = String(row[teamIdx] ?? '').trim();
+      const player = String(row[playerIdx] ?? '').trim();
+      if (!player || !team || !Number.isFinite(season)) continue;
+      map.set(`${season}::${team}::${player}`.toLowerCase(), {
+        statistical_height: String(row[statHeightIdx] ?? '').trim(),
+        statistical_height_delta: toNum(row[deltaIdx]),
+      });
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+async function loadGenderRows(gender, btPath, heightPath) {
+  const { header, lines } = await readCsv(btPath);
+  const heightMap = await loadHeightMap(heightPath);
+  const idx = {
+    player: findCol(header, ['player_name', 'player']),
+    team: findCol(header, ['team', 'school']),
+    conference: findCol(header, ['conf', 'conference']),
+    class: findCol(header, ['yr', 'class']),
+    season: findCol(header, ['year', 'season']),
+    role: findCol(header, ['role', 'pos', 'position']),
+    height: findCol(header, ['ht', 'height']),
+    rsci: findCol(header, ['Rec Rank', 'rsci']),
+    dob: findCol(header, ['dob']),
+  };
+  const metricIdx = Object.fromEntries(
+    METRIC_KEYS.map((key) => [key, findCol(header, METRIC_ALIASES[key])]),
+  );
+
+  const rows = [];
+  for (const line of lines) {
+    const player = String(line[idx.player] ?? '').trim();
+    const team = String(line[idx.team] ?? '').trim();
+    const season = Number(line[idx.season]);
+    if (!player || !team || !Number.isFinite(season)) continue;
+    const values = {};
+    for (const key of METRIC_KEYS) {
+      values[key] = metricIdx[key] >= 0 ? toNum(line[metricIdx[key]]) : null;
+    }
+    const heightKey = `${season}::${team}::${player}`.toLowerCase();
+    const heightMeta = heightMap.get(heightKey) || { statistical_height: '', statistical_height_delta: null };
+    rows.push({
+      gender,
+      season,
+      team,
+      player,
+      conference: String(line[idx.conference] ?? '').trim(),
+      class: String(line[idx.class] ?? '').trim(),
+      pos: String(line[idx.role] ?? '').trim(),
+      age: calcAgeOnJune25(String(line[idx.dob] ?? '').trim(), season),
+      height: String(line[idx.height] ?? '').trim(),
+      statistical_height: String(heightMeta.statistical_height ?? '').trim(),
+      statistical_height_delta: toNum(heightMeta.statistical_height_delta),
+      rsci: toNum(line[idx.rsci]),
+      values,
+      percentiles: {},
+    });
+  }
+
+  const bySeason = new Map();
+  for (const row of rows) {
+    const key = `${row.gender}:${row.season}`;
+    if (!bySeason.has(key)) bySeason.set(key, []);
+    bySeason.get(key).push(row);
+  }
+
+  for (const seasonRows of bySeason.values()) {
+    const metricValues = {};
+    for (const key of METRIC_KEYS) {
+      metricValues[key] = seasonRows
+        .map((row) => row.values[key])
+        .filter((value) => typeof value === 'number' && Number.isFinite(value));
+    }
+    for (const row of seasonRows) {
+      const percentiles = {};
+      for (const key of METRIC_KEYS) {
+        percentiles[key] = percentile(metricValues[key], row.values[key]);
+      }
+      row.percentiles = percentiles;
+    }
+  }
+
+  return rows;
+}
+
+async function main() {
+  const dbUrl = env('SUPABASE_DB_URL') || env('DIRECT_DATABASE_URL') || env('DATABASE_URL') || env('POSTGRES_URL');
+  if (!dbUrl) throw new Error('Missing database URL');
+
+  const root = path.resolve(process.cwd(), '..');
+  const sources = [
+    {
+      gender: 'men',
+      btPath: env('MEN_BT_CSV', path.join(root, 'NCAACards_clean/player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv')),
+      heightPath: env('MEN_HEIGHT_CSV', path.join(root, 'NCAACards_clean/player_cards_pipeline/output/height_profile_scores_2026.csv')),
+    },
+    {
+      gender: 'women',
+      btPath: env('WOMEN_BT_CSV', path.join(root, 'NCAAWCards_clean/player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv')),
+      heightPath: env('WOMEN_HEIGHT_CSV', path.join(root, 'NCAAWCards_clean/player_cards_pipeline/output/height_profile_scores_2026.csv')),
+    },
+  ];
+
+  const client = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+  await client.connect();
+
+  try {
+    for (const source of sources) {
+      const rows = await loadGenderRows(source.gender, source.btPath, source.heightPath);
+      console.log(`[leaderboard-import] ${source.gender} rows=${rows.length}`);
+      await client.query('begin');
+      await client.query('delete from public.leaderboard_player_stats where gender = $1', [source.gender]);
+      for (const row of rows) {
+        await client.query(
+          `insert into public.leaderboard_player_stats
+            (gender, season, team, player, conference, class, pos, age, height, statistical_height, statistical_height_delta, rsci, values, percentiles, source_updated_at, updated_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,now(),now())
+           on conflict (gender, season, team, player)
+           do update set
+             conference = excluded.conference,
+             class = excluded.class,
+             pos = excluded.pos,
+             age = excluded.age,
+             height = excluded.height,
+             statistical_height = excluded.statistical_height,
+             statistical_height_delta = excluded.statistical_height_delta,
+             rsci = excluded.rsci,
+             values = excluded.values,
+             percentiles = excluded.percentiles,
+             source_updated_at = now(),
+             updated_at = now()`,
+          [
+            row.gender,
+            row.season,
+            row.team,
+            row.player,
+            row.conference,
+            row.class,
+            row.pos,
+            row.age,
+            row.height,
+            row.statistical_height,
+            row.statistical_height_delta,
+            row.rsci,
+            JSON.stringify(row.values),
+            JSON.stringify(row.percentiles),
+          ],
+        );
+      }
+      await client.query('commit');
+    }
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+main().catch((error) => {
+  console.error('[leaderboard-import] failed', error);
+  process.exitCode = 1;
+});

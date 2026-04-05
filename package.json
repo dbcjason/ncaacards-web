@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "backfill:r2": "node scripts/backfill-payloads-to-r2.mjs",
-    "sync:payload-indexes": "node scripts/sync-player-payload-indexes.mjs"
+    "sync:payload-indexes": "node scripts/sync-player-payload-indexes.mjs",
+    "sync:leaderboard": "node scripts/import-leaderboard.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1023.0",

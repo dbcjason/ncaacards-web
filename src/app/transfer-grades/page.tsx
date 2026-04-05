@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { SEASONS } from "@/lib/ui-options";
 
 type GradeRow = Record<string, string>;
@@ -17,6 +18,15 @@ type ApiResp = {
 };
 
 export default function TransferGradesPage() {
+  return (
+    <Suspense fallback={null}>
+      <TransferGradesPageInner />
+    </Suspense>
+  );
+}
+
+function TransferGradesPageInner() {
+  const searchParams = useSearchParams();
   const MANUAL_EXCLUDE_PLAYERS = new Set([
     "jake shapiro",
     "tj drain",
@@ -37,13 +47,11 @@ export default function TransferGradesPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const qs = new URLSearchParams(window.location.search);
-    const g = qs.get("gender");
+    const g = searchParams.get("gender");
     setGender(g === "women" ? "women" : "men");
-    const s = Number(qs.get("season"));
+    const s = Number(searchParams.get("season"));
     if (Number.isFinite(s) && s > 2000) setSeason(s);
-  }, []);
+  }, [searchParams]);
 
   function gradeScore(raw: string): number {
     const v = String(raw || "").trim().toUpperCase();
@@ -166,6 +174,8 @@ export default function TransferGradesPage() {
             <Link href={`/roster?gender=${gender}`} className="text-zinc-300">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${season}`} className="text-red-400">Transfer Grades</Link>
             <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-zinc-300">Jason Created Stats</Link>
+            <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">Leaderboard</Link>
+            <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">Watchlist</Link>
             {gender === "men" && <Link href="/lineup-analysis" className="text-zinc-300">Lineup Analysis</Link>}
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
