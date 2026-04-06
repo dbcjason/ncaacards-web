@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadStaticPayload } from "@/lib/static-payload";
+import { loadStaticPayload, loadTransferProjectionHtml } from "@/lib/static-payload";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,10 +32,17 @@ export async function POST(req: NextRequest) {
       });
     }
     if (part === "transfer") {
+      const transferHtml = await loadTransferProjectionHtml(
+        Number(body.season),
+        String(body.team),
+        String(body.player),
+        String(body.gender ?? "men"),
+        String(body.destinationConference ?? ""),
+      );
       return NextResponse.json({
         ok: true,
         part,
-        html: String(sections.transfer_projection_html ?? ""),
+        html: transferHtml,
       });
     }
     return NextResponse.json({

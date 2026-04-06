@@ -4,7 +4,7 @@ import { cacheVersionTag, isSeasonCacheable } from "@/lib/cache-policy";
 import { resolveTeamPlayerForSeason } from "@/lib/options";
 import { buildRosterPayload } from "@/lib/mock";
 import { loadJsonPayload, storeJsonPayload } from "@/lib/object-store";
-import { loadStaticPayload } from "@/lib/static-payload";
+import { loadStaticPayload, loadTransferProjectionHtml } from "@/lib/static-payload";
 import { renderCardHtmlFromPayload } from "@/lib/render-card";
 
 export type JobType = "card" | "roster";
@@ -26,13 +26,7 @@ export type JobRow = {
 const inMemoryJobs = new Map<string, JobRow>();
 let warnedNoDb = false;
 type Gender = "men" | "women";
-type CardBuildProvider = "github" | "precomputed";
 type RuntimeCfg = {
-  ghOwner: string;
-  ghRepo: string;
-  ghWorkflow: string;
-  ghRef: string;
-  ghToken: string;
   dataOwner: string;
   dataRepo: string;
   dataRef: string;
@@ -47,11 +41,6 @@ function parseGender(raw?: unknown): Gender {
 function runtimeCfg(gender: Gender): RuntimeCfg {
   if (gender === "women") {
     return {
-      ghOwner: (process.env.GITHUB_OWNER_WOMEN || process.env.GITHUB_OWNER || "").trim(),
-      ghRepo: (process.env.GITHUB_REPO_WOMEN || "NCAAWCards").trim(),
-      ghWorkflow: (process.env.GITHUB_WORKFLOW_FILE_WOMEN || process.env.GITHUB_WORKFLOW_FILE || "").trim(),
-      ghRef: (process.env.GITHUB_REF_WOMEN || process.env.GITHUB_REF || "main").trim(),
-      ghToken: (process.env.GITHUB_TOKEN_WOMEN || process.env.GITHUB_TOKEN || "").trim(),
       dataOwner: (process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason").trim(),
       dataRepo: (process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards").trim(),
       dataRef: (process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main").trim(),
@@ -60,31 +49,12 @@ function runtimeCfg(gender: Gender): RuntimeCfg {
     };
   }
   return {
-    ghOwner: (process.env.GITHUB_OWNER ?? "").trim(),
-    ghRepo: (process.env.GITHUB_REPO ?? "").trim(),
-    ghWorkflow: (process.env.GITHUB_WORKFLOW_FILE ?? "").trim(),
-    ghRef: (process.env.GITHUB_REF ?? "main").trim(),
-    ghToken: (process.env.GITHUB_TOKEN ?? "").trim(),
     dataOwner: (process.env.GITHUB_DATA_OWNER || "dbcjason").trim(),
     dataRepo: (process.env.GITHUB_DATA_REPO || "NCAACards").trim(),
     dataRef: (process.env.GITHUB_DATA_REF || "main").trim(),
     dataBt2026Path: (process.env.GITHUB_BT_2026_PATH || "player_cards_pipeline/data/bt/bt_advstats_2026.csv").trim(),
     dataEnrichedManifestPath: (process.env.GITHUB_ENRICHED_MANIFEST_PATH || "player_cards_pipeline/data/manual/enriched_players/manifest.json").trim(),
   };
-}
-
-function parseCardBuildProvider(raw: string | undefined, fallback: CardBuildProvider): CardBuildProvider {
-  const normalized = String(raw || "").trim().toLowerCase();
-  if (normalized === "precomputed") return "precomputed";
-  if (normalized === "github") return "github";
-  return fallback;
-}
-
-function cardBuildProvider(gender: Gender): CardBuildProvider {
-  if (gender === "women") {
-    return parseCardBuildProvider(process.env.CARD_BUILD_PROVIDER_WOMEN, "precomputed");
-  }
-  return parseCardBuildProvider(process.env.CARD_BUILD_PROVIDER, "precomputed");
 }
 const seasonVersionMemo = new Map<string, { value: string; ts: number }>();
 const VERSION_TTL_MS = 1000 * 60 * 10;
@@ -103,71 +73,6 @@ function makeMemoryJob(jobType: JobType, request: Record<string, unknown>): JobR
     created_at: now,
     updated_at: now,
   };
-}
-
-async function getCardPayloadFromStore(req: Record<string, unknown>) {
-  const gender = parseGender(req.gender);
-  const cfg = runtimeCfg(gender);
-  const season = Number(req.season ?? 0);
-  const cacheAllowed = isSeasonCacheable(season);
-  const cacheVersion = cacheVersionTag();
-  const requestedTeam = String(req.team ?? "");
-  const requestedPlayer = String(req.player ?? "");
-  const mode = String(req.mode ?? "draft");
-  const destinationConference = String(req.destinationConference ?? "");
-  const resolved = await resolveTeamPlayerForSeason(season, requestedTeam, requestedPlayer);
-  const team = resolved.team;
-  const player = resolved.player;
-  const dataVersion = await getSeasonDataVersion(season, cfg);
-  const key = cardCacheKey({
-    gender,
-    season,
-    team,
-    player,
-    mode,
-    destinationConference,
-    dataVersion,
-    cacheVersion,
-  });
-
-  if (cacheAllowed) {
-    const cached = await cacheGet<Record<string, unknown>>(key);
-    if (cached) return { ...cached, cache: "hit" };
-  }
-
-  let payload: Record<string, unknown> | null = null;
-  if (cacheAllowed) {
-    try {
-      const rows = await dbQuery<{ payload: unknown }>(
-        `SELECT payload
-         FROM card_payloads
-         WHERE season = $1 AND team = $2 AND player = $3 AND mode = $4 AND destination_conference = $5
-         LIMIT 1`,
-        [season, team, player, mode, destinationConference],
-      );
-      if (rows[0]?.payload) payload = await loadJsonPayload<Record<string, unknown>>(rows[0].payload);
-    } catch {
-      payload = null;
-    }
-  }
-
-  if (
-    payload &&
-    season === 2026 &&
-    String((payload as Record<string, unknown>).dataVersion ?? "") !== dataVersion
-  ) {
-    payload = null;
-  }
-  if (payload && String((payload as Record<string, unknown>).cacheVersion ?? "") !== cacheVersion) {
-    payload = null;
-  }
-
-  if (!payload) return null;
-
-  if (cacheAllowed) {
-    await cacheSet(key, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
-  }
-  return { ...payload, cache: "miss" };
 }
 
 async function getRosterPayloadFromStore(req: Record<string, unknown>) {
@@ -254,192 +159,6 @@ async function getRosterPayloadFromStore(req: Record<string, unknown>) {
   return { ...payload, cache: "miss" };
 }
 
-function githubReady(cfg: RuntimeCfg): boolean {
-  return Boolean(cfg.ghOwner && cfg.ghRepo && cfg.ghWorkflow && cfg.ghRef && cfg.ghToken);
-}
-
-function safeFilePart(v: string): string {
-  return v
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
-function cardCacheKey(input: {
-  gender?: string;
-  season: number;
-  team: string;
-  player: string;
-  mode: string;
-  destinationConference: string;
-  dataVersion?: string;
-  cacheVersion?: string;
-}) {
-  const suffix = input.dataVersion ? `:v=${input.dataVersion}` : "";
-  const cacheSuffix = input.cacheVersion ? `:cv=${input.cacheVersion}` : "";
-  const g = parseGender(input.gender);
-  return `card:${g}:${input.season}:${input.team}:${input.player}:${input.mode}:${input.destinationConference}${suffix}${cacheSuffix}`;
-}
-
-async function ghApi(cfg: RuntimeCfg, path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${cfg.ghToken}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
-}
-
-async function dispatchCardWorkflow(input: {
-  cfg: RuntimeCfg;
-  year: number;
-  player: string;
-  team: string;
-  mode: string;
-  destinationConference: string;
-  outputFilename: string;
-}) {
-  const body = {
-    ref: input.cfg.ghRef,
-    inputs: {
-      year: String(input.year),
-      player: input.player,
-      team: input.team,
-      output_filename: input.outputFilename,
-      commit_to_repo: true,
-      transfer_up: input.mode === "transfer",
-      destination_conference: input.mode === "transfer" ? input.destinationConference : "",
-    },
-  };
-  const r = await ghApi(
-    input.cfg,
-    `/repos/${encodeURIComponent(input.cfg.ghOwner)}/${encodeURIComponent(
-      input.cfg.ghRepo,
-    )}/actions/workflows/${encodeURIComponent(input.cfg.ghWorkflow)}/dispatches`,
-    { method: "POST", body: JSON.stringify(body) },
-  );
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`Workflow dispatch failed (${r.status}): ${t.slice(0, 300)}`);
-  }
-}
-
-async function findDispatchedRunId(cfg: RuntimeCfg, dispatchedAtIso: string): Promise<number | null> {
-  const r = await ghApi(
-    cfg,
-    `/repos/${encodeURIComponent(cfg.ghOwner)}/${encodeURIComponent(
-      cfg.ghRepo,
-    )}/actions/workflows/${encodeURIComponent(cfg.ghWorkflow)}/runs?event=workflow_dispatch&branch=${encodeURIComponent(
-      cfg.ghRef,
-    )}&per_page=20`,
-  );
-  if (!r.ok) return null;
-  const j = (await r.json()) as { workflow_runs?: Array<{ id: number; created_at: string }> };
-  const runs = Array.isArray(j.workflow_runs) ? j.workflow_runs : [];
-  const cutoff = Date.parse(dispatchedAtIso) - 30_000;
-  for (const run of runs) {
-    const ts = Date.parse(run.created_at);
-    if (Number.isFinite(ts) && ts >= cutoff) return run.id;
-  }
-  return null;
-}
-
-async function getRun(cfg: RuntimeCfg, runId: number): Promise<{ status: string; conclusion: string | null } | null> {
-  const r = await ghApi(
-    cfg,
-    `/repos/${encodeURIComponent(cfg.ghOwner)}/${encodeURIComponent(cfg.ghRepo)}/actions/runs/${runId}`,
-  );
-  if (!r.ok) return null;
-  const j = (await r.json()) as { status?: string; conclusion?: string | null };
-  return { status: String(j.status ?? ""), conclusion: j.conclusion ?? null };
-}
-
-async function fetchCommittedCardHtml(cfg: RuntimeCfg, outputFilename: string): Promise<string> {
-  const path = `player_cards_pipeline/output/${outputFilename}`;
-  const encodedPath = path
-    .split("/")
-    .map((part) => encodeURIComponent(part))
-    .join("/");
-  const r = await ghApi(
-    cfg,
-    `/repos/${encodeURIComponent(cfg.ghOwner)}/${encodeURIComponent(
-      cfg.ghRepo,
-    )}/contents/${encodedPath}?ref=${encodeURIComponent(cfg.ghRef)}`,
-  );
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`Failed to fetch committed HTML (${r.status}): ${t.slice(0, 300)}`);
-  }
-  const j = (await r.json()) as { content?: string; encoding?: string };
-  if (j.encoding !== "base64" || !j.content) throw new Error("Committed HTML content missing");
-  const b64 = j.content.replace(/\s+/g, "");
-  return Buffer.from(b64, "base64").toString("utf-8");
-}
-
-function extractBalancedDivByClass(html: string, classNeedle: string): string | null {
-  const marker = `class="${classNeedle}"`;
-  const markerIndex = html.indexOf(marker);
-  if (markerIndex < 0) return null;
-  const start = html.lastIndexOf("<div", markerIndex);
-  if (start < 0) return null;
-
-  let index = start;
-  let depth = 0;
-  while (index < html.length) {
-    const nextOpen = html.indexOf("<div", index);
-    const nextClose = html.indexOf("</div>", index);
-    if (nextClose < 0) break;
-    if (nextOpen !== -1 && nextOpen < nextClose) {
-      depth += 1;
-      index = nextOpen + 4;
-      continue;
-    }
-    depth -= 1;
-    index = nextClose + 6;
-    if (depth === 0) {
-      return html.slice(start, index);
-    }
-  }
-  return null;
-}
-
-async function upsertCardPayload(payloadKey: {
-  season: number;
-  team: string;
-  player: string;
-  mode: string;
-  destinationConference: string;
-  payload: Record<string, unknown>;
-}) {
-  if (!isSeasonCacheable(payloadKey.season)) return;
-  const storedPayload = await storeJsonPayload(payloadKey.payload, [
-    "cards",
-    String(payloadKey.season),
-    payloadKey.team,
-    payloadKey.player,
-    payloadKey.mode,
-    payloadKey.destinationConference || "na",
-  ]);
-  await dbQuery(
-    `INSERT INTO card_payloads (season, team, player, mode, destination_conference, payload, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
-     ON CONFLICT (season, team, player, mode, destination_conference)
-     DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()`,
-    [
-      payloadKey.season,
-      payloadKey.team,
-      payloadKey.player,
-      payloadKey.mode,
-      payloadKey.destinationConference,
-      JSON.stringify(storedPayload),
-    ],
-  );
-}
-
 async function upsertRosterPayload(payloadKey: {
   season: number;
   team: string;
@@ -494,15 +213,7 @@ async function getSeasonDataVersion(season: number, cfg: RuntimeCfg): Promise<st
     const [btTag, enrichedTag, phaseTag] = await Promise.all([
       fetchRawFileEtag(cfg, cfg.dataBt2026Path),
       fetchRawFileEtag(cfg, cfg.dataEnrichedManifestPath),
-      dbQuery<{ version: string }>(
-        `select coalesce(
-            to_char(max(updated_at), 'YYYYMMDDHH24MISS.US'),
-            'none'
-          ) as version
-         from public.player_payload_phase_backup
-         where season = $1`,
-        [season],
-      ).then((rows) => rows[0]?.version || "none").catch(() => "none"),
+      Promise.resolve("github-cache"),
     ]);
     const value = `bt:${btTag}|en:${enrichedTag}|pb:${phaseTag}|rv:20260404c`.slice(0, 180);
     seasonVersionMemo.set(memoKey, { value, ts: now });
@@ -528,195 +239,43 @@ async function advanceCardJob(job: JobRow): Promise<JobRow> {
   const player = resolved.player;
   const dataVersion = await getSeasonDataVersion(season, cfg);
   const cacheVersion = cacheVersionTag();
-
-  const existing = await getCardPayloadFromStore({
-    ...req,
+  const staticPayload = await loadStaticPayload(season, team, player, gender);
+  const transferProjectionHtml =
+    mode === "transfer"
+      ? await loadTransferProjectionHtml(season, team, player, gender, destinationConference)
+      : "";
+  const renderPayload =
+    mode === "transfer"
+      ? {
+          ...staticPayload,
+          sections_html: {
+            ...(staticPayload.sections_html ?? {}),
+            transfer_projection_html: transferProjectionHtml,
+          },
+        }
+      : staticPayload;
+  const cardHtml = renderCardHtmlFromPayload(renderPayload, {
     gender,
-    season,
-    team,
-    player,
     mode,
     destinationConference,
-    cacheVersion,
   });
-  if (existing) {
-    await updateJob(job.id, {
-      status: "done",
-      progress: 100,
-      message: "Completed",
-      result_json: existing,
-    });
-    return (await loadJob(job.id)) ?? job;
-  }
-
-  const provider = cardBuildProvider(gender);
-  if (provider === "precomputed") {
-    const staticPayload = await loadStaticPayload(season, team, player, gender);
-    const cardHtml = renderCardHtmlFromPayload(staticPayload, {
-      gender,
-      mode,
-      destinationConference,
-    });
-    const payload: Record<string, unknown> = {
-      ok: true,
-      source: "precomputed_sections",
-      generatedAt: new Date().toISOString(),
-      input: {
-        gender,
-        season,
-        team,
-        player,
-        mode,
-        destinationConference,
-      },
-      dataVersion,
-      cacheVersion,
-      cardHtml,
-      staticPayload,
-    };
-    await upsertCardPayload({
-      season,
-      team,
-      player,
-      mode,
-      destinationConference,
-      payload,
-    });
-    const cacheKey = cardCacheKey({
-      gender,
-      season,
-      team,
-      player,
-      mode,
-      destinationConference,
-      dataVersion,
-      cacheVersion,
-    });
-    if (isSeasonCacheable(season)) {
-      await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
-    }
-    await updateJob(job.id, {
-      status: "done",
-      progress: 100,
-      message: "Completed from precomputed sections",
-      result_json: { ...payload, cache: "miss" },
-    });
-    return (await loadJob(job.id)) ?? job;
-  }
-
-  if (!githubReady(cfg)) {
-    throw new Error("GitHub workflow env vars missing (GITHUB_OWNER/REPO/WORKFLOW_FILE/REF/TOKEN).");
-  }
-
-  const state = (req.__cardState ?? {}) as Record<string, unknown>;
-  const outputFilename =
-    String(state.outputFilename ?? "").trim() ||
-    `web_${season}_${safeFilePart(team)}_${safeFilePart(player)}_${mode}_${safeFilePart(
-      destinationConference || "na",
-    )}.html`;
-
-  let dispatchedAt = String(state.dispatchedAt ?? "").trim();
-  let runId = Number(state.runId ?? 0);
-
-  if (!dispatchedAt) {
-    await dispatchCardWorkflow({
-      cfg,
-      year: season,
-      player,
-      team,
-      mode,
-      destinationConference,
-      outputFilename,
-    });
-    dispatchedAt = new Date().toISOString();
-    await updateJob(job.id, {
-      progress: 30,
-      message: "Dispatched GitHub build",
-      request_json: {
-        ...req,
-        team,
-        player,
-        __cardState: { outputFilename, dispatchedAt },
-      },
-    } as Partial<JobRow>);
-    return (await loadJob(job.id)) ?? job;
-  }
-
-  if (!Number.isFinite(runId) || runId <= 0) {
-    const found = await findDispatchedRunId(cfg, dispatchedAt);
-    if (!found) {
-      await updateJob(job.id, {
-        progress: 40,
-        message: "Waiting for GitHub run to appear",
-      });
-      return (await loadJob(job.id)) ?? job;
-    }
-    runId = found;
-    await updateJob(job.id, {
-      progress: 50,
-      message: `GitHub run detected (#${runId})`,
-      request_json: {
-        ...req,
-        team,
-        player,
-        __cardState: { outputFilename, dispatchedAt, runId },
-      },
-    } as Partial<JobRow>);
-    return (await loadJob(job.id)) ?? job;
-  }
-
-  const run = await getRun(cfg, runId);
-  if (!run) {
-    await updateJob(job.id, { progress: 55, message: "Checking GitHub run status" });
-    return (await loadJob(job.id)) ?? job;
-  }
-  if (run.status !== "completed") {
-    await updateJob(job.id, { progress: 70, message: `GitHub run ${run.status}` });
-    return (await loadJob(job.id)) ?? job;
-  }
-  if (run.conclusion !== "success") {
-    throw new Error(`GitHub run failed (conclusion=${run.conclusion ?? "unknown"})`);
-  }
-
-  await updateJob(job.id, { progress: 85, message: "Fetching generated card" });
-  const cardHtml = await fetchCommittedCardHtml(cfg, outputFilename);
   const payload: Record<string, unknown> = {
     ok: true,
-    source: "github_action",
+    source: "precomputed_sections",
     generatedAt: new Date().toISOString(),
     input: {
       gender,
       season,
       team,
       player,
-      mode: mode === "transfer" ? "transfer" : "draft",
-      destinationConference: mode === "transfer" ? destinationConference : "",
+      mode,
+      destinationConference,
     },
     dataVersion,
     cacheVersion,
     cardHtml,
+    staticPayload: renderPayload,
   };
-  await upsertCardPayload({
-    season,
-    team,
-    player,
-    mode,
-    destinationConference,
-    payload,
-  });
-  const cacheKey = cardCacheKey({
-    gender,
-    season,
-    team,
-    player,
-    mode,
-    destinationConference,
-    dataVersion,
-    cacheVersion,
-  });
-  if (isSeasonCacheable(season)) {
-    await cacheSet(cacheKey, payload, season <= 2025 ? 60 * 60 * 24 * 365 : 60 * 60 * 24);
-  }
   await updateJob(job.id, {
     status: "done",
     progress: 100,

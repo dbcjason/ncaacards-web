@@ -12,7 +12,6 @@ type SourceCfg = {
   dataRepo: string;
   dataRef: string;
   dataToken: string;
-  staticRoot: string;
   btPlayerstatJsonTemplate: string;
   btCsvPath: string;
   bartPrefix: string;
@@ -44,10 +43,6 @@ function getSourceCfg(gender: Gender): SourceCfg {
       dataRepo: process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards",
       dataRef: process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main",
       dataToken: (process.env.GITHUB_TOKEN_WOMEN || process.env.GITHUB_TOKEN || "").trim(),
-      staticRoot:
-        process.env.GITHUB_STATIC_PAYLOAD_ROOT_WOMEN ||
-        process.env.GITHUB_STATIC_PAYLOAD_ROOT ||
-        "player_cards_pipeline/public/cards",
       btPlayerstatJsonTemplate:
         process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE_WOMEN ||
         process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE ||
@@ -64,7 +59,6 @@ function getSourceCfg(gender: Gender): SourceCfg {
     dataRepo: process.env.GITHUB_DATA_REPO || "NCAACards",
     dataRef: process.env.GITHUB_DATA_REF || "main",
     dataToken: (process.env.GITHUB_TOKEN || "").trim(),
-    staticRoot: process.env.GITHUB_STATIC_PAYLOAD_ROOT || "player_cards_pipeline/public/cards",
     btPlayerstatJsonTemplate:
       process.env.GITHUB_BT_PLAYERSTAT_JSON_TEMPLATE ||
       "player_cards_pipeline/data/bt/raw_playerstat_json/{season}_pbp_playerstat_array.json",
@@ -223,30 +217,6 @@ async function fetchSeasonOptionsFromBart(season: number, cfg: SourceCfg): Promi
   throw new Error(lastErr || "Failed to fetch Bart CSV");
 }
 
-async function fetchSeasonOptionsFromStaticIndex(season: number, cfg: SourceCfg): Promise<SeasonOptions> {
-  const path = `${cfg.staticRoot}/${season}/index.json`;
-  const text = await fetchRepoFileText(path, cfg);
-  const arr = JSON.parse(text) as Array<{ player?: string; team?: string }>;
-  if (!Array.isArray(arr) || arr.length === 0) throw new Error("Static index empty");
-  const byTeam = new Map<string, Set<string>>();
-  const allPlayersSet = new Set<string>();
-  for (const row of arr) {
-    const player = String(row?.player ?? "").trim();
-    const team = String(row?.team ?? "").trim();
-    if (!player || !team) continue;
-    if (!byTeam.has(team)) byTeam.set(team, new Set<string>());
-    byTeam.get(team)!.add(player);
-    allPlayersSet.add(player);
-  }
-  const teams = Array.from(byTeam.keys()).sort((a, b) => a.localeCompare(b));
-  const playersByTeam: Record<string, string[]> = {};
-  for (const team of teams) {
-    playersByTeam[team] = Array.from(byTeam.get(team) ?? []).sort((a, b) => a.localeCompare(b));
-  }
-  const allPlayers = Array.from(allPlayersSet).sort((a, b) => a.localeCompare(b));
-  return { teams, playersByTeam, allPlayers, loadedAt: Date.now() };
-}
-
 function parseOptionsFromCsvText(
   text: string,
   opts: { playerIdx?: number; teamIdx?: number; yearIdx?: number; season?: number },
@@ -387,17 +357,10 @@ export async function getSeasonOptions(season: number, genderRaw?: string): Prom
       try {
         fresh = await fetchSeasonOptionsFromGithubPlayerstatJson(season, cfg);
       } catch (ghJsonErr) {
-        try {
-          fresh = await fetchSeasonOptionsFromStaticIndex(season, cfg);
-        } catch (staticErr) {
-          const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
-          const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
-          const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
-          const s = staticErr instanceof Error ? staticErr.message : String(staticErr);
-          throw new Error(
-            `Repo all-years failed: ${gl} | Bart failed: ${b} | Repo playerstat failed: ${gs} | Static index failed: ${s}`,
-          );
-        }
+        const gl = ghLargeErr instanceof Error ? ghLargeErr.message : String(ghLargeErr);
+        const b = bartErr instanceof Error ? bartErr.message : String(bartErr);
+        const gs = ghJsonErr instanceof Error ? ghJsonErr.message : String(ghJsonErr);
+        throw new Error(`Repo all-years failed: ${gl} | Bart failed: ${b} | Repo playerstat failed: ${gs}`);
       }
     }
   }
