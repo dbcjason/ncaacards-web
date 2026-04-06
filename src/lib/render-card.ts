@@ -195,8 +195,7 @@ export function renderCardHtmlFromPayload(
   const subtitleHtml = buildSubtitleHtml(payload, input);
   const projectionHtml =
     input.mode === "transfer"
-      ? String(sections.transfer_projection_html ?? "").trim() ||
-        `<div class="panel" id="transfer-projection-panel" data-transfer-status="loading"><h3>Transfer Projection</h3><div class="shot-meta">Loading transfer projection...</div></div>`
+      ? String(sections.transfer_projection_html ?? "").trim()
       : String(sections.draft_projection_html ?? "");
 
   return `<!doctype html>
