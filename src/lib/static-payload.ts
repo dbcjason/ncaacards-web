@@ -247,6 +247,7 @@ const SECTION_JSON_KEYS = [
 const sectionPayloadMemo = new Map<string, Promise<Record<string, string>>>();
 const btRowsMemo = new Map<string, Promise<BtRow[]>>();
 const enrichedLookupMemo = new Map<string, Promise<Record<string, Record<string, unknown>>>>();
+const heightProfileDeltaMemo = new Map<string, Promise<{ byKey: Record<string, number>; byName: Record<string, number>; byPid: Record<string, number> }>>();
 
 function cardCacheKey(player: string, team: string, season: string | number): string {
   return `${normPlayer(player)}|${normTeam(team)}|${normSeason(season)}`;
@@ -285,6 +286,27 @@ function btGet(row: BtRow, names: string[]): string {
 function toNumber(v: unknown): number | null {
   const n = Number(String(v ?? "").replace(/,/g, "").trim());
   return Number.isFinite(n) ? n : null;
+}
+
+function heightToInches(raw: string): number | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const compact = s.replace(/\s+/g, "");
+  const m = compact.match(/^(\d+)[-'](\d{1,2})(?:\"|”)?$/);
+  if (m) return Number(m[1]) * 12 + Number(m[2]);
+  const dash = compact.match(/^(\d+)-(\d{1,2})$/);
+  if (dash) return Number(dash[1]) * 12 + Number(dash[2]);
+  const inches = Number(s);
+  return Number.isFinite(inches) ? inches : null;
+}
+
+function inchesToHeightStr(inches: number): string {
+  if (!Number.isFinite(inches)) return "N/A";
+  const rounded = Math.round(inches * 10) / 10;
+  const feet = Math.floor(rounded / 12);
+  const rem = Math.round((rounded - feet * 12) * 10) / 10;
+  const inchPart = Math.round(rem);
+  return `${feet}'${inchPart}"`;
 }
 
 function btCsvCandidates(cfg: SourceCfg): string[] {
@@ -361,6 +383,89 @@ async function loadSectionPayloadRows(
 
   sectionPayloadMemo.set(key, promise);
   return promise;
+}
+
+async function loadHeightProfileDeltaMaps(
+  season: number,
+  cfg: SourceCfg,
+): Promise<{ byKey: Record<string, number>; byName: Record<string, number>; byPid: Record<string, number> }> {
+  const key = `${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}:height:${normSeason(season)}`;
+  const cached = heightProfileDeltaMemo.get(key);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const byKey: Record<string, number> = {};
+    const byName: Record<string, number> = {};
+    const byPid: Record<string, number> = {};
+    const paths = [
+      `player_cards_pipeline/output/height_profile_big_only_scores_${normSeason(season)}.csv`,
+      "player_cards_pipeline/output/height_profile_big_only_scores_2019_2025.csv",
+      `player_cards_pipeline/output/height_profile_scores_big_${normSeason(season)}.csv`,
+    ];
+    for (const path of paths) {
+      try {
+        const text = await fetchRepoText(path, cfg);
+        const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+        if (lines.length < 2) continue;
+        const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
+        const pIdx = findCol(header, ["player_name", "player", "name"]);
+        const tIdx = findCol(header, ["team", "school"]);
+        const pidIdx = findCol(header, ["pid"]);
+        const deltaIdx = findCol(header, ["big_height_delta_inches", "height_delta_inches"]);
+        const seasonIdx = findCol(header, ["season", "year"]);
+        if (pIdx < 0 || deltaIdx < 0) continue;
+        for (let i = 1; i < lines.length; i += 1) {
+          const cols = parseCsvLine(lines[i]);
+          const rowSeason = seasonIdx >= 0 ? normSeason(cols[seasonIdx] ?? "") : normSeason(season);
+          if (rowSeason && rowSeason !== normSeason(season)) continue;
+          const delta = toNumber(cols[deltaIdx]);
+          if (delta === null) continue;
+          const playerName = String(cols[pIdx] ?? "").trim();
+          const teamName = tIdx >= 0 ? String(cols[tIdx] ?? "").trim() : "";
+          const pid = pidIdx >= 0 ? String(cols[pidIdx] ?? "").trim() : "";
+          if (playerName) {
+            byName[normPlayer(playerName)] = delta;
+            if (teamName) byKey[`${normPlayer(playerName)}|${normTeam(teamName)}`] = delta;
+          }
+          if (pid) byPid[pid] = delta;
+        }
+        if (Object.keys(byName).length) break;
+      } catch {
+        continue;
+      }
+    }
+    return { byKey, byName, byPid };
+  })();
+
+  heightProfileDeltaMemo.set(key, promise);
+  return promise;
+}
+
+function computeStatisticalHeightDelta(
+  player: string,
+  team: string,
+  targetRow: BtRow | null,
+  listedHeight: string,
+  maps: { byKey: Record<string, number>; byName: Record<string, number>; byPid: Record<string, number> },
+): number | null {
+  const pid = targetRow ? String(btGet(targetRow, ["pid"])).trim() : "";
+  if (pid && maps.byPid[pid] !== undefined) return maps.byPid[pid];
+  const key = `${normPlayer(player)}|${normTeam(team)}`;
+  if (maps.byKey[key] !== undefined) return maps.byKey[key];
+  const name = normPlayer(player);
+  if (maps.byName[name] !== undefined) return maps.byName[name];
+  const listedInches = heightToInches(listedHeight);
+  if (listedInches === null) return null;
+  return null;
+}
+
+function nestedValue(obj: Record<string, unknown> | undefined, ...path: string[]): unknown {
+  let cur: unknown = obj;
+  for (const key of path) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
 }
 
 async function loadWorkflowSectionsHtml(
@@ -944,6 +1049,8 @@ export async function loadStaticPayload(
   const resolvedSeason = normSeason(season) || String(season);
   const sections_html = await loadWorkflowSectionsHtml(season, team, player, cfg);
   const btRows = await loadBtRowsForSeason(season, cfg);
+  const enrichedLookup = await loadEnrichedLookup(season, gender, cfg);
+  const enrichedRow = enrichedLookup[normalizedSectionKey(player, team, season)];
   const targetRow =
     btRows.find(
       (row) =>
@@ -958,23 +1065,39 @@ export async function loadStaticPayload(
     ) ??
     null;
 
-  const bioKey = normalizedSectionKey(player, team, season);
   const bundledBio = await loadBundledBioFallback(season, team, player, gender);
   const btBio = targetRow ? await loadBtBioFallback(season, team, player, cfg) : {};
+  const deltaMaps = await loadHeightProfileDeltaMaps(season, cfg);
+  const enrichedHeight =
+    String(nestedValue(enrichedRow, "roster", "height") ?? nestedValue(enrichedRow, "height") ?? "").trim() ||
+    String(nestedValue(enrichedRow, "bio", "height") ?? "").trim();
+  const enrichedPosition =
+    String(nestedValue(enrichedRow, "roster", "pos") ?? nestedValue(enrichedRow, "position") ?? nestedValue(enrichedRow, "bio", "position") ?? "").trim();
+  const listedHeight =
+    String(bundledBio?.bt_height ?? bundledBio?.listed_height ?? bundledBio?.enriched_height ?? "").trim() ||
+    String(btBio.height || "").trim() ||
+    enrichedHeight;
+  const statDelta = computeStatisticalHeightDelta(player, team, targetRow, listedHeight, deltaMaps);
+  const statisticalHeight =
+    statDelta !== null && listedHeight
+      ? inchesToHeightStr((heightToInches(listedHeight) ?? 0) + statDelta)
+      : String(bundledBio?.statistical_height || "").trim();
   const bio: Record<string, unknown> = {
     position:
       String(bundledBio?.enriched_position ?? bundledBio?.jason_position ?? "").trim() ||
       String(btBio.position || "").trim() ||
+      enrichedPosition ||
       String(btGet(targetRow ?? {}, ["pos", "position", "role"]) ?? "").trim() ||
       "N/A",
-    height:
-      String(bundledBio?.bt_height ?? bundledBio?.listed_height ?? bundledBio?.enriched_height ?? "").trim() ||
-      String(btBio.height || "").trim() ||
-      "N/A",
+    height: listedHeight || "N/A",
     age_june25: "N/A",
     rsci: "N/A",
   };
-  if (bundledBio) {
+  if (statisticalHeight) {
+    bio.statistical_height = statisticalHeight;
+    bio.statistical_height_text = statDelta !== null ? `${statisticalHeight}, ${statDelta > 0 ? "+" : ""}${statDelta.toFixed(2)} in` : statisticalHeight;
+    bio.statistical_height_delta = statDelta !== null ? String(statDelta) : String(bundledBio.statistical_height_delta || "");
+  } else if (bundledBio) {
     bio.statistical_height = String(bundledBio.statistical_height || "").trim();
     bio.statistical_height_text = String(bundledBio.statistical_height || "").trim();
     bio.statistical_height_delta = String(bundledBio.statistical_height_delta || "").trim();
@@ -1014,8 +1137,6 @@ export async function loadStaticPayload(
     percentiles: per_game_percentiles,
   };
 
-  const enrichedLookup = await loadEnrichedLookup(season, gender, cfg);
-  const enrichedRow = enrichedLookup[bioKey];
   const shotBuild = enrichedRow ? buildShotsFromEnrichedRow(enrichedRow) : { shots: [], makes: 0, attempts: 0 };
   const shot_chart: Record<string, unknown> = {
     shots: shotBuild.shots,
