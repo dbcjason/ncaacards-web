@@ -122,7 +122,9 @@ async function fetchRepoJson<T>(path: string, cfg: SourceCfg): Promise<T> {
       return JSON.parse(Buffer.from(payload.content, "base64").toString("utf-8")) as T;
     }
     if (payload?.download_url) {
-      return await fetchAbsoluteJson<T>(payload.download_url, cfg);
+      const res = await fetch(payload.download_url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`Payload fetch failed (${res.status})`);
+      return (await res.json()) as T;
     }
   }
 
@@ -158,7 +160,9 @@ async function fetchRepoText(path: string, cfg: SourceCfg): Promise<string> {
       return Buffer.from(payload.content, "base64").toString("utf-8");
     }
     if (payload?.download_url) {
-      return await fetchAbsoluteText(payload.download_url, cfg);
+      const res = await fetch(payload.download_url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`Payload fetch failed (${res.status})`);
+      return await res.text();
     }
   }
 
