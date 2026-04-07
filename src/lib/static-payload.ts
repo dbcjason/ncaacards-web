@@ -1008,7 +1008,11 @@ export async function loadStaticPayload(
 ): Promise<CardPayload> {
   const gender = parseGender(genderRaw);
   const cfg = getSourceCfg(gender);
-  const basePayload = await loadFromStaticIndex(season, team, player, cfg);
+  const basePayload = await loadFromStaticIndex(season, team, player, cfg).catch(() => ({
+    player,
+    team,
+    season: String(season),
+  } as CardPayload));
   const payload: CardPayload = {
     ...basePayload,
     destinationConference,
