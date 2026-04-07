@@ -374,15 +374,29 @@ async function loadSectionPayloadRows(
   if (cached) return cached as Promise<Record<string, unknown>>;
 
   const promise = (async () => {
-    try {
-      const payload = await fetchRepoJson<WorkflowSectionPayload>(
-        `${cfg.staticRoot}/${section}/${normSeason(season)}.json`,
-        cfg,
-      );
-      return payload && typeof payload.rows === "object" && payload.rows ? payload.rows : {};
-    } catch {
-      return {};
+    const roots = Array.from(
+      new Set([
+        String(cfg.staticRoot || "").trim(),
+        "player_cards_pipeline/data/cache/section_payloads",
+        "player_cards_pipeline/public/cards/cache/section_payloads",
+        "player_cards_pipeline/public/cards",
+      ]),
+    ).filter(Boolean);
+
+    for (const root of roots) {
+      try {
+        const payload = await fetchRepoJson<WorkflowSectionPayload>(
+          `${root}/${section}/${normSeason(season)}.json`,
+          cfg,
+        );
+        if (payload && typeof payload.rows === "object" && payload.rows) {
+          return payload.rows;
+        }
+      } catch {
+        continue;
+      }
     }
+    return {};
   })();
 
   sectionPayloadMemo.set(key, promise as Promise<Record<string, string>>);
