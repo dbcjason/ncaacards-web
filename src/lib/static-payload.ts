@@ -998,6 +998,7 @@ export function mergedSectionsHtml(payload: CardPayload): Record<string, string>
   return merged;
 }
 
+// trigger vercel rebuild without behavior changes
 export async function loadStaticPayload(
   season: number,
   team: string,
