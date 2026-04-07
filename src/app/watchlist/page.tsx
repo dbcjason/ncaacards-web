@@ -161,6 +161,20 @@ function WatchlistPageInner() {
   const [newListName, setNewListName] = useState("");
   const [renameListName, setRenameListName] = useState("");
 
+  function redirectToLogin() {
+    if (typeof window === "undefined") return;
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.href = `/?next=${encodeURIComponent(next)}`;
+  }
+
+  function isAuthError(status: number, error?: string) {
+    return (
+      status === 401 ||
+      String(error ?? "") === "UNAUTHENTICATED" ||
+      String(error ?? "") === "ACCOUNT_EXPIRED"
+    );
+  }
+
   useEffect(() => {
     const g = searchParams.get("gender");
     setGender(g === "women" ? "women" : "men");
@@ -260,6 +274,10 @@ function WatchlistPageInner() {
         watchlists?: WatchlistSummary[];
         activeListId?: string;
       };
+      if (isAuthError(res.status, data.error)) {
+        redirectToLogin();
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load watchlist");
       setItems(Array.isArray(data.items) ? data.items : []);
       const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
@@ -405,6 +423,10 @@ function WatchlistPageInner() {
         watchlists?: WatchlistSummary[];
         activeListId?: string;
       };
+      if (isAuthError(res.status, data.error)) {
+        redirectToLogin();
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to add player");
       setItems(Array.isArray(data.items) ? data.items : []);
       setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
@@ -429,6 +451,10 @@ function WatchlistPageInner() {
         watchlists?: WatchlistSummary[];
         activeListId?: string;
       };
+      if (isAuthError(res.status, data.error)) {
+        redirectToLogin();
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to remove player");
       setItems(Array.isArray(data.items) ? data.items : []);
       setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
@@ -457,6 +483,10 @@ function WatchlistPageInner() {
       watchlists?: WatchlistSummary[];
       activeListId?: string;
     };
+    if (isAuthError(res.status, data.error)) {
+      redirectToLogin();
+      return;
+    }
     if (!res.ok || !data.ok) {
       throw new Error(data.error || "Failed to reorder watchlist");
     }
@@ -481,7 +511,12 @@ function WatchlistPageInner() {
         items?: WatchlistItem[];
         watchlists?: WatchlistSummary[];
         activeListId?: string;
+        notice?: string;
       };
+      if (isAuthError(res.status, data.error)) {
+        redirectToLogin();
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to create watchlist");
       setItems(Array.isArray(data.items) ? data.items : []);
       const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
@@ -491,6 +526,7 @@ function WatchlistPageInner() {
       const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
       if (currentActive) setRenameListName(currentActive.name);
       setNewListName("");
+      if (data.notice) setWatchlistError(data.notice);
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to create watchlist");
     }
@@ -518,11 +554,17 @@ function WatchlistPageInner() {
         items?: WatchlistItem[];
         watchlists?: WatchlistSummary[];
         activeListId?: string;
+        notice?: string;
       };
+      if (isAuthError(res.status, data.error)) {
+        redirectToLogin();
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to rename watchlist");
       setItems(Array.isArray(data.items) ? data.items : []);
       setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
       setActiveListId(String(data.activeListId ?? activeListId));
+      if (data.notice) setWatchlistError(data.notice);
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to rename watchlist");
     }

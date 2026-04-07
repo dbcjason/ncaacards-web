@@ -106,6 +106,9 @@ async function setSessionCookie(rawToken: string, expiresAt: Date) {
 export async function clearSessionCookie() {
   const jar = await cookies();
   jar.delete(SESSION_COOKIE);
+  // Clean up legacy domain-scoped variants from previous deployments.
+  jar.delete({ name: SESSION_COOKIE, path: "/", domain: ".dbcjason.com" });
+  jar.delete({ name: SESSION_COOKIE, path: "/", domain: "dbcjason.com" });
 }
 
 export async function createSessionForUser(userId: string): Promise<void> {
@@ -143,9 +146,27 @@ export async function createSessionForUser(userId: string): Promise<void> {
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const jar = await cookies();
-    const rawToken = jar.get(SESSION_COOKIE)?.value?.trim();
-    if (!rawToken) return null;
-    const tokenHash = sha256(rawToken);
+    const tokenCandidates = new Set<string>();
+    const primary = jar.get(SESSION_COOKIE)?.value?.trim() || "";
+    if (primary) tokenCandidates.add(primary);
+
+    // If multiple cookies with the same name are present (legacy domain + host-only),
+    // parse all values and try each token.
+    const h = await headers();
+    const cookieHeader = String(h.get("cookie") ?? "");
+    for (const chunk of cookieHeader.split(";")) {
+      const [nameRaw, ...valueParts] = chunk.split("=");
+      if (String(nameRaw || "").trim() !== SESSION_COOKIE) continue;
+      const value = decodeURIComponent(valueParts.join("=").trim());
+      if (value) tokenCandidates.add(value);
+    }
+
+    const tokenHashes = Array.from(tokenCandidates)
+      .map((token) => token.trim())
+      .filter((token) => /^[a-f0-9]{64}$/i.test(token))
+      .map((token) => sha256(token));
+    if (!tokenHashes.length) return null;
+
     const user = await dbQueryOne<AuthUser>(
       `select
           u.id,
@@ -168,13 +189,13 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         from public.user_sessions s
         join public.app_users u on u.id = s.user_id
         join public.organizations o on o.id = u.organization_id
-        where s.token_hash = $1
+        where s.token_hash = any($1::text[])
           and s.expires_at > now()
           and u.status = 'active'
           and o.status = 'active'
         order by s.created_at desc
         limit 1`,
-      [tokenHash],
+      [tokenHashes],
     );
     return user;
   } catch (error) {
