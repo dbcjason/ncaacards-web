@@ -80,6 +80,32 @@ function nowPlus(ms: number): Date {
   return new Date(Date.now() + ms);
 }
 
+function normalizeCookieDomain(raw: string): string {
+  const cleaned = String(raw || "").trim().toLowerCase().replace(/^\.+/, "");
+  if (!cleaned) return "";
+  return `.${cleaned}`;
+}
+
+function resolveSessionCookieDomain(): string | undefined {
+  const explicit =
+    process.env.SESSION_COOKIE_DOMAIN ||
+    process.env.APP_COOKIE_DOMAIN ||
+    "";
+  const explicitDomain = normalizeCookieDomain(explicit);
+  if (explicitDomain) return explicitDomain;
+
+  const appUrl = String(process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "").trim();
+  if (!appUrl) return undefined;
+  try {
+    const host = new URL(appUrl).hostname.toLowerCase();
+    if (!host || host === "localhost" || host === "127.0.0.1" || host === "::1") return undefined;
+    if (host.endsWith("dbcjason.com")) return ".dbcjason.com";
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function geoFromHeaders(h: Headers): { country: string | null; region: string | null; city: string | null } {
   const get = (key: string) => {
     const value = String(h.get(key) ?? "").trim();
@@ -94,18 +120,24 @@ function geoFromHeaders(h: Headers): { country: string | null; region: string | 
 
 async function setSessionCookie(rawToken: string, expiresAt: Date) {
   const jar = await cookies();
+  const domain = resolveSessionCookieDomain();
   jar.set(SESSION_COOKIE, rawToken, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     expires: expiresAt,
+    ...(domain ? { domain } : {}),
   });
 }
 
 export async function clearSessionCookie() {
   const jar = await cookies();
   jar.delete(SESSION_COOKIE);
+  const domain = resolveSessionCookieDomain();
+  if (domain) {
+    jar.delete({ name: SESSION_COOKIE, path: "/", domain });
+  }
 }
 
 export async function createSessionForUser(userId: string): Promise<void> {
