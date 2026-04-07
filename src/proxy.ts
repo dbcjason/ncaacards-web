@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const SESSION_COOKIE = "dbcjason_session";
 const CANONICAL_HOST = "www.dbcjason.com";
 
 const PUBLIC_PATHS = new Set([
@@ -38,17 +37,9 @@ export function proxy(req: NextRequest) {
     return NextResponse.redirect(url, 307);
   }
 
-  const { pathname, search } = req.nextUrl;
+  const { pathname } = req.nextUrl;
   if (isPublicPath(pathname)) {
     return NextResponse.next();
-  }
-
-  const hasSession = Boolean(req.cookies.get(SESSION_COOKIE)?.value?.trim());
-  if (!hasSession) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/";
-    url.search = new URLSearchParams({ next: `${pathname}${search}` }).toString();
-    return NextResponse.redirect(url);
   }
 
   return NextResponse.next();
