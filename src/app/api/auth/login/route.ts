@@ -5,7 +5,7 @@ function redirectWithMessage(req: NextRequest, kind: "notice" | "error", message
   const url = req.nextUrl.clone();
   url.pathname = "/";
   url.searchParams.set(kind, message);
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(url, 303);
 }
 
 export async function POST(req: NextRequest) {
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = nextPath || (user.role === "admin" ? "/dashboard" : "/cards");
     url.search = nextPath ? url.search : "";
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(url, 303);
   } catch (error) {
     console.error("[auth] login failed", error);
     return redirectWithMessage(req, "error", "Login hit a temporary server issue. Please try again.");

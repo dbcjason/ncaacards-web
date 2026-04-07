@@ -86,7 +86,7 @@ function normalizeCookieDomain(raw: string): string {
   return `.${cleaned}`;
 }
 
-function resolveSessionCookieDomain(): string | undefined {
+async function resolveSessionCookieDomain(): Promise<string | undefined> {
   const explicit =
     process.env.SESSION_COOKIE_DOMAIN ||
     process.env.APP_COOKIE_DOMAIN ||
@@ -95,15 +95,21 @@ function resolveSessionCookieDomain(): string | undefined {
   if (explicitDomain) return explicitDomain;
 
   const appUrl = String(process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "").trim();
-  if (!appUrl) return undefined;
-  try {
-    const host = new URL(appUrl).hostname.toLowerCase();
-    if (!host || host === "localhost" || host === "127.0.0.1" || host === "::1") return undefined;
-    if (host.endsWith("dbcjason.com")) return ".dbcjason.com";
-    return undefined;
-  } catch {
-    return undefined;
+  if (appUrl) {
+    try {
+      const host = new URL(appUrl).hostname.toLowerCase();
+      if (!host || host === "localhost" || host === "127.0.0.1" || host === "::1") return undefined;
+      if (host.endsWith("dbcjason.com")) return ".dbcjason.com";
+    } catch {}
   }
+
+  try {
+    const h = await headers();
+    const host = String(h.get("x-forwarded-host") || h.get("host") || "").trim().toLowerCase();
+    const normalizedHost = host.split(":")[0];
+    if (normalizedHost.endsWith("dbcjason.com")) return ".dbcjason.com";
+  } catch {}
+  return undefined;
 }
 
 function geoFromHeaders(h: Headers): { country: string | null; region: string | null; city: string | null } {
@@ -120,7 +126,7 @@ function geoFromHeaders(h: Headers): { country: string | null; region: string | 
 
 async function setSessionCookie(rawToken: string, expiresAt: Date) {
   const jar = await cookies();
-  const domain = resolveSessionCookieDomain();
+  const domain = await resolveSessionCookieDomain();
   jar.set(SESSION_COOKIE, rawToken, {
     httpOnly: true,
     sameSite: "lax",
@@ -134,7 +140,7 @@ async function setSessionCookie(rawToken: string, expiresAt: Date) {
 export async function clearSessionCookie() {
   const jar = await cookies();
   jar.delete(SESSION_COOKIE);
-  const domain = resolveSessionCookieDomain();
+  const domain = await resolveSessionCookieDomain();
   if (domain) {
     jar.delete({ name: SESSION_COOKIE, path: "/", domain });
   }

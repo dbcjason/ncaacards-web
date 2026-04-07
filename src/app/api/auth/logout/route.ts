@@ -17,5 +17,5 @@ export async function POST(req: NextRequest) {
   const url = req.nextUrl.clone();
   url.pathname = "/";
   url.search = "notice=Signed out successfully.";
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(url, 303);
 }
