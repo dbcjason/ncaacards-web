@@ -383,17 +383,40 @@ async function loadSectionPayloadRows(
       ]),
     ).filter(Boolean);
 
-    for (const root of roots) {
-      try {
-        const payload = await fetchRepoJson<WorkflowSectionPayload>(
-          `${root}/${section}/${normSeason(season)}.json`,
-          cfg,
-        );
-        if (payload && typeof payload.rows === "object" && payload.rows) {
-          return payload.rows;
+    const canonicalRepo = /women|ncaaw/i.test(cfg.dataRepo) ? "NCAAWCards" : "NCAACards";
+    const sources: SourceCfg[] = [];
+    const seenSources = new Set<string>();
+    const pushSource = (source: SourceCfg) => {
+      const id = `${source.dataOwner}/${source.dataRepo}@${source.dataRef}`;
+      if (seenSources.has(id)) return;
+      seenSources.add(id);
+      sources.push(source);
+    };
+
+    pushSource(cfg);
+    if (cfg.dataRef !== "main") {
+      pushSource({ ...cfg, dataRef: "main" });
+    }
+    pushSource({
+      ...cfg,
+      dataOwner: "dbcjason",
+      dataRepo: canonicalRepo,
+      dataRef: "main",
+    });
+
+    for (const source of sources) {
+      for (const root of roots) {
+        try {
+          const payload = await fetchRepoJson<WorkflowSectionPayload>(
+            `${root}/${section}/${normSeason(season)}.json`,
+            source,
+          );
+          if (payload && typeof payload.rows === "object" && payload.rows) {
+            return payload.rows;
+          }
+        } catch {
+          continue;
         }
-      } catch {
-        continue;
       }
     }
     return {};
