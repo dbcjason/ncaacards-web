@@ -56,13 +56,14 @@ function buildSubtitleHtml(
       bio.statisticalHeight ??
       "N/A",
   );
+  const statHeightBase = statHeightRaw.replace(/,\s*[+-]?\d+(?:\.\d+)?\s*in\s*$/i, "").trim();
   const statHeightDelta = num(
     bio.statistical_height_delta ??
       bio.stat_height_delta ??
       bio.statisticalHeightDelta,
   );
   let statHeightClass = "stat-height-at";
-  let statHeightText = statHeightRaw || "N/A";
+  let statHeightText = statHeightBase || "N/A";
 
   if (statHeightDelta !== null) {
     if (statHeightDelta > 1.0) statHeightClass = "stat-height-above";

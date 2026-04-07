@@ -684,19 +684,6 @@ function WatchlistPageInner() {
             />
             <select
               className="rounded bg-zinc-800 p-2"
-              value={team}
-              onChange={(e) => {
-                const nextTeam = e.target.value;
-                setTeam(nextTeam);
-                const nextPlayers = playersByTeam[nextTeam] ?? [];
-                setPlayer(nextPlayers[0] ?? "");
-                setPlayerChoiceValue(nextPlayers[0] ? `${nextPlayers[0]}|||${nextTeam}` : "");
-              }}
-            >
-              {teamOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-            <select
-              className="rounded bg-zinc-800 p-2"
               value={playerChoiceValue}
               onChange={(e) => {
                 const value = e.target.value;

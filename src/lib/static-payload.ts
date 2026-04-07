@@ -990,7 +990,19 @@ export async function loadTransferProjectionHtml(
   const gender = parseGender(genderRaw);
   const cfg = getSourceCfg(gender);
   const lookup = await loadTransferProjectionLookup(season, cfg);
-  const row = lookup[transferCacheKey(player, team, season)];
+  let row = lookup[transferCacheKey(player, team, season)];
+  if (!row) {
+    const targetPlayer = normPlayer(player);
+    const targetSeason = normSeason(season);
+    const fallbackRows = Object.values(lookup).filter(
+      (candidate) =>
+        normPlayer(String(candidate.player ?? "")) === targetPlayer &&
+        normSeason(candidate.season ?? "") === targetSeason,
+    );
+    if (fallbackRows.length === 1) {
+      row = fallbackRows[0];
+    }
+  }
   if (!row?.projections) {
     return renderTransferProjectionPanel({
       destConfRaw: String(destinationConference).trim() || "Selected conference",
