@@ -164,20 +164,22 @@ export async function POST(req: NextRequest) {
       }
 
       const createdListId = await withDbTransaction(async (client) => {
-        const maxRow = await client.query<{ max_sort_order: number | null }>(
+        const maxRow = await client.query(
           `select max(sort_order) as max_sort_order
            from public.watchlists
            where user_id = $1 and gender = $2 and season = $3`,
           [user.id, gender, season],
         );
-        const sortOrder = Number(maxRow.rows[0]?.max_sort_order ?? -1) + 1;
-        const inserted = await client.query<{ id: string }>(
+        const maxRows = maxRow.rows as Array<{ max_sort_order: number | null }>;
+        const sortOrder = Number(maxRows[0]?.max_sort_order ?? -1) + 1;
+        const inserted = await client.query(
           `insert into public.watchlists (user_id, gender, season, name, sort_order, updated_at)
            values ($1, $2, $3, $4, $5, now())
            returning id`,
           [user.id, gender, season, name, sortOrder],
         );
-        return String(inserted.rows[0]?.id ?? "");
+        const insertedRows = inserted.rows as Array<{ id: string }>;
+        return String(insertedRows[0]?.id ?? "");
       });
 
       const payload = await loadWatchlistPayload({
