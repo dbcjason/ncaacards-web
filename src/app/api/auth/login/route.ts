@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateUser, createSessionForUser, logUsageEvent } from "@/lib/auth";
+import { authenticateUser, createSessionForUser, logUsageEvent, SESSION_COOKIE_NAME } from "@/lib/auth";
 
 function redirectWithMessage(req: NextRequest, kind: "notice" | "error", message: string) {
   const url = req.nextUrl.clone();
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       return redirectWithMessage(req, "error", "That email/password combination was not recognized.");
     }
 
-    await createSessionForUser(user.id);
+    const session = await createSessionForUser(user.id);
     await logUsageEvent({
       organizationId: user.organization_id,
       userId: user.id,
@@ -37,7 +37,15 @@ export async function POST(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = nextPath || (user.role === "admin" ? "/dashboard" : "/cards");
     url.search = nextPath ? url.search : "";
-    return NextResponse.redirect(url, 303);
+    const response = NextResponse.redirect(url, 303);
+    response.cookies.set(SESSION_COOKIE_NAME, session.token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      expires: session.expiresAt,
+    });
+    return response;
   } catch (error) {
     console.error("[auth] login failed", error);
     return redirectWithMessage(req, "error", "Login hit a temporary server issue. Please try again.");

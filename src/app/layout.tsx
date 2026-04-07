@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { canAccessGenderScope, getCurrentUser } from "@/lib/auth";
+import HeaderUserNav from "@/components/header-user-nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -50,15 +51,7 @@ async function AppChrome({
             </Link>
           </div>
           {user ? (
-            <div className="flex items-center gap-5 text-sm text-zinc-300">
-              {canViewMen && <Link href="/cards?gender=men" className="hover:text-white">Men</Link>}
-              {canViewWomen && <Link href="/cards?gender=women" className="hover:text-white">Women</Link>}
-              {user.role === "admin" && <Link href="/dashboard" className="hover:text-white">Admin Dashboard</Link>}
-              <Link href="/profile" className="hover:text-white">Profile</Link>
-              <form action="/api/auth/logout" method="post">
-                <button type="submit" className="hover:text-white">Sign Out</button>
-              </form>
-            </div>
+            <HeaderUserNav canViewMen={canViewMen} canViewWomen={canViewWomen} isAdmin={user.role === "admin"} />
           ) : null}
         </div>
       </header>

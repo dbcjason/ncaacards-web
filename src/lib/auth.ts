@@ -4,7 +4,7 @@ import { cookies, headers } from "next/headers";
 import { randomBytes, randomInt, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { dbQuery, dbQueryOne, withDbTransaction } from "@/lib/db";
 
-const SESSION_COOKIE = "dbcjason_session";
+export const SESSION_COOKIE_NAME = "dbcjason_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
 export type AccessScope = "men" | "women" | "both";
@@ -94,7 +94,7 @@ function geoFromHeaders(h: Headers): { country: string | null; region: string | 
 
 async function setSessionCookie(rawToken: string, expiresAt: Date) {
   const jar = await cookies();
-  jar.set(SESSION_COOKIE, rawToken, {
+  jar.set(SESSION_COOKIE_NAME, rawToken, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -105,13 +105,13 @@ async function setSessionCookie(rawToken: string, expiresAt: Date) {
 
 export async function clearSessionCookie() {
   const jar = await cookies();
-  jar.delete(SESSION_COOKIE);
+  jar.delete(SESSION_COOKIE_NAME);
   // Clean up legacy domain-scoped variants from previous deployments.
-  jar.delete({ name: SESSION_COOKIE, path: "/", domain: ".dbcjason.com" });
-  jar.delete({ name: SESSION_COOKIE, path: "/", domain: "dbcjason.com" });
+  jar.delete({ name: SESSION_COOKIE_NAME, path: "/", domain: ".dbcjason.com" });
+  jar.delete({ name: SESSION_COOKIE_NAME, path: "/", domain: "dbcjason.com" });
 }
 
-export async function createSessionForUser(userId: string): Promise<void> {
+export async function createSessionForUser(userId: string): Promise<{ token: string; expiresAt: Date }> {
   const rawToken = randomBytes(32).toString("hex");
   const tokenHash = sha256(rawToken);
   const expiresAt = nowPlus(SESSION_TTL_MS);
@@ -141,18 +141,19 @@ export async function createSessionForUser(userId: string): Promise<void> {
     );
   });
   await setSessionCookie(rawToken, expiresAt);
+  return { token: rawToken, expiresAt };
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const jar = await cookies();
     const tokenCandidates = new Set<string>();
-    const primary = jar.get(SESSION_COOKIE)?.value?.trim() || "";
+    const primary = jar.get(SESSION_COOKIE_NAME)?.value?.trim() || "";
     if (primary) tokenCandidates.add(primary);
 
     // If multiple cookies with the same name are present (legacy domain + host-only),
     // try each value and accept whichever maps to a live DB session.
-    for (const cookie of jar.getAll(SESSION_COOKIE)) {
+    for (const cookie of jar.getAll(SESSION_COOKIE_NAME)) {
       const value = String(cookie?.value ?? "").trim();
       if (value) tokenCandidates.add(value);
     }
@@ -676,7 +677,7 @@ export async function generateUniqueAccessCode(length = 6): Promise<string> {
 
 export async function destroyCurrentSession() {
   const jar = await cookies();
-  const rawToken = jar.get(SESSION_COOKIE)?.value?.trim();
+  const rawToken = jar.get(SESSION_COOKIE_NAME)?.value?.trim();
   if (rawToken) {
     await withDbTransaction(async (client) => {
       await client.query(`delete from public.user_sessions where token_hash = $1`, [sha256(rawToken)]);

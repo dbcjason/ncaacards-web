@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSessionForUser, createUserFromAccessCode, findAccessCode, logUsageEvent } from "@/lib/auth";
+import { createSessionForUser, createUserFromAccessCode, findAccessCode, logUsageEvent, SESSION_COOKIE_NAME } from "@/lib/auth";
 import { setPendingSignup } from "@/lib/pending-signup";
 import { createSignupCheckoutSession, hasStripeBilling } from "@/lib/stripe";
 
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.redirect(checkout.url);
     }
 
-    await createSessionForUser(created.userId);
+    const session = await createSessionForUser(created.userId);
     const user = await findAccessCode(accessCode);
     if (user) {
       await logUsageEvent({
@@ -82,7 +82,15 @@ export async function POST(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = "/cards";
     url.search = "notice=Account created successfully.";
-    return NextResponse.redirect(url);
+    const response = NextResponse.redirect(url, 303);
+    response.cookies.set(SESSION_COOKIE_NAME, session.token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      expires: session.expiresAt,
+    });
+    return response;
   } catch (error) {
     return redirectHome(req, {
       tab: "create-account",
