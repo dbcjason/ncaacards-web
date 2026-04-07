@@ -15,6 +15,12 @@ type WatchlistContext = {
   activeListId: string;
 };
 
+type SchemaMode = "multi" | "legacy";
+
+const LEGACY_LIST_ID = "legacy-watchlist";
+const SCHEMA_CACHE_TTL_MS = 60_000;
+let schemaModeCache: { mode: SchemaMode; ts: number } | null = null;
+
 function parseSeason(raw: string | null, fallback = 2026): number {
   const season = Number(raw ?? fallback);
   return Number.isFinite(season) ? season : fallback;
@@ -22,6 +28,38 @@ function parseSeason(raw: string | null, fallback = 2026): number {
 
 function sanitizeListName(raw: unknown) {
   return String(raw ?? "").trim().slice(0, 60);
+}
+
+async function resolveSchemaMode(): Promise<SchemaMode> {
+  const now = Date.now();
+  if (schemaModeCache && now - schemaModeCache.ts < SCHEMA_CACHE_TTL_MS) {
+    return schemaModeCache.mode;
+  }
+  try {
+    const rows = await dbQuery<{ has_watchlists: boolean; has_watchlist_id: boolean }>(
+      `select
+          exists(
+            select 1
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name = 'watchlists'
+          ) as has_watchlists,
+          exists(
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'watchlist_items'
+              and column_name = 'watchlist_id'
+          ) as has_watchlist_id`,
+      [],
+    );
+    const mode: SchemaMode = rows[0]?.has_watchlists && rows[0]?.has_watchlist_id ? "multi" : "legacy";
+    schemaModeCache = { mode, ts: now };
+    return mode;
+  } catch {
+    schemaModeCache = { mode: "legacy", ts: now };
+    return "legacy";
+  }
 }
 
 async function getOrCreateWatchlists(params: {
@@ -72,6 +110,31 @@ async function getOrCreateWatchlists(params: {
   );
 }
 
+async function loadLegacyWatchlistPayload(params: {
+  userId: string;
+  gender: "men" | "women";
+  season: number;
+}) {
+  const items = await fetchWatchlistStats({
+    userId: params.userId,
+    gender: params.gender,
+    season: params.season,
+  });
+  const watchlists: WatchlistSummary[] = [
+    {
+      id: LEGACY_LIST_ID,
+      name: "Watchlist",
+      sort_order: 0,
+      item_count: items.length,
+    },
+  ];
+  return {
+    watchlists,
+    activeListId: LEGACY_LIST_ID,
+    items,
+  };
+}
+
 async function loadWatchlistContext(params: {
   userId: string;
   gender: "men" | "women";
@@ -98,6 +161,11 @@ async function loadWatchlistPayload(params: {
   season: number;
   requestedListId?: string;
 }) {
+  const mode = await resolveSchemaMode();
+  if (mode === "legacy") {
+    return loadLegacyWatchlistPayload(params);
+  }
+
   const context = await loadWatchlistContext(params);
   const items = await fetchWatchlistStats({
     userId: params.userId,
@@ -155,7 +223,17 @@ export async function POST(req: NextRequest) {
     const season = parseSeason(String(body.season ?? "2026"));
     assertGenderAccess(user, gender);
 
+    const mode = await resolveSchemaMode();
     const action = body.action ?? "addItem";
+
+    if (mode === "legacy" && (action === "createList" || action === "renameList")) {
+      const payload = await loadLegacyWatchlistPayload({ userId: user.id, gender, season });
+      return NextResponse.json({
+        ok: true,
+        ...payload,
+        notice: "Multiple watchlists will activate after database migration runs.",
+      });
+    }
 
     if (action === "createList") {
       const name = sanitizeListName(body.name);
@@ -231,6 +309,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing team/player" }, { status: 400 });
     }
 
+    if (mode === "legacy") {
+      const maxRow = await dbQuery<{ max_sort_order: number | null }>(
+        `select max(sort_order) as max_sort_order
+         from public.watchlist_items
+         where user_id = $1 and gender = $2 and season = $3`,
+        [user.id, gender, season],
+      );
+      const sortOrder = Number(maxRow[0]?.max_sort_order ?? -1) + 1;
+
+      await dbQuery(
+        `insert into public.watchlist_items (user_id, gender, season, team, player, sort_order, updated_at)
+         values ($1,$2,$3,$4,$5,$6,now())
+         on conflict (user_id, gender, season, team, player)
+         do update set updated_at = now()`,
+        [user.id, gender, season, team, player, sortOrder],
+      );
+
+      const payload = await loadLegacyWatchlistPayload({ userId: user.id, gender, season });
+      return NextResponse.json({ ok: true, ...payload });
+    }
+
     const context = await loadWatchlistContext({
       userId: user.id,
       gender,
@@ -290,6 +389,27 @@ export async function PATCH(req: NextRequest) {
     assertGenderAccess(user, gender);
     const orderedIds = Array.isArray(body.orderedIds) ? body.orderedIds.map(String).filter(Boolean) : [];
 
+    const mode = await resolveSchemaMode();
+
+    if (mode === "legacy") {
+      await withDbTransaction(async (client) => {
+        for (const [index, id] of orderedIds.entries()) {
+          await client.query(
+            `update public.watchlist_items
+                set sort_order = $1, updated_at = now()
+              where id = $2
+                and user_id = $3
+                and gender = $4
+                and season = $5`,
+            [index, id, user.id, gender, season],
+          );
+        }
+      });
+
+      const payload = await loadLegacyWatchlistPayload({ userId: user.id, gender, season });
+      return NextResponse.json({ ok: true, ...payload });
+    }
+
     const context = await loadWatchlistContext({
       userId: user.id,
       gender,
@@ -343,6 +463,21 @@ export async function DELETE(req: NextRequest) {
     assertGenderAccess(user, gender);
     if (!id) {
       return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+    }
+
+    const mode = await resolveSchemaMode();
+
+    if (mode === "legacy") {
+      await dbQuery(
+        `delete from public.watchlist_items
+         where id = $1
+           and user_id = $2
+           and gender = $3
+           and season = $4`,
+        [id, user.id, gender, season],
+      );
+      const payload = await loadLegacyWatchlistPayload({ userId: user.id, gender, season });
+      return NextResponse.json({ ok: true, ...payload });
     }
 
     const context = await loadWatchlistContext({

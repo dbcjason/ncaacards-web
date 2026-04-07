@@ -322,8 +322,9 @@ export async function fetchWatchlistStats(params: {
   userId: string;
   gender: LeaderboardGender;
   season: number;
-  listId: string;
+  listId?: string;
 }) {
+  const hasListId = Boolean(String(params.listId ?? "").trim());
   const rows = await dbQuery<
     RawLeaderboardRow & {
       id: string;
@@ -364,9 +365,11 @@ export async function fetchWatchlistStats(params: {
       where w.user_id = $1
         and w.gender = $2
         and w.season = $3
-        and w.watchlist_id = $4
+        ${hasListId ? "and w.watchlist_id = $4" : ""}
       order by w.sort_order asc, w.created_at asc`,
-    [params.userId, params.gender, params.season, params.listId],
+    hasListId
+      ? [params.userId, params.gender, params.season, params.listId]
+      : [params.userId, params.gender, params.season],
   );
 
   return rows.map((row): WatchlistRow => {

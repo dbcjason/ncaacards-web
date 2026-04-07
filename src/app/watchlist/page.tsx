@@ -316,13 +316,35 @@ function WatchlistPageInner() {
     }
     return map;
   }, [transferRows]);
+  const transferRowByPlayerKey = useMemo(() => {
+    const grouped = new Map<string, TransferGradeRow[]>();
+    for (const row of transferRows) {
+      const key = `${String(row.season || "").trim()}::${String(row.player || "").trim().toLowerCase()}`;
+      const list = grouped.get(key) ?? [];
+      list.push(row);
+      grouped.set(key, list);
+    }
+    const unique = new Map<string, TransferGradeRow>();
+    for (const [key, list] of grouped.entries()) {
+      if (list.length === 1) unique.set(key, list[0]);
+    }
+    return unique;
+  }, [transferRows]);
+
+  function getTransferRow(item: { season: number; team: string; player: string }) {
+    const exactKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
+    const exact = transferRowByKey.get(exactKey);
+    if (exact) return exact;
+    const playerOnlyKey = `${item.season}::${item.player.trim().toLowerCase()}`;
+    return transferRowByPlayerKey.get(playerOnlyKey);
+  }
 
   useEffect(() => {
     if (mode !== "transfer" || !items.length) return;
     const conference = dest || favoriteConference || "SEC";
     const missing = items.filter((item) => {
       const baseKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
-      const row = transferRowByKey.get(baseKey);
+      const row = getTransferRow(item);
       const csvGrade = row
         ? transferConferenceCandidates(conference)
             .map((candidate) => String(row[candidate] || "").trim())
@@ -362,7 +384,7 @@ function WatchlistPageInner() {
     return () => {
       active = false;
     };
-  }, [dest, favoriteConference, gender, items, liveTransferGrades, mode, transferRowByKey]);
+  }, [dest, favoriteConference, gender, items, liveTransferGrades, mode, transferRowByKey, transferRowByPlayerKey]);
 
   async function addPlayer() {
     const [selectedPlayer, selectedTeam] = String(playerChoiceValue || "").split("|||");
@@ -764,7 +786,7 @@ function WatchlistPageInner() {
                     value={(() => {
                       const conference = dest || favoriteConference || "SEC";
                       const baseKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
-                      const row = transferRowByKey.get(baseKey);
+                      const row = getTransferRow(item);
                       const csvGrade = row
                         ? transferConferenceCandidates(conference)
                             .map((candidate) => String(row[candidate] || "").trim())

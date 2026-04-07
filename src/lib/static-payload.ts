@@ -1115,10 +1115,20 @@ export async function loadTransferProjectionHtml(
   }
 
   const destKey = conferenceKey(destinationConference);
-  const projection =
-    row.projections[destKey] ||
-    row.projections[conferenceKey(destinationConference.replace(/\s+/g, ""))] ||
-    row.projections[String(destinationConference).trim().toLowerCase()];
+  const projection = (() => {
+    const projections = row.projections ?? {};
+    const direct =
+      projections[destKey] ||
+      projections[conferenceKey(destinationConference.replace(/\s+/g, ""))] ||
+      projections[String(destinationConference).trim().toLowerCase()] ||
+      projections[String(destinationConference).trim().toUpperCase()] ||
+      projections[String(destinationConference).trim()];
+    if (direct) return direct;
+    for (const [key, value] of Object.entries(projections)) {
+      if (conferenceKey(key) === destKey) return value;
+    }
+    return undefined;
+  })();
 
   const projectedStats = projection?.projected_stats ?? null;
   if (!projectedStats) {
