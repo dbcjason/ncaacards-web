@@ -322,6 +322,7 @@ export async function fetchWatchlistStats(params: {
   userId: string;
   gender: LeaderboardGender;
   season: number;
+  listId: string;
 }) {
   const rows = await dbQuery<
     RawLeaderboardRow & {
@@ -363,8 +364,9 @@ export async function fetchWatchlistStats(params: {
       where w.user_id = $1
         and w.gender = $2
         and w.season = $3
+        and w.watchlist_id = $4
       order by w.sort_order asc, w.created_at asc`,
-    [params.userId, params.gender, params.season],
+    [params.userId, params.gender, params.season, params.listId],
   );
 
   return rows.map((row): WatchlistRow => {

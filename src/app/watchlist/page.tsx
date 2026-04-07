@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
@@ -25,6 +25,13 @@ type WatchlistItem = {
 };
 
 type TransferGradeRow = Record<string, string>;
+type WatchlistSummary = {
+  id: string;
+  name: string;
+  sort_order: number;
+  item_count: number;
+};
+
 type PlayerChoice = {
   value: string;
   player: string;
@@ -149,6 +156,10 @@ function WatchlistPageInner() {
   const [optionsError, setOptionsError] = useState("");
   const [watchlistError, setWatchlistError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [watchlists, setWatchlists] = useState<WatchlistSummary[]>([]);
+  const [activeListId, setActiveListId] = useState("");
+  const [newListName, setNewListName] = useState("");
+  const [renameListName, setRenameListName] = useState("");
 
   useEffect(() => {
     const g = searchParams.get("gender");
@@ -235,25 +246,47 @@ function WatchlistPageInner() {
     };
   }, [gender, season]);
 
-  async function loadWatchlist() {
+  const loadWatchlist = useCallback(async (listId?: string) => {
     setLoading(true);
     setWatchlistError("");
     try {
-      const res = await fetch(`/api/watchlist?gender=${gender}&season=${season}`, { cache: "no-store" });
-      const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
+      const query = new URLSearchParams({ gender, season: String(season) });
+      if (listId) query.set("listId", listId);
+      const res = await fetch(`/api/watchlist?${query.toString()}`, { cache: "no-store" });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        items?: WatchlistItem[];
+        watchlists?: WatchlistSummary[];
+        activeListId?: string;
+      };
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load watchlist");
       setItems(Array.isArray(data.items) ? data.items : []);
+      const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
+      setWatchlists(nextWatchlists);
+      const nextActive = String(data.activeListId ?? "");
+      setActiveListId(nextActive);
+      const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
+      if (currentActive) setRenameListName(currentActive.name);
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to load watchlist");
       setItems([]);
+      setWatchlists([]);
+      setActiveListId("");
     } finally {
       setLoading(false);
     }
-  }
+  }, [gender, season]);
 
   useEffect(() => {
     void loadWatchlist();
-  }, [gender, season]);
+  }, [loadWatchlist]);
+
+  useEffect(() => {
+    if (!watchlists.length) return;
+    const currentActive = watchlists.find((entry) => entry.id === activeListId);
+    if (currentActive) setRenameListName(currentActive.name);
+  }, [activeListId, watchlists]);
 
   const allPlayerChoices = useMemo<PlayerChoice[]>(() => {
     const out: PlayerChoice[] = [];
@@ -341,11 +374,19 @@ function WatchlistPageInner() {
       const res = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gender, season, team: nextTeam, player: nextPlayer }),
+        body: JSON.stringify({ gender, season, listId: activeListId, team: nextTeam, player: nextPlayer }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        items?: WatchlistItem[];
+        watchlists?: WatchlistSummary[];
+        activeListId?: string;
+      };
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to add player");
       setItems(Array.isArray(data.items) ? data.items : []);
+      setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
+      setActiveListId(String(data.activeListId ?? activeListId));
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to add player");
     }
@@ -354,12 +395,22 @@ function WatchlistPageInner() {
   async function removeItem(id: string) {
     setWatchlistError("");
     try {
-      const res = await fetch(`/api/watchlist?gender=${gender}&season=${season}&id=${encodeURIComponent(id)}`, {
+      const query = new URLSearchParams({ gender, season: String(season), id });
+      if (activeListId) query.set("listId", activeListId);
+      const res = await fetch(`/api/watchlist?${query.toString()}`, {
         method: "DELETE",
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        items?: WatchlistItem[];
+        watchlists?: WatchlistSummary[];
+        activeListId?: string;
+      };
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to remove player");
       setItems(Array.isArray(data.items) ? data.items : []);
+      setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
+      setActiveListId(String(data.activeListId ?? activeListId));
       setExpandedIds((current) => {
         const next = { ...current };
         delete next[id];
@@ -375,13 +426,84 @@ function WatchlistPageInner() {
     const res = await fetch("/api/watchlist", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gender, season, orderedIds }),
+      body: JSON.stringify({ gender, season, listId: activeListId, orderedIds }),
     });
-    const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
+    const data = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      items?: WatchlistItem[];
+      watchlists?: WatchlistSummary[];
+      activeListId?: string;
+    };
     if (!res.ok || !data.ok) {
       throw new Error(data.error || "Failed to reorder watchlist");
     }
     setItems(Array.isArray(data.items) ? data.items : nextItems);
+    setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
+    setActiveListId(String(data.activeListId ?? activeListId));
+  }
+
+  async function createWatchlist() {
+    const name = newListName.trim();
+    if (!name) return;
+    setWatchlistError("");
+    try {
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "createList", gender, season, name }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        items?: WatchlistItem[];
+        watchlists?: WatchlistSummary[];
+        activeListId?: string;
+      };
+      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to create watchlist");
+      setItems(Array.isArray(data.items) ? data.items : []);
+      const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
+      setWatchlists(nextWatchlists);
+      const nextActive = String(data.activeListId ?? "");
+      setActiveListId(nextActive);
+      const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
+      if (currentActive) setRenameListName(currentActive.name);
+      setNewListName("");
+    } catch (err) {
+      setWatchlistError(err instanceof Error ? err.message : "Failed to create watchlist");
+    }
+  }
+
+  async function renameWatchlist() {
+    const name = renameListName.trim();
+    if (!activeListId || !name) return;
+    setWatchlistError("");
+    try {
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "renameList",
+          gender,
+          season,
+          listId: activeListId,
+          name,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        items?: WatchlistItem[];
+        watchlists?: WatchlistSummary[];
+        activeListId?: string;
+      };
+      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to rename watchlist");
+      setItems(Array.isArray(data.items) ? data.items : []);
+      setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
+      setActiveListId(String(data.activeListId ?? activeListId));
+    } catch (err) {
+      setWatchlistError(err instanceof Error ? err.message : "Failed to rename watchlist");
+    }
   }
 
   async function pollJob(id: string): Promise<string> {
@@ -509,6 +631,47 @@ function WatchlistPageInner() {
 
         <div className="mb-4 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Watchlist</div>
+          <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-[1.2fr_1fr_auto_1fr_auto]">
+            <select
+              className="rounded bg-zinc-800 p-2"
+              value={activeListId}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setActiveListId(nextId);
+                void loadWatchlist(nextId);
+              }}
+            >
+              {watchlists.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.name} ({entry.item_count})
+                </option>
+              ))}
+            </select>
+            <input
+              className="rounded bg-zinc-800 p-2"
+              placeholder="New watchlist name"
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+            />
+            <button type="button" className="rounded bg-zinc-700 px-4 py-2 font-semibold text-white" onClick={createWatchlist}>
+              Create List
+            </button>
+            <input
+              className="rounded bg-zinc-800 p-2"
+              placeholder="Rename current list"
+              value={renameListName}
+              onChange={(e) => setRenameListName(e.target.value)}
+              disabled={!activeListId}
+            />
+            <button
+              type="button"
+              className="rounded bg-zinc-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={renameWatchlist}
+              disabled={!activeListId}
+            >
+              Rename
+            </button>
+          </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {SEASONS.map((year) => <option key={year} value={year}>{year}</option>)}
@@ -546,13 +709,18 @@ function WatchlistPageInner() {
               {!filteredPlayerOptions.length ? <option value="">No matching players</option> : null}
               {filteredPlayerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
-            <select className="rounded bg-zinc-800 p-2" value={mode} onChange={(e) => setMode("transfer")}>
+            <select className="rounded bg-zinc-800 p-2" value={mode} onChange={() => setMode("transfer")}>
               <option value="transfer">Transfer</option>
             </select>
             <select className="rounded bg-zinc-800 p-2" value={dest} onChange={(e) => setDest(e.target.value)} disabled={mode !== "transfer"}>
               {CONFERENCES.map((conference) => <option key={conference} value={conference}>{conference}</option>)}
             </select>
-            <button type="button" className="rounded bg-red-500 px-4 py-2 font-semibold text-white" onClick={addPlayer}>
+            <button
+              type="button"
+              className="rounded bg-red-500 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={addPlayer}
+              disabled={!activeListId}
+            >
               Add Player
             </button>
           </div>
