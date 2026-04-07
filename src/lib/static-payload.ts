@@ -733,22 +733,35 @@ async function loadEnrichedLookup(
 
   const promise = (async () => {
     const scriptGender = gender === "women" ? "Women" : "Men";
-    const path = `player_cards_pipeline/data/manual/enriched_players/by_script_season/players_all_${scriptGender}_scriptSeason_${normSeason(season)}_fromJsonYear_${Number(normSeason(season)) - 1}.json`;
+    const targetSeason = Number(normSeason(season)) || Number(season);
+    const path = `player_cards_pipeline/data/manual/enriched_players/by_script_season/players_all_${scriptGender}_scriptSeason_${targetSeason}_fromJsonYear_${targetSeason - 1}.json`;
+    const lookup: Record<string, Record<string, unknown>> = {};
     try {
       const payload = await fetchRepoJson<{ players?: Record<string, unknown>[] }>(path, cfg);
-      const lookup: Record<string, Record<string, unknown>> = {};
       for (const row of payload.players ?? []) {
         if (!row || typeof row !== "object") continue;
         const obj = row as Record<string, unknown>;
-        const player = String(obj.key ?? obj.player ?? obj.name ?? "").trim();
+        const playerRaw = String(obj.key ?? obj.player ?? obj.name ?? "").trim();
         const team = String(obj.team ?? obj.school ?? "").trim();
-        if (!player || !team) continue;
-        lookup[cardCacheKey(player, team, season)] = obj;
+        if (!playerRaw || !team) continue;
+
+        const aliases = new Set<string>([playerRaw]);
+        if (playerRaw.includes(",")) {
+          const parts = playerRaw.split(",").map((part) => part.trim()).filter(Boolean);
+          if (parts.length >= 2) {
+            aliases.add(`${parts.slice(1).join(" ")} ${parts[0]}`.trim());
+          }
+        }
+
+        for (const alias of aliases) {
+          lookup[cardCacheKey(alias, team, season)] = obj;
+        }
       }
-      return lookup;
     } catch {
       return {};
     }
+
+    return lookup;
   })();
 
   enrichedLookupMemo.set(key, promise);
@@ -756,8 +769,13 @@ async function loadEnrichedLookup(
 }
 
 function buildShotsFromEnrichedRow(enrichedRow: Record<string, unknown>): { shots: Array<Record<string, unknown>>; makes: number; attempts: number } {
-  const info = (enrichedRow?.shotInfo as Record<string, unknown> | undefined)?.data as Record<string, unknown> | undefined;
-  const entries = Array.isArray(info?.info) ? (info?.info as unknown[]) : [];
+  const shotInfo = enrichedRow?.shotInfo as Record<string, unknown> | undefined;
+  const nested = shotInfo?.data as Record<string, unknown> | undefined;
+  const entries = Array.isArray(nested?.info)
+    ? (nested.info as unknown[])
+    : Array.isArray(shotInfo?.info)
+      ? (shotInfo.info as unknown[])
+      : [];
   const shots: Array<Record<string, unknown>> = [];
   let makes = 0;
   let attempts = 0;
