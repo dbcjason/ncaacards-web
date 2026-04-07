@@ -25,6 +25,10 @@ function pctBadge(value: unknown): string {
   return `${Math.round(parsed)}%`;
 }
 
+function missingPanel(title: string, detail = "Section cache unavailable. Refreshing section cache should restore this block."): string {
+  return `<div class="panel"><h3>${esc(title)}</h3><div class="shot-meta">${esc(detail)}</div></div>`;
+}
+
 function normalizeHeightDisplay(value: unknown): string {
   const raw = String(value ?? "").trim();
   if (!raw) return "N/A";
@@ -194,10 +198,36 @@ export function renderCardHtmlFromPayload(
   const makes = num(shotChart.makes) ?? 0;
   const fgPct = attempts > 0 ? (100 * makes) / attempts : num(shotChart.fg_pct) ?? 0;
   const subtitleHtml = buildSubtitleHtml(payload, input);
+
+  const btPercentilesHtml =
+    String(sections.bt_percentiles_html ?? "").trim() ||
+    missingPanel("Advanced Percentiles");
+  const selfCreationHtml =
+    String(sections.self_creation_html ?? "").trim() ||
+    missingPanel("Self Creation");
+  const playstylesHtml =
+    String(sections.playstyles_html ?? "").trim() ||
+    missingPanel("Playstyles");
+  const shotDietHtml =
+    String(sections.shot_diet_html ?? "").trim() ||
+    missingPanel("Shot Diet");
+  const teamImpactHtml =
+    String(sections.team_impact_html ?? "").trim() ||
+    missingPanel("Team Impact");
+  const comparisonsHtml =
+    String(sections.player_comparisons_html ?? "").trim() ||
+    missingPanel("Player Comparisons");
+
+  const transferProjectionHtml = String(sections.transfer_projection_html ?? "").trim();
+  const draftProjectionHtml = String(sections.draft_projection_html ?? "").trim();
   const projectionHtml =
     input.mode === "transfer"
-      ? String(sections.transfer_projection_html ?? "").trim()
-      : String(sections.draft_projection_html ?? "");
+      ? transferProjectionHtml ||
+        missingPanel(
+          "Transfer Projection",
+          "Transfer projection is unavailable for this player/conference in the current cache.",
+        )
+      : draftProjectionHtml || missingPanel("Draft Projection");
 
   return `<!doctype html>
 <html lang="en">
@@ -344,7 +374,7 @@ body { margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI"
         </div>
       </div>
 
-      ${sections.bt_percentiles_html || ""}
+      ${btPercentilesHtml}
 
       <div class="shot-wrap">
         <div class="left-wrap">
@@ -358,14 +388,14 @@ body { margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI"
         </div>
         <div class="right-wrap">
           <div class="right-col">
-            ${sections.self_creation_html || ""}
-            <div class="playstyles-wrap">${sections.playstyles_html || ""}</div>
+            ${selfCreationHtml}
+            <div class="playstyles-wrap">${playstylesHtml}</div>
           </div>
           <div class="right-col">
-            ${sections.shot_diet_html || ""}
+            ${shotDietHtml}
             <div class="ti-comp-stack">
-              <div class="team-impact-wrap">${sections.team_impact_html || ""}</div>
-              <div class="comp-bottom">${sections.player_comparisons_html || ""}</div>
+              <div class="team-impact-wrap">${teamImpactHtml}</div>
+              <div class="comp-bottom">${comparisonsHtml}</div>
             </div>
           </div>
         </div>

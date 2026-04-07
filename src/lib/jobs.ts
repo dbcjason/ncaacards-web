@@ -215,11 +215,11 @@ async function getSeasonDataVersion(season: number, cfg: RuntimeCfg): Promise<st
       fetchRawFileEtag(cfg, cfg.dataEnrichedManifestPath),
       Promise.resolve("github-cache"),
     ]);
-    const value = `bt:${btTag}|en:${enrichedTag}|pb:${phaseTag}|rv:20260404c`.slice(0, 180);
+    const value = `bt:${btTag}|en:${enrichedTag}|pb:${phaseTag}|rv:20260407a`.slice(0, 180);
     seasonVersionMemo.set(memoKey, { value, ts: now });
     return value;
   } catch {
-    const fallback = `day:${new Date().toISOString().slice(0, 10)}|rv:20260404c`;
+    const fallback = `day:${new Date().toISOString().slice(0, 10)}|rv:20260407a`;
     seasonVersionMemo.set(memoKey, { value: fallback, ts: now });
     return fallback;
   }

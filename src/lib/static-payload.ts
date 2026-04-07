@@ -41,6 +41,10 @@ type BundledBioLookupRow = {
   bt_height?: string;
 };
 
+type WorkflowSectionPayload = {
+  rows?: Record<string, string | { html?: string; value?: string; content?: string }>;
+};
+
 const bundledBioLookupMemo = new Map<string, Promise<Record<string, BundledBioLookupRow>>>();
 type TransferProjectionStatRow = Record<string, number>;
 type TransferProjectionEntry = {
@@ -364,25 +368,96 @@ async function loadSectionPayloadRows(
   section: string,
   season: string | number,
   cfg: SourceCfg,
-): Promise<Record<string, string>> {
+): Promise<Record<string, unknown>> {
   const key = `${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}:${section}:${normSeason(season)}`;
   const cached = sectionPayloadMemo.get(key);
-  if (cached) return cached;
+  if (cached) return cached as Promise<Record<string, unknown>>;
 
   const promise = (async () => {
-    try {
-      const payload = await fetchRepoJson<{ rows?: Record<string, string> }>(
-        `${cfg.staticRoot}/${section}/${normSeason(season)}.json`,
-        cfg,
-      );
-      return payload && typeof payload.rows === "object" && payload.rows ? payload.rows : {};
-    } catch {
-      return {};
+    const roots = Array.from(
+      new Set([
+        String(cfg.staticRoot || "").trim(),
+        "player_cards_pipeline/data/cache/section_payloads",
+        "player_cards_pipeline/public/cards/cache/section_payloads",
+        "player_cards_pipeline/public/cards",
+      ]),
+    ).filter(Boolean);
+
+    const canonicalRepo = /women|ncaaw/i.test(cfg.dataRepo) ? "NCAAWCards" : "NCAACards";
+    const sources: SourceCfg[] = [];
+    const seenSources = new Set<string>();
+    const pushSource = (source: SourceCfg) => {
+      const id = `${source.dataOwner}/${source.dataRepo}@${source.dataRef}`;
+      if (seenSources.has(id)) return;
+      seenSources.add(id);
+      sources.push(source);
+    };
+
+    pushSource(cfg);
+    if (cfg.dataRef !== "main") {
+      pushSource({ ...cfg, dataRef: "main" });
     }
+    pushSource({
+      ...cfg,
+      dataOwner: "dbcjason",
+      dataRepo: canonicalRepo,
+      dataRef: "main",
+    });
+
+    for (const source of sources) {
+      for (const root of roots) {
+        try {
+          const payload = await fetchRepoJson<WorkflowSectionPayload>(
+            `${root}/${section}/${normSeason(season)}.json`,
+            source,
+          );
+          if (payload && typeof payload.rows === "object" && payload.rows) {
+            return payload.rows;
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+    return {};
   })();
 
-  sectionPayloadMemo.set(key, promise);
+  sectionPayloadMemo.set(key, promise as Promise<Record<string, string>>);
   return promise;
+}
+
+function parseWorkflowRowKey(key: string): { player: string; team: string; season: string } | null {
+  const parts = String(key || "")
+    .split("|")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 3) return null;
+  return {
+    player: parts[0] ?? "",
+    team: parts[1] ?? "",
+    season: parts[2] ?? "",
+  };
+}
+
+function workflowRowMatches(key: string, player: string, team: string, season: number): boolean {
+  const parsed = parseWorkflowRowKey(key);
+  if (!parsed) return false;
+  return (
+    normPlayer(parsed.player) === normPlayer(player) &&
+    normTeam(parsed.team) === normTeam(team) &&
+    String(parsed.season).trim() === String(season)
+  );
+}
+
+function workflowHtmlFromValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const obj = value as Record<string, unknown>;
+  for (const key of ["html", "value", "content", "body"]) {
+    const candidate = obj[key];
+    if (typeof candidate === "string") return candidate;
+  }
+  return "";
 }
 
 async function loadHeightProfileDeltaMaps(
@@ -478,7 +553,13 @@ async function loadWorkflowSectionsHtml(
   const entries = await Promise.all(
     SECTION_JSON_KEYS.map(async (section) => {
       const rows = await loadSectionPayloadRows(section, season, cfg);
-      return [section, String(rows[key] ?? "").trim()] as const;
+      const direct = (rows as Record<string, unknown>)[key];
+      const directHtml = workflowHtmlFromValue(direct).trim();
+      if (directHtml) return [section, directHtml] as const;
+      const fallback = Object.entries(rows as Record<string, unknown>).find(([k]) =>
+        workflowRowMatches(k, player, team, season),
+      );
+      return [section, fallback ? workflowHtmlFromValue(fallback[1]).trim() : ""] as const;
     }),
   );
   const out: Record<string, string> = {};
@@ -652,22 +733,35 @@ async function loadEnrichedLookup(
 
   const promise = (async () => {
     const scriptGender = gender === "women" ? "Women" : "Men";
-    const path = `player_cards_pipeline/data/manual/enriched_players/by_script_season/players_all_${scriptGender}_scriptSeason_${normSeason(season)}_fromJsonYear_${Number(normSeason(season)) - 1}.json`;
+    const targetSeason = Number(normSeason(season)) || Number(season);
+    const path = `player_cards_pipeline/data/manual/enriched_players/by_script_season/players_all_${scriptGender}_scriptSeason_${targetSeason}_fromJsonYear_${targetSeason - 1}.json`;
+    const lookup: Record<string, Record<string, unknown>> = {};
     try {
       const payload = await fetchRepoJson<{ players?: Record<string, unknown>[] }>(path, cfg);
-      const lookup: Record<string, Record<string, unknown>> = {};
       for (const row of payload.players ?? []) {
         if (!row || typeof row !== "object") continue;
         const obj = row as Record<string, unknown>;
-        const player = String(obj.key ?? obj.player ?? obj.name ?? "").trim();
+        const playerRaw = String(obj.key ?? obj.player ?? obj.name ?? "").trim();
         const team = String(obj.team ?? obj.school ?? "").trim();
-        if (!player || !team) continue;
-        lookup[cardCacheKey(player, team, season)] = obj;
+        if (!playerRaw || !team) continue;
+
+        const aliases = new Set<string>([playerRaw]);
+        if (playerRaw.includes(",")) {
+          const parts = playerRaw.split(",").map((part) => part.trim()).filter(Boolean);
+          if (parts.length >= 2) {
+            aliases.add(`${parts.slice(1).join(" ")} ${parts[0]}`.trim());
+          }
+        }
+
+        for (const alias of aliases) {
+          lookup[cardCacheKey(alias, team, season)] = obj;
+        }
       }
-      return lookup;
     } catch {
       return {};
     }
+
+    return lookup;
   })();
 
   enrichedLookupMemo.set(key, promise);
@@ -675,8 +769,13 @@ async function loadEnrichedLookup(
 }
 
 function buildShotsFromEnrichedRow(enrichedRow: Record<string, unknown>): { shots: Array<Record<string, unknown>>; makes: number; attempts: number } {
-  const info = (enrichedRow?.shotInfo as Record<string, unknown> | undefined)?.data as Record<string, unknown> | undefined;
-  const entries = Array.isArray(info?.info) ? (info?.info as unknown[]) : [];
+  const shotInfo = enrichedRow?.shotInfo as Record<string, unknown> | undefined;
+  const nested = shotInfo?.data as Record<string, unknown> | undefined;
+  const entries = Array.isArray(nested?.info)
+    ? (nested.info as unknown[])
+    : Array.isArray(shotInfo?.info)
+      ? (shotInfo.info as unknown[])
+      : [];
   const shots: Array<Record<string, unknown>> = [];
   let makes = 0;
   let attempts = 0;
@@ -969,12 +1068,15 @@ export function mergedSectionsHtml(payload: CardPayload): Record<string, string>
   const merged: Record<string, string> = {};
   const sections = payload.sections_html ?? {};
   for (const [key, value] of Object.entries(sections)) {
-    if (typeof value === "string") merged[key] = value;
+    if (typeof value === "string" && value.trim()) merged[key] = value;
   }
   const bundles = payload.section_bundles ?? {};
   for (const bundle of [bundles.core ?? {}, bundles.heavy ?? {}]) {
     for (const [key, value] of Object.entries(bundle)) {
-      if (typeof value === "string") merged[key] = value;
+      if (typeof value !== "string") continue;
+      if (!value.trim()) continue;
+      if (merged[key]) continue;
+      merged[key] = value;
     }
   }
   return merged;
