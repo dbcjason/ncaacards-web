@@ -151,13 +151,9 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     if (primary) tokenCandidates.add(primary);
 
     // If multiple cookies with the same name are present (legacy domain + host-only),
-    // parse all values and try each token.
-    const h = await headers();
-    const cookieHeader = String(h.get("cookie") ?? "");
-    for (const chunk of cookieHeader.split(";")) {
-      const [nameRaw, ...valueParts] = chunk.split("=");
-      if (String(nameRaw || "").trim() !== SESSION_COOKIE) continue;
-      const value = decodeURIComponent(valueParts.join("=").trim());
+    // try each value and accept whichever maps to a live DB session.
+    for (const cookie of jar.getAll(SESSION_COOKIE)) {
+      const value = String(cookie?.value ?? "").trim();
       if (value) tokenCandidates.add(value);
     }
 
