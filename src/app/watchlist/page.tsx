@@ -1118,9 +1118,25 @@ function WatchlistPageInner() {
                     )}
                   </div>
                   <div className="flex h-full flex-col rounded border border-zinc-800 bg-zinc-950 p-4">
-                    <div className="mb-2 text-base font-semibold text-zinc-100">Notes</div>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <div className="text-base font-semibold text-zinc-100">Notes</div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          className="rounded bg-red-500 px-4 py-2 text-sm font-semibold text-white"
+                          onClick={() => saveNote(item)}
+                        >
+                          Save
+                        </button>
+                        {noteSaveStateById[item.id] === "saved" ? (
+                          <span className="text-xs text-emerald-400">Saved</span>
+                        ) : (
+                          <span className="text-xs text-zinc-500">Notes are saved per player on this account/browser.</span>
+                        )}
+                      </div>
+                    </div>
                     <textarea
-                      className="min-h-[320px] w-full flex-1 rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                      className="min-h-0 w-full flex-1 rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
                       placeholder="Add notes on this player..."
                       value={notesById[item.id] ?? ""}
                       onChange={(e) => {
@@ -1129,20 +1145,6 @@ function WatchlistPageInner() {
                         setNoteSaveStateById((current) => ({ ...current, [item.id]: "idle" }));
                       }}
                     />
-                    <div className="mt-3 flex items-center gap-3">
-                      <button
-                        type="button"
-                        className="rounded bg-red-500 px-4 py-2 text-sm font-semibold text-white"
-                        onClick={() => saveNote(item)}
-                      >
-                        Save
-                      </button>
-                      {noteSaveStateById[item.id] === "saved" ? (
-                        <span className="text-xs text-emerald-400">Saved</span>
-                      ) : (
-                        <span className="text-xs text-zinc-500">Notes are saved per player on this account/browser.</span>
-                      )}
-                    </div>
                   </div>
                 </div>
               ) : null}
