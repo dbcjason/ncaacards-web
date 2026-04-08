@@ -383,7 +383,11 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
     statistical_height_delta: numericOrNull(row.statistical_height_delta),
     values: mergedValues,
     percentiles: mergedPercentiles,
-    minutes_per_game: numericOrNull(btRow.mp),
+    minutes_per_game:
+      numericOrNull(btRow.mp) ??
+      numericOrNull(btRow.mpg) ??
+      numericOrNull(sourceValues.mp) ??
+      numericOrNull(sourceValues.mpg),
   };
 }
 
@@ -557,6 +561,11 @@ export async function queryLeaderboard(params: {
     a.localeCompare(b),
   );
 
+  const metrics =
+    params.gender === "women"
+      ? LEADERBOARD_METRICS.filter((metric) => metric.key !== "uasst_dunks_100")
+      : LEADERBOARD_METRICS;
+
   return {
     rows: limited,
     total: normalized.length,
@@ -564,7 +573,7 @@ export async function queryLeaderboard(params: {
     teams,
     positions,
     conferences,
-    metrics: LEADERBOARD_METRICS,
+    metrics,
     minMpg,
   };
 }

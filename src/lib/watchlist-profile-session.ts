@@ -1,6 +1,6 @@
 "use client";
 
-import { SEASONS } from "@/lib/ui-options";
+import { seasonsForGender } from "@/lib/ui-options";
 
 type Gender = "men" | "women";
 type AccessScope = "men" | "women" | "both";
@@ -266,7 +266,7 @@ export async function warmAllWatchlistsForSession(input: {
     const tasks: Array<() => Promise<void>> = [];
 
     for (const gender of gendersForScope(input.accessScope)) {
-      for (const season of SEASONS) {
+      for (const season of seasonsForGender(gender)) {
         let items: WatchlistResponse["items"] = [];
         try {
           items = await fetchWatchlistItems(gender, season);

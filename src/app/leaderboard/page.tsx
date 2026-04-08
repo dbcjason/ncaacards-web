@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { SEASONS } from "@/lib/ui-options";
+import { seasonsForGender } from "@/lib/ui-options";
 import { AddToWatchlistDialog } from "@/components/add-to-watchlist-dialog";
 
 type MetricMeta = {
@@ -82,6 +82,7 @@ const SELF_CREATION_KEYS = [
 const DEF_REB_KEYS = ["stl_pct", "blk_pct", "oreb_pct", "dreb_pct"] as const;
 const IMPACT_KEYS = ["bpm", "rapm", "obpm", "dbpm", "net_points", "onoff_net"] as const;
 const POSITION_FILTER_OPTIONS = ["PG", "SG", "SF", "PF", "C"] as const;
+const WOMEN_HIDDEN_METRICS = new Set(["uasst_dunks_100"]);
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
@@ -236,7 +237,13 @@ function LeaderboardPageInner() {
     };
   }, [conferenceFilter, filters, gender, minMpg, playerFilter, positionFilter, season, sortBy, sortDir, sortMode, teamFilter]);
 
-  const metricOptions = useMemo(() => metrics.length ? metrics : [{ key: "bpm", label: "BPM" }], [metrics]);
+  const metricOptions = useMemo(
+    () =>
+      (metrics.length ? metrics : [{ key: "bpm", label: "BPM" }]).filter(
+        (metric) => !(gender === "women" && WOMEN_HIDDEN_METRICS.has(metric.key)),
+      ),
+    [gender, metrics],
+  );
   const conferenceOptions = useMemo(() => {
     const sorted = [...conferences].sort((a, b) => a.localeCompare(b));
     const withoutSpecial = sorted.filter(
@@ -245,6 +252,14 @@ function LeaderboardPageInner() {
     );
     return ["All", "High Major", "Mid/Low Major", ...withoutSpecial];
   }, [conferences]);
+  const seasonOptions = useMemo(() => seasonsForGender(gender), [gender]);
+  useEffect(() => {
+    if (season === "all") return;
+    const seasonNum = Number(season);
+    if (!Number.isFinite(seasonNum) || !seasonOptions.includes(seasonNum)) {
+      setSeason(String(seasonOptions[0] ?? 2026));
+    }
+  }, [season, seasonOptions]);
   const filterFieldOptions = useMemo<FilterFieldMeta[]>(
     () => [
       ...(gender === "women" ? [] : [{ key: "age", label: "Age", supportsPercentile: false }]),
@@ -311,7 +326,7 @@ function LeaderboardPageInner() {
           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(e.target.value)}>
               <option value="all">All</option>
-              {SEASONS.map((y) => <option key={y} value={y}>{y}</option>)}
+              {seasonOptions.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter team" value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} list="leaderboard-teams" />
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter player" value={playerFilter} onChange={(e) => setPlayerFilter(e.target.value)} />

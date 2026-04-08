@@ -1,4 +1,9 @@
 export const SEASONS = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026] as const;
+export const WOMEN_SEASONS = [2021, 2022, 2023, 2024, 2025, 2026] as const;
+
+export function seasonsForGender(gender: "men" | "women"): readonly number[] {
+  return gender === "women" ? WOMEN_SEASONS : SEASONS;
+}
 
 export const CONFERENCES = [
   "ACC",

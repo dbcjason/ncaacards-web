@@ -6,7 +6,7 @@ import { useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toCanvas } from "html-to-image";
-import { CONFERENCES, SEASONS } from "@/lib/ui-options";
+import { CONFERENCES, seasonsForGender } from "@/lib/ui-options";
 import { AddToWatchlistDialog } from "@/components/add-to-watchlist-dialog";
 
 type CardJobResult = {
@@ -89,6 +89,16 @@ function CardsPageInner() {
   const [exportBusy, setExportBusy] = useState<"" | "download" | "clipboard">("");
   const [exportError, setExportError] = useState("");
   const [watchlistOpen, setWatchlistOpen] = useState(false);
+  const seasonOptions = useMemo(() => seasonsForGender(gender), [gender]);
+  useEffect(() => {
+    if (!seasonOptions.length) return;
+    if (!seasonOptions.includes(season)) {
+      setSeason(seasonOptions[0]);
+    }
+    if (!seasonOptions.includes(seasonB)) {
+      setSeasonB(seasonOptions[0]);
+    }
+  }, [season, seasonB, seasonOptions]);
   const draftLabel =
     gender === "women"
       ? "WNBA Draft"
@@ -703,7 +713,7 @@ function CardsPageInner() {
           >
             {!optionsLoaded && <option value="__loading_year__">Year</option>}
             {optionsLoaded &&
-              SEASONS.map((y) => (
+              seasonOptions.map((y) => (
                 <option key={y} value={y}>
                   {y}
                 </option>
@@ -795,7 +805,7 @@ function CardsPageInner() {
             >
               {!optionsLoadedB && <option value="__loading_year_b__">Year</option>}
               {optionsLoadedB &&
-                SEASONS.map((y) => (
+                seasonOptions.map((y) => (
                   <option key={`year-b-${y}`} value={y}>
                     {y}
                   </option>

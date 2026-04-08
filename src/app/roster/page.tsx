@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { SEASONS } from "@/lib/ui-options";
+import { seasonsForGender } from "@/lib/ui-options";
 
 type RosterMetric = {
   metric: string;
@@ -101,6 +101,12 @@ function RosterPageInner() {
       .filter((p) => !removePlayers.includes(p))
       .filter((p) => (!needle ? true : p.toLowerCase().includes(needle)));
   }, [activeRoster, removePlayers, removeSearch]);
+  const seasonOptions = useMemo(() => seasonsForGender(gender), [gender]);
+  useEffect(() => {
+    if (!seasonOptions.includes(season)) {
+      setSeason(seasonOptions[0] ?? 2026);
+    }
+  }, [season, seasonOptions]);
 
   function fmt(v: number | string | undefined) {
     if (typeof v === "number") return Number.isFinite(v) ? v.toFixed(1) : "N/A";
@@ -263,7 +269,7 @@ function RosterPageInner() {
             disabled={!optionsLoaded}
           >
             {!optionsLoaded && <option value="__loading_year__">Year</option>}
-            {optionsLoaded && SEASONS.map((y) => <option key={y} value={y}>{y}</option>)}
+            {optionsLoaded && seasonOptions.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
 
           <select

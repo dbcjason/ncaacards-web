@@ -24,12 +24,6 @@ function isPublicPath(pathname: string): boolean {
 
 export function proxy(req: NextRequest) {
   const host = String(req.headers.get("host") ?? "").trim().toLowerCase();
-  if (host.endsWith(".vercel.app")) {
-    const url = req.nextUrl.clone();
-    url.protocol = "https:";
-    url.host = CANONICAL_HOST;
-    return NextResponse.redirect(url, 307);
-  }
   if (host === "dbcjason.com") {
     const url = req.nextUrl.clone();
     url.protocol = "https:";

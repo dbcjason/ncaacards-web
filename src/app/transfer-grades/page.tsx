@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { SEASONS } from "@/lib/ui-options";
+import { seasonsForGender } from "@/lib/ui-options";
 import { AddToWatchlistDialog } from "@/components/add-to-watchlist-dialog";
 
 type GradeRow = Record<string, string>;
@@ -183,6 +183,12 @@ function TransferGradesPageInner() {
     });
     return out;
   }, [rows, classFilter, teamFilter, scopeFilter, playerFilter, sortCol, sortDir, gradeColumns]);
+  const seasonOptions = useMemo(() => seasonsForGender(gender), [gender]);
+  useEffect(() => {
+    if (!seasonOptions.includes(season)) {
+      setSeason(seasonOptions[0] ?? 2026);
+    }
+  }, [season, seasonOptions]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -202,7 +208,7 @@ function TransferGradesPageInner() {
           <div className="mb-2 text-lg font-bold">Transfer Grades</div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
-              {SEASONS.map((y) => (
+              {seasonOptions.map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>

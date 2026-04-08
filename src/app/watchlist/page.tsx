@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { CONFERENCES, SEASONS } from "@/lib/ui-options";
+import { CONFERENCES, seasonsForGender } from "@/lib/ui-options";
 import {
   buildWatchlistWarmRequest,
   getCachedWatchlistProfile,
@@ -226,6 +226,7 @@ export default function WatchlistPage() {
 function WatchlistPageInner() {
   const searchParams = useSearchParams();
   const iframeRefs = useRef<Record<string, HTMLIFrameElement | null>>({});
+  const loadWatchlistRequestRef = useRef(0);
   const [gender, setGender] = useState<"men" | "women">("men");
   const [season, setSeason] = useState(2026);
   const [team, setTeam] = useState("");
@@ -372,6 +373,7 @@ function WatchlistPageInner() {
   }, [gender, season]);
 
   const loadWatchlist = useCallback(async (listId?: string) => {
+    const requestId = ++loadWatchlistRequestRef.current;
     setLoading(true);
     setWatchlistError("");
     try {
@@ -390,6 +392,7 @@ function WatchlistPageInner() {
         redirectToLogin();
         return;
       }
+      if (requestId !== loadWatchlistRequestRef.current) return;
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load watchlist");
       setItems(Array.isArray(data.items) ? data.items : []);
       const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
@@ -400,6 +403,7 @@ function WatchlistPageInner() {
       const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
       if (currentActive) setRenameListName(currentActive.name);
     } catch (err) {
+      if (requestId !== loadWatchlistRequestRef.current) return;
       setWatchlistError(err instanceof Error ? err.message : "Failed to load watchlist");
       setItems([]);
       setWatchlists([]);
@@ -411,6 +415,14 @@ function WatchlistPageInner() {
   }, [gender, season]);
 
   useEffect(() => {
+    setItems([]);
+    setWatchlists([]);
+    setActiveListId("");
+    setExpandedIds({});
+    setCardHtmlById({});
+    setCardRequestKeyById({});
+    setCardLoadingById({});
+    setCardErrorById({});
     void loadWatchlist();
   }, [loadWatchlist]);
 
@@ -515,6 +527,13 @@ function WatchlistPageInner() {
     if (!needle) return allPlayerChoices;
     return allPlayerChoices.filter((option) => option.label.toLowerCase().includes(needle));
   }, [allPlayerChoices, playerSearch]);
+  const seasonOptions = useMemo(() => seasonsForGender(gender), [gender]);
+
+  useEffect(() => {
+    if (!seasonOptions.includes(season)) {
+      setSeason(seasonOptions[0] ?? 2026);
+    }
+  }, [season, seasonOptions]);
 
   useEffect(() => {
     if (!filteredPlayerOptions.length) {
@@ -1016,7 +1035,7 @@ function WatchlistPageInner() {
           </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
-              {SEASONS.map((year) => <option key={year} value={year}>{year}</option>)}
+              {seasonOptions.map((year) => <option key={year} value={year}>{year}</option>)}
             </select>
             <input
               className="rounded bg-zinc-800 p-2"

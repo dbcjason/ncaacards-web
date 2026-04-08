@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { dbQuery } from "@/lib/db";
 
 export type CardSections = Record<string, unknown>;
 
@@ -597,6 +598,68 @@ function nestedValue(obj: Record<string, unknown> | undefined, ...path: string[]
     cur = (cur as Record<string, unknown>)[key];
   }
   return cur;
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function collectHtmlSectionsFromPayload(payloadRaw: unknown): Record<string, string> {
+  const payload = asObject(payloadRaw);
+  const sections = asObject(payload.sections_html);
+  const bundles = asObject(payload.section_bundles);
+  const core = asObject(bundles.core);
+  const heavy = asObject(bundles.heavy);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries({ ...sections, ...core, ...heavy })) {
+    if (typeof value !== "string") continue;
+    const html = value.trim();
+    if (!html) continue;
+    out[key] = html;
+  }
+  return out;
+}
+
+async function loadDbFallbackSectionsHtml(
+  season: number,
+  team: string,
+  player: string,
+  gender: Gender,
+): Promise<Record<string, string>> {
+  try {
+    const exactRows = await dbQuery<{ payload_json: unknown }>(
+      `select payload_json
+       from public.player_payload_index
+       where gender = $1
+         and season = $2
+         and lower(team) = lower($3)
+         and lower(player) = lower($4)
+       order by updated_at desc
+       limit 1`,
+      [gender, season, team, player],
+    );
+    if (exactRows[0]?.payload_json) {
+      return collectHtmlSectionsFromPayload(exactRows[0].payload_json);
+    }
+
+    const playerRows = await dbQuery<{ payload_json: unknown }>(
+      `select payload_json
+       from public.player_payload_index
+       where gender = $1
+         and season = $2
+         and lower(player) = lower($3)
+       order by updated_at desc
+       limit 1`,
+      [gender, season, player],
+    );
+    if (playerRows[0]?.payload_json) {
+      return collectHtmlSectionsFromPayload(playerRows[0].payload_json);
+    }
+  } catch {
+    return {};
+  }
+  return {};
 }
 
 async function loadWorkflowSectionsHtml(
@@ -1264,6 +1327,15 @@ export async function loadStaticPayload(
   const cfg = getSourceCfg(gender);
   const resolvedSeason = normSeason(season) || String(season);
   const sections_html = await loadWorkflowSectionsHtml(season, team, player, cfg);
+  const missingSectionKeys = SECTION_JSON_KEYS.filter((key) => !String(sections_html[key] || "").trim());
+  if (missingSectionKeys.length) {
+    const dbFallbackSections = await loadDbFallbackSectionsHtml(season, team, player, gender);
+    for (const key of missingSectionKeys) {
+      const html = String(dbFallbackSections[key] ?? "").trim();
+      if (!html || sections_html[key]) continue;
+      sections_html[key] = html;
+    }
+  }
   const btRows = await loadBtRowsForSeason(season, cfg);
   const enrichedLookup = await loadEnrichedLookup(season, gender, cfg);
   const enrichedRow = enrichedLookup[normalizedSectionKey(player, team, season)];
