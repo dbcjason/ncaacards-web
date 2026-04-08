@@ -258,9 +258,13 @@ function mapHtmlMetricLabelToKey(rawLabel: string): LeaderboardMetricKey | null 
     netpts: "net_points",
     onoffnetr: "onoff_net",
     uasstdunks100: "uasst_dunks_100",
+    uasstddunks100: "uasst_dunks_100",
     uasstrimfgm100: "uasst_rim_fgm_100",
+    uasstdrimfgm100: "uasst_rim_fgm_100",
     uasstmidfgm100: "uasst_mid_fgm_100",
+    uasstdmidfgm100: "uasst_mid_fgm_100",
     uasst3pm100: "uasst_3pm_100",
+    uasstd3pm100: "uasst_3pm_100",
     unassistedpts100: "unassisted_pts_100",
   };
   return map[label] ?? null;
