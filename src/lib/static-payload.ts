@@ -59,9 +59,6 @@ type TransferProjectionCacheRow = {
   team?: string;
   projections?: Record<string, TransferProjectionEntry>;
 } & Record<string, unknown>;
-type TransferProjectionCacheFile = {
-  rows?: TransferProjectionCacheRow[];
-};
 type TransferProjectionRenderData = {
   destConfRaw: string;
   predicted: TransferProjectionStatRow;
@@ -943,27 +940,6 @@ async function loadTransferProjectionLookup(
 
   const promise = (async () => {
     const lookup: Record<string, TransferProjectionCacheRow> = {};
-    const candidates = [
-      `player_cards_pipeline/data/cache/transfer_projection/${normSeason(season)}_part1.json`,
-      `player_cards_pipeline/data/cache/transfer_projection/${normSeason(season)}_part2.json`,
-    ];
-    for (const path of candidates) {
-      try {
-        const file = await fetchRepoJson<TransferProjectionCacheFile>(path, cfg);
-        for (const row of file.rows ?? []) {
-          if (!row || typeof row !== "object") continue;
-          const player = String(row.player ?? "").trim();
-          const team = String(row.team ?? "").trim();
-          const rowSeason = normSeason(row.season ?? season);
-          if (!player || !team || !rowSeason) continue;
-          lookup[transferCacheKey(player, team, rowSeason)] = row;
-        }
-      } catch {
-        // Missing part files are fine; we just use whatever is available.
-      }
-    }
-
-    // Fallback: full-matrix CSV often has broader player coverage than part JSON caches.
     for (const csvPath of transferProjectionCsvCandidates(season)) {
       try {
         const text = await fetchRepoText(csvPath, cfg);
@@ -981,7 +957,6 @@ async function loadTransferProjectionLookup(
           const rowSeason = normSeason(yIdx >= 0 ? cols[yIdx] ?? season : season);
           if (!player || !team || !rowSeason) continue;
           const key = transferCacheKey(player, team, rowSeason);
-          if (lookup[key]) continue;
           const row: TransferProjectionCacheRow = {};
           for (let c = 0; c < header.length; c += 1) {
             row[header[c]] = String(cols[c] ?? "").trim();
