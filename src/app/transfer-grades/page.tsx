@@ -36,7 +36,7 @@ function TransferGradesPageInner() {
   const [classFilter, setClassFilter] = useState("All");
   const [teamFilter, setTeamFilter] = useState("All");
   const [playerFilter, setPlayerFilter] = useState("");
-  const [scopeFilter, setScopeFilter] = useState<"all" | "mid_major">("all");
+  const [scopeFilter, setScopeFilter] = useState<"all" | "high_major" | "mid_major">("all");
   const [sortCol, setSortCol] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [rows, setRows] = useState<GradeRow[]>([]);
@@ -96,6 +96,17 @@ function TransferGradesPageInner() {
     );
   }
 
+  function isGonzagaTeam(raw: string): boolean {
+    return String(raw || "").trim().toLowerCase() === "gonzaga";
+  }
+
+  function isHighMajorRow(row: GradeRow): boolean {
+    return (
+      isHighMajorSourceConference(String(row.source_conference || "")) ||
+      isGonzagaTeam(String(row.team || ""))
+    );
+  }
+
   useEffect(() => {
     let active = true;
     (async () => {
@@ -150,7 +161,8 @@ function TransferGradesPageInner() {
       if (MANUAL_EXCLUDE_PLAYERS.has(playerNorm)) return false;
       if (classFilter !== "All" && String(r.class || "").trim() !== classFilter) return false;
       if (teamFilter !== "All" && String(r.team || "").trim() !== teamFilter) return false;
-      if (scopeFilter === "mid_major" && isHighMajorSourceConference(String(r.source_conference || ""))) return false;
+      if (scopeFilter === "high_major" && !isHighMajorRow(r)) return false;
+      if (scopeFilter === "mid_major" && isHighMajorRow(r)) return false;
       if (needle && !String(r.player || "").toLowerCase().includes(needle)) return false;
       return true;
     });
@@ -209,9 +221,18 @@ function TransferGradesPageInner() {
             <select
               className="rounded bg-zinc-800 p-2"
               value={scopeFilter}
-              onChange={(e) => setScopeFilter(e.target.value === "mid_major" ? "mid_major" : "all")}
+              onChange={(e) =>
+                setScopeFilter(
+                  e.target.value === "mid_major"
+                    ? "mid_major"
+                    : e.target.value === "high_major"
+                      ? "high_major"
+                      : "all",
+                )
+              }
             >
               <option value="all">All Players</option>
+              <option value="high_major">High Major Only</option>
               <option value="mid_major">Mid Major Only</option>
             </select>
           </div>
