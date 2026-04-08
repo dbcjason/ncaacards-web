@@ -56,6 +56,8 @@ type JobPollResponse = {
   };
 };
 
+type NoteSaveState = "idle" | "saved";
+
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -152,6 +154,8 @@ function WatchlistPageInner() {
   const [cardHtmlById, setCardHtmlById] = useState<Record<string, string>>({});
   const [cardLoadingById, setCardLoadingById] = useState<Record<string, boolean>>({});
   const [cardErrorById, setCardErrorById] = useState<Record<string, string>>({});
+  const [notesById, setNotesById] = useState<Record<string, string>>({});
+  const [noteSaveStateById, setNoteSaveStateById] = useState<Record<string, NoteSaveState>>({});
   const [dragId, setDragId] = useState("");
   const [optionsError, setOptionsError] = useState("");
   const [watchlistError, setWatchlistError] = useState("");
@@ -161,6 +165,9 @@ function WatchlistPageInner() {
   const [newListName, setNewListName] = useState("");
   const [renameListName, setRenameListName] = useState("");
   const [multiWatchlistsEnabled, setMultiWatchlistsEnabled] = useState(true);
+
+  const noteStorageKeyFor = (item: WatchlistItem) =>
+    `watchlist-note::${gender}::${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
 
   function redirectToLogin() {
     if (typeof window === "undefined") return;
@@ -309,6 +316,20 @@ function WatchlistPageInner() {
     const currentActive = watchlists.find((entry) => entry.id === activeListId);
     if (currentActive) setRenameListName(currentActive.name);
   }, [activeListId, watchlists]);
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const item of items) {
+      try {
+        const saved = window.localStorage.getItem(noteStorageKeyFor(item));
+        next[item.id] = saved ?? "";
+      } catch {
+        next[item.id] = "";
+      }
+    }
+    setNotesById(next);
+    setNoteSaveStateById({});
+  }, [items, gender]);
 
   const allPlayerChoices = useMemo<PlayerChoice[]>(() => {
     const out: PlayerChoice[] = [];
@@ -699,6 +720,18 @@ function WatchlistPageInner() {
     }
   }
 
+  function saveNote(item: WatchlistItem) {
+    try {
+      window.localStorage.setItem(noteStorageKeyFor(item), String(notesById[item.id] ?? ""));
+      setNoteSaveStateById((current) => ({ ...current, [item.id]: "saved" }));
+      window.setTimeout(() => {
+        setNoteSaveStateById((current) => ({ ...current, [item.id]: "idle" }));
+      }, 1500);
+    } catch {
+      setWatchlistError("Could not save note in this browser.");
+    }
+  }
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto w-full max-w-[1900px] px-6 py-6">
@@ -896,16 +929,55 @@ function WatchlistPageInner() {
               {cardErrorById[item.id] ? <div className="mt-3 text-sm text-rose-400">{cardErrorById[item.id]}</div> : null}
               {cardLoadingById[item.id] ? <div className="mt-3 text-sm text-zinc-400">Building card...</div> : null}
 
-              {expandedIds[item.id] && cardHtmlById[item.id] ? (
-                <div className="mt-4 overflow-hidden rounded border border-zinc-800 bg-black">
-                  <iframe
-                    ref={(node) => {
-                      iframeRefs.current[item.id] = node;
-                    }}
-                    title={`${item.player} card`}
-                    srcDoc={cardHtmlById[item.id]}
-                    className="h-[1500px] w-full"
-                  />
+              {expandedIds[item.id] ? (
+                <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div className="overflow-hidden rounded border border-zinc-800 bg-black">
+                    {cardHtmlById[item.id] ? (
+                      <div className="mx-auto w-full max-w-[700px]">
+                        <div className="aspect-[2/3] w-full">
+                          <iframe
+                            ref={(node) => {
+                              iframeRefs.current[item.id] = node;
+                            }}
+                            title={`${item.player} card`}
+                            srcDoc={cardHtmlById[item.id]}
+                            className="h-full w-full"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex min-h-[420px] items-center justify-center text-sm text-zinc-400">
+                        {cardLoadingById[item.id] ? "Building card..." : "Card preview unavailable."}
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded border border-zinc-800 bg-zinc-950 p-4">
+                    <div className="mb-2 text-base font-semibold text-zinc-100">Notes</div>
+                    <textarea
+                      className="min-h-[320px] w-full rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                      placeholder="Add notes on this player..."
+                      value={notesById[item.id] ?? ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setNotesById((current) => ({ ...current, [item.id]: value }));
+                        setNoteSaveStateById((current) => ({ ...current, [item.id]: "idle" }));
+                      }}
+                    />
+                    <div className="mt-3 flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="rounded bg-red-500 px-4 py-2 text-sm font-semibold text-white"
+                        onClick={() => saveNote(item)}
+                      >
+                        Save
+                      </button>
+                      {noteSaveStateById[item.id] === "saved" ? (
+                        <span className="text-xs text-emerald-400">Saved</span>
+                      ) : (
+                        <span className="text-xs text-zinc-500">Notes are saved per player on this account/browser.</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>
