@@ -612,6 +612,54 @@ function WatchlistPageInner() {
     }
   }
 
+  async function deleteWatchlist() {
+    if (!activeListId) return;
+    if (!multiWatchlistsEnabled) {
+      setWatchlistError("Multiple watchlists will activate after database migration runs.");
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Delete this watchlist and all players in it?");
+      if (!confirmed) return;
+    }
+    setWatchlistError("");
+    try {
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "deleteList",
+          gender,
+          season,
+          listId: activeListId,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        items?: WatchlistItem[];
+        watchlists?: WatchlistSummary[];
+        activeListId?: string;
+        multiWatchlistsEnabled?: boolean;
+      };
+      if (isAuthError(res.status, data.error)) {
+        redirectToLogin();
+        return;
+      }
+      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to delete watchlist");
+      setItems(Array.isArray(data.items) ? data.items : []);
+      const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
+      setWatchlists(nextWatchlists);
+      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
+      const nextActive = String(data.activeListId ?? "");
+      setActiveListId(nextActive);
+      const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
+      if (currentActive) setRenameListName(currentActive.name);
+    } catch (err) {
+      setWatchlistError(err instanceof Error ? err.message : "Failed to delete watchlist");
+    }
+  }
+
   async function pollJob(id: string): Promise<string> {
     while (true) {
       const res = await fetch(`/api/jobs/${id}`, { cache: "no-store" });
@@ -749,7 +797,7 @@ function WatchlistPageInner() {
 
         <div className="mb-4 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Watchlist</div>
-          <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-[1.2fr_1fr_auto_1fr_auto]">
+          <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-[1.2fr_1fr_auto_0.8fr_auto_auto]">
             <select
               className="rounded bg-zinc-800 p-2"
               value={activeListId}
@@ -794,6 +842,14 @@ function WatchlistPageInner() {
               disabled={!activeListId || !multiWatchlistsEnabled}
             >
               Rename
+            </button>
+            <button
+              type="button"
+              className="rounded bg-rose-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={deleteWatchlist}
+              disabled={!activeListId || !multiWatchlistsEnabled}
+            >
+              Delete List
             </button>
           </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">

@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
     const body = (await req.json()) as {
-      action?: "createList" | "renameList" | "addItem";
+      action?: "createList" | "renameList" | "deleteList" | "addItem";
       gender?: string;
       season?: number | string;
       listId?: string;
@@ -228,7 +228,7 @@ export async function POST(req: NextRequest) {
     const mode = await resolveSchemaMode();
     const action = body.action ?? "addItem";
 
-    if (mode === "legacy" && (action === "createList" || action === "renameList")) {
+    if (mode === "legacy" && (action === "createList" || action === "renameList" || action === "deleteList")) {
       const payload = await loadLegacyWatchlistPayload({ userId: user.id, gender, season });
       return NextResponse.json({
         ok: false,
@@ -301,6 +301,59 @@ export async function POST(req: NextRequest) {
         gender,
         season,
         requestedListId: listId,
+      });
+      return NextResponse.json({ ok: true, ...payload });
+    }
+
+    if (action === "deleteList") {
+      const listId = String(body.listId ?? "").trim();
+      if (!listId) {
+        return NextResponse.json({ ok: false, error: "Missing listId" }, { status: 400 });
+      }
+
+      const nextActiveListId = await withDbTransaction(async (client) => {
+        const deleted = await client.query(
+          `delete from public.watchlists
+            where id = $1
+              and user_id = $2
+              and gender = $3
+              and season = $4
+          returning id`,
+          [listId, user.id, gender, season],
+        );
+        if (!deleted.rowCount) {
+          throw new Error("Watchlist not found");
+        }
+
+        const remaining = await client.query(
+          `select id
+             from public.watchlists
+            where user_id = $1
+              and gender = $2
+              and season = $3
+            order by sort_order asc, created_at asc
+            limit 1`,
+          [user.id, gender, season],
+        );
+        const remainingRows = remaining.rows as Array<{ id: string }>;
+        const firstRemaining = String(remainingRows[0]?.id ?? "");
+        if (firstRemaining) return firstRemaining;
+
+        const inserted = await client.query(
+          `insert into public.watchlists (user_id, gender, season, name, sort_order, updated_at)
+           values ($1, $2, $3, 'Watchlist', 0, now())
+           returning id`,
+          [user.id, gender, season],
+        );
+        const insertedRows = inserted.rows as Array<{ id: string }>;
+        return String(insertedRows[0]?.id ?? "");
+      });
+
+      const payload = await loadWatchlistPayload({
+        userId: user.id,
+        gender,
+        season,
+        requestedListId: nextActiveListId,
       });
       return NextResponse.json({ ok: true, ...payload });
     }
