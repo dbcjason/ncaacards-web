@@ -69,9 +69,17 @@ export async function POST(req: NextRequest) {
       throw new Error("FORBIDDEN_SCOPE");
     }
 
+    const rawSeason = body.season;
+    const parsedSeason =
+      rawSeason === null || rawSeason === undefined || String(rawSeason).trim() === ""
+        ? null
+        : Number.isFinite(Number(rawSeason))
+          ? Number(rawSeason)
+          : null;
+
     const result = await queryLeaderboard({
       gender,
-      season: Number.isFinite(Number(body.season)) ? Number(body.season) : null,
+      season: parsedSeason,
       team: String(body.team ?? ""),
       player: String(body.player ?? ""),
       position: String(body.position ?? ""),
