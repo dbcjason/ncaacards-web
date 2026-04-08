@@ -33,6 +33,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const requestStatus = REQUEST_TABS.includes((params.requestStatus || "pending") as (typeof REQUEST_TABS)[number])
       ? (params.requestStatus as (typeof REQUEST_TABS)[number])
       : "pending";
+    const needsAccountsData = tab === "accounts";
+    const needsRequestsData = tab === "requests";
+    const needsPaymentsData = tab === "payments";
+    const needsUsageData = tab === "usage";
+    const needsActivityData = tab === "activity";
+    const needsOrganizations = needsAccountsData || needsActivityData;
 
     const [
       organizationsResult,
@@ -44,14 +50,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       usageEventsResult,
       favoriteTeamsResult,
     ] = await Promise.allSettled([
-      listOrganizations(),
-      listUsers(),
-      listAccessCodes(),
-      listAccessRequests(),
-      listBillingRecords(),
-      listUsageSummary(),
-      listUsageEvents(params.org || null, normalizeEventType(params.eventType)),
-      listAllKnownTeams(),
+      needsOrganizations ? listOrganizations() : Promise.resolve([]),
+      needsAccountsData ? listUsers() : Promise.resolve([]),
+      needsAccountsData ? listAccessCodes() : Promise.resolve([]),
+      needsRequestsData ? listAccessRequests() : Promise.resolve([]),
+      needsPaymentsData ? listBillingRecords() : Promise.resolve([]),
+      needsUsageData ? listUsageSummary() : Promise.resolve([]),
+      needsActivityData ? listUsageEvents(params.org || null, normalizeEventType(params.eventType)) : Promise.resolve([]),
+      needsAccountsData ? listAllKnownTeams() : Promise.resolve([]),
     ]);
 
     const organizations = unwrapSettled(organizationsResult);
@@ -64,14 +70,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const favoriteTeams = unwrapSettled(favoriteTeamsResult);
     const filteredAccessRequests = accessRequests.filter((request) => matchesRequestStatus(request.status, requestStatus));
     const hasDataError = [
-      organizationsResult,
-      usersResult,
-      accessCodesResult,
-      accessRequestsResult,
-      billingResult,
-      usageSummaryResult,
-      usageEventsResult,
-    ].some((result) => result.status === "rejected");
+      needsOrganizations ? organizationsResult : null,
+      needsAccountsData ? usersResult : null,
+      needsAccountsData ? accessCodesResult : null,
+      needsRequestsData ? accessRequestsResult : null,
+      needsPaymentsData ? billingResult : null,
+      needsUsageData ? usageSummaryResult : null,
+      needsActivityData ? usageEventsResult : null,
+      needsAccountsData ? favoriteTeamsResult : null,
+    ]
+      .filter(Boolean)
+      .some((result) => result?.status === "rejected");
     const accountSections = [
       renderSafeSection("Create Organization", () => (
         <section className="site-panel space-y-6 rounded-xl p-6">
