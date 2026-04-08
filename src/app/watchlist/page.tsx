@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
@@ -989,15 +989,17 @@ function WatchlistPageInner() {
                 <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <div className="overflow-hidden rounded border border-zinc-800 bg-black">
                     {cardHtmlById[item.id] ? (
-                      <div className="mx-auto w-full max-w-[700px]">
-                        <div className="aspect-[2/3] w-full">
+                      <div className="mx-auto h-[50vh] min-h-[420px] max-h-[760px] w-full overflow-hidden rounded">
+                        <div className="h-full w-full">
                           <iframe
                             ref={(node) => {
                               iframeRefs.current[item.id] = node;
                             }}
                             title={`${item.player} card`}
                             srcDoc={cardHtmlById[item.id]}
-                            className="h-full w-full"
+                            className="h-[2300px] w-full rounded"
+                            style={{ zoom: 0.325 } as CSSProperties}
+                            sandbox="allow-same-origin allow-scripts"
                           />
                         </div>
                       </div>
