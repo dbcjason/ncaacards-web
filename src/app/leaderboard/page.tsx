@@ -10,6 +10,12 @@ type MetricMeta = {
   label: string;
 };
 
+type FilterFieldMeta = {
+  key: string;
+  label: string;
+  supportsPercentile: boolean;
+};
+
 type LeaderboardRow = {
   season: number;
   team: string;
@@ -46,6 +52,35 @@ type ApiResp = {
   metrics?: MetricMeta[];
   minMpg?: number;
 };
+
+const BIO_COLUMNS = ["player", "team", "pos", "height", "statistical_height", "age", "rsci"] as const;
+const PER_GAME_KEYS = ["ppg", "rpg", "apg", "spg", "bpg"] as const;
+const OFFENSE_KEYS = [
+  "usg",
+  "fg_pct",
+  "ts_pct",
+  "twop_pct",
+  "rim_pct",
+  "rim_att_100",
+  "dunks_100",
+  "mid_pct",
+  "tp_pct",
+  "tpa_100",
+  "ftr",
+  "ast_pct",
+  "rim_assts_100",
+  "ato",
+  "to_pct",
+] as const;
+const SELF_CREATION_KEYS = [
+  "uasst_dunks_100",
+  "uasst_rim_fgm_100",
+  "uasst_mid_fgm_100",
+  "uasst_3pm_100",
+  "unassisted_pts_100",
+] as const;
+const DEF_REB_KEYS = ["stl_pct", "blk_pct", "oreb_pct", "dreb_pct"] as const;
+const IMPACT_KEYS = ["bpm", "rapm", "obpm", "dbpm", "net_points", "onoff_net"] as const;
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
@@ -189,6 +224,36 @@ function LeaderboardPageInner() {
   }, [conferenceFilter, filters, gender, minMpg, playerFilter, positionFilter, season, sortBy, sortDir, sortMode, teamFilter]);
 
   const metricOptions = useMemo(() => metrics.length ? metrics : [{ key: "bpm", label: "BPM" }], [metrics]);
+  const filterFieldOptions = useMemo<FilterFieldMeta[]>(
+    () => [
+      { key: "age", label: "Age", supportsPercentile: false },
+      { key: "rsci", label: "RSCI", supportsPercentile: false },
+      ...metricOptions.map((metric) => ({ key: metric.key, label: metric.label, supportsPercentile: true })),
+    ],
+    [metricOptions],
+  );
+  const perGameCols = useMemo(
+    () => metricOptions.filter((metric) => PER_GAME_KEYS.includes(metric.key as (typeof PER_GAME_KEYS)[number])).length,
+    [metricOptions],
+  );
+  const offenseCols = useMemo(
+    () => metricOptions.filter((metric) => OFFENSE_KEYS.includes(metric.key as (typeof OFFENSE_KEYS)[number])).length,
+    [metricOptions],
+  );
+  const selfCreationCols = useMemo(
+    () =>
+      metricOptions.filter((metric) => SELF_CREATION_KEYS.includes(metric.key as (typeof SELF_CREATION_KEYS)[number]))
+        .length,
+    [metricOptions],
+  );
+  const defenseRebCols = useMemo(
+    () => metricOptions.filter((metric) => DEF_REB_KEYS.includes(metric.key as (typeof DEF_REB_KEYS)[number])).length,
+    [metricOptions],
+  );
+  const impactCols = useMemo(
+    () => metricOptions.filter((metric) => IMPACT_KEYS.includes(metric.key as (typeof IMPACT_KEYS)[number])).length,
+    [metricOptions],
+  );
   const onSort = (key: string) => {
     if (sortBy === key) {
       setSortDir((current) => (current === "desc" ? "asc" : "desc"));
@@ -268,15 +333,22 @@ function LeaderboardPageInner() {
                     value={filter.metric}
                     onChange={(e) =>
                       setFilters((current) =>
-                        current.map((row) => (row.id === filter.id ? { ...row, metric: e.target.value } : row)),
+                        current.map((row) => {
+                          if (row.id !== filter.id) return row;
+                          const selected = filterFieldOptions.find((field) => field.key === e.target.value);
+                          const mode =
+                            selected?.supportsPercentile === false ? "stat" : row.mode;
+                          return { ...row, metric: e.target.value, mode };
+                        }),
                       )
                     }
                   >
-                    {metricOptions.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}
+                    {filterFieldOptions.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
                   </select>
                   <select
                     className="rounded bg-zinc-800 p-2"
                     value={filter.mode}
+                    disabled={filter.metric === "age" || filter.metric === "rsci"}
                     onChange={(e) =>
                       setFilters((current) =>
                         current.map((row) =>
@@ -338,6 +410,36 @@ function LeaderboardPageInner() {
         <div className="overflow-auto rounded-xl border border-zinc-700 bg-zinc-900">
           <table className="w-max min-w-full border-collapse text-sm">
             <thead>
+              <tr className="bg-zinc-900 text-zinc-400">
+                <th colSpan={BIO_COLUMNS.length} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                  Bio
+                </th>
+                {perGameCols ? (
+                  <th colSpan={perGameCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                    Per Game
+                  </th>
+                ) : null}
+                {offenseCols ? (
+                  <th colSpan={offenseCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                    Offense
+                  </th>
+                ) : null}
+                {selfCreationCols ? (
+                  <th colSpan={selfCreationCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                    Self-Creation
+                  </th>
+                ) : null}
+                {defenseRebCols ? (
+                  <th colSpan={defenseRebCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                    Defense and Rebounding
+                  </th>
+                ) : null}
+                {impactCols ? (
+                  <th colSpan={impactCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                    Impact
+                  </th>
+                ) : null}
+              </tr>
               <tr className="bg-zinc-800 text-zinc-100">
                 <SortableHeader label="Player" sortKey="player" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="sticky left-0 z-20 bg-zinc-800 text-left" />
                 <SortableHeader label="Team" sortKey="team" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />

@@ -13,14 +13,18 @@ function parseFilters(raw: unknown): LeaderboardFilter[] {
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const metric = String((item as Record<string, unknown>).metric ?? "");
-    if (!isLeaderboardMetric(metric)) continue;
+    const isSpecial = metric === "age" || metric === "rsci";
+    if (!isSpecial && !isLeaderboardMetric(metric)) continue;
     const value = Number((item as Record<string, unknown>).value ?? "");
     if (!Number.isFinite(value)) continue;
     out.push({
       metric,
       comparator: String((item as Record<string, unknown>).comparator ?? "") === "<=" ? "<=" : ">=",
       value,
-      mode: String((item as Record<string, unknown>).mode ?? "") === "percentile" ? "percentile" : "stat",
+      mode:
+        !isSpecial && String((item as Record<string, unknown>).mode ?? "") === "percentile"
+          ? "percentile"
+          : "stat",
     });
   }
   return out;

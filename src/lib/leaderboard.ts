@@ -10,14 +10,26 @@ export type LeaderboardMetricKey =
   | "apg"
   | "spg"
   | "bpg"
+  | "usg"
   | "fg_pct"
   | "ts_pct"
+  | "twop_pct"
+  | "rim_pct"
+  | "rim_att_100"
+  | "dunks_100"
+  | "mid_pct"
   | "tp_pct"
   | "tpa_100"
   | "ftr"
   | "ast_pct"
+  | "rim_assts_100"
   | "ato"
   | "to_pct"
+  | "uasst_dunks_100"
+  | "uasst_rim_fgm_100"
+  | "uasst_mid_fgm_100"
+  | "uasst_3pm_100"
+  | "unassisted_pts_100"
   | "stl_pct"
   | "blk_pct"
   | "oreb_pct"
@@ -25,7 +37,9 @@ export type LeaderboardMetricKey =
   | "bpm"
   | "rapm"
   | "obpm"
-  | "dbpm";
+  | "dbpm"
+  | "net_points"
+  | "onoff_net";
 
 export const LEADERBOARD_METRICS: ReadonlyArray<{
   key: LeaderboardMetricKey;
@@ -36,14 +50,26 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
   { key: "apg", label: "APG" },
   { key: "spg", label: "SPG" },
   { key: "bpg", label: "BPG" },
+  { key: "usg", label: "Usage" },
   { key: "fg_pct", label: "FG%" },
   { key: "ts_pct", label: "TS%" },
+  { key: "twop_pct", label: "2P%" },
+  { key: "rim_pct", label: "Rim%" },
+  { key: "rim_att_100", label: "Rim Att/100" },
+  { key: "dunks_100", label: "Dunks/100" },
+  { key: "mid_pct", label: "Mid%" },
   { key: "tp_pct", label: "3P%" },
   { key: "tpa_100", label: "3PA/100" },
   { key: "ftr", label: "FTr" },
   { key: "ast_pct", label: "AST%" },
+  { key: "rim_assts_100", label: "Rim Assts/100" },
   { key: "ato", label: "A/TO" },
   { key: "to_pct", label: "TO%" },
+  { key: "uasst_dunks_100", label: "UAsst'd Dunks/100" },
+  { key: "uasst_rim_fgm_100", label: "UAsst'd Rim FGM/100" },
+  { key: "uasst_mid_fgm_100", label: "UAsst'd Mid FGM/100" },
+  { key: "uasst_3pm_100", label: "UAsst'd 3PM/100" },
+  { key: "unassisted_pts_100", label: "Unassisted Pts/100" },
   { key: "stl_pct", label: "STL%" },
   { key: "blk_pct", label: "BLK%" },
   { key: "oreb_pct", label: "OREB%" },
@@ -52,10 +78,12 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
   { key: "rapm", label: "RAPM" },
   { key: "obpm", label: "OBPM" },
   { key: "dbpm", label: "DBPM" },
+  { key: "net_points", label: "Net Points" },
+  { key: "onoff_net", label: "On/Off Net" },
 ] as const;
 
 export type LeaderboardFilter = {
-  metric: LeaderboardMetricKey;
+  metric: LeaderboardMetricKey | "age" | "rsci";
   comparator: ">=" | "<=";
   value: number;
   mode: "stat" | "percentile";
@@ -119,6 +147,65 @@ function safeAnyObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function normalizeStatKey(value: string): string {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+const METRIC_BT_ALIASES: Record<LeaderboardMetricKey, string[]> = {
+  ppg: ["ppg", "pts"],
+  rpg: ["rpg", "treb", "reb"],
+  apg: ["apg", "ast"],
+  spg: ["spg", "stl"],
+  bpg: ["bpg", "blk"],
+  usg: ["usg", "usage", "usagepct", "usg_pct", "usgper"],
+  fg_pct: ["fgpct", "fg%", "efg", "efg_pct", "efg%"],
+  ts_pct: ["tspct", "ts%", "ts_per", "tsp"],
+  twop_pct: ["2ppct", "2p%", "2ptpct", "2pt%", "twop_pct", "twoppct"],
+  rim_pct: ["rimpct", "rim%", "rimfgpct", "rimfg%"],
+  rim_att_100: ["rimatt100", "rimatt/100", "rimatt", "rimfga100", "rimfga/100"],
+  dunks_100: ["dunks100", "dunks/100", "dunk100"],
+  mid_pct: ["midpct", "mid%", "midfgpct", "midfg%"],
+  tp_pct: ["3ppct", "3p%", "tp_per", "3ptpct", "3pt%"],
+  tpa_100: ["3pa100", "3pa/100", "3p100", "3p/100"],
+  ftr: ["ftr", "ftrate", "ftratio"],
+  ast_pct: ["astpct", "ast%", "ast_per"],
+  rim_assts_100: ["rimassts100", "rimassts/100", "rimast100", "rimast/100"],
+  ato: ["asttov", "a/to", "ato"],
+  to_pct: ["topct", "to%", "to_per"],
+  uasst_dunks_100: ["uasstdunks100", "uasstdunks/100", "unassisteddunks100"],
+  uasst_rim_fgm_100: ["uasstrimfgm100", "uasstrimfgm/100", "unassistedrimfgm100"],
+  uasst_mid_fgm_100: ["uasstmidfgm100", "uasstmidfgm/100", "unassistedmidfgm100"],
+  uasst_3pm_100: ["uasst3pm100", "uasst3pm/100", "unassisted3pm100"],
+  unassisted_pts_100: ["unassistedpts100", "unassistedpts/100"],
+  stl_pct: ["stlpct", "stl%", "stl_per"],
+  blk_pct: ["blkpct", "blk%", "blk_per"],
+  oreb_pct: ["orebpct", "oreb%", "orb_per"],
+  dreb_pct: ["drebpct", "dreb%", "drb_per"],
+  bpm: ["bpm", "gbpm"],
+  rapm: ["rapm", "epm", "rpm"],
+  obpm: ["obpm", "ogbpm"],
+  dbpm: ["dbpm", "dgbpm"],
+  net_points: ["netpoints", "net_pts", "netrating", "netrtg", "net"],
+  onoff_net: ["onoffnet", "onoff", "onoffrating", "onoffrtg", "on_off_net"],
+};
+
+function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMetricKey): number | null {
+  const normalizedMap = new Map<string, number>();
+  for (const [rawKey, rawValue] of Object.entries(btRow)) {
+    const normalized = normalizeStatKey(rawKey);
+    if (!normalized) continue;
+    const value = numericOrNull(rawValue);
+    if (typeof value === "number") {
+      normalizedMap.set(normalized, value);
+    }
+  }
+  for (const alias of METRIC_BT_ALIASES[key] ?? []) {
+    const found = normalizedMap.get(normalizeStatKey(alias));
+    if (typeof found === "number") return found;
+  }
+  return null;
+}
+
 function parseGradeBoxesHtml(raw: string | null | undefined): WatchlistGrade[] {
   const html = String(raw ?? "");
   if (!html) return [];
@@ -152,13 +239,23 @@ export function isLeaderboardMetric(raw?: string): raw is LeaderboardMetricKey {
 
 function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
   const btRow = safeAnyObject(row.bt_row);
+  const sourceValues = safeObject(row.values);
+  const mergedValues: Record<string, number | null> = { ...sourceValues };
+  for (const metric of LEADERBOARD_METRICS) {
+    const current = mergedValues[metric.key];
+    if (typeof current === "number" && Number.isFinite(current)) continue;
+    const fallback = metricValueFromBtRow(btRow, metric.key);
+    if (typeof fallback === "number" && Number.isFinite(fallback)) {
+      mergedValues[metric.key] = fallback;
+    }
+  }
   return {
     ...row,
     pos: normalizePositionCode(row.pos),
     age: numericOrNull(row.age),
     rsci: numericOrNull(row.rsci),
     statistical_height_delta: numericOrNull(row.statistical_height_delta),
-    values: safeObject(row.values),
+    values: mergedValues,
     percentiles: safeObject(row.percentiles),
     minutes_per_game: numericOrNull(btRow.mp),
   };
@@ -168,6 +265,16 @@ function applyFilters(rows: LeaderboardRow[], filters: LeaderboardFilter[]): Lea
   let next = rows;
   for (const filter of filters) {
     next = next.filter((row) => {
+      if (filter.metric === "age") {
+        const value = row.age;
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
+        return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
+      }
+      if (filter.metric === "rsci") {
+        const value = row.rsci;
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
+        return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
+      }
       const bucket = filter.mode === "percentile" ? row.percentiles : row.values;
       const value = bucket[filter.metric];
       if (typeof value !== "number" || !Number.isFinite(value)) return false;

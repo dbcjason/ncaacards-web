@@ -55,6 +55,16 @@ function findCol(header, names) {
   return -1;
 }
 
+function findRsciCol(header) {
+  const normalized = header.map((value) => normalizeColName(value));
+  const strongMatches = ['rsci', 'rscirank', 'rsci_rank', 'rscirating'];
+  for (const key of strongMatches) {
+    const idx = normalized.findIndex((value) => value === key);
+    if (idx >= 0) return idx;
+  }
+  return findCol(header, ['rec rank', 'rec_rank', 'recruiting rank', 'rsci']);
+}
+
 function toNum(value) {
   const text = String(value ?? '').trim();
   if (!text) return null;
@@ -102,22 +112,36 @@ const METRIC_ALIASES = {
   apg: ['ast', 'apg'],
   spg: ['stl', 'spg'],
   bpg: ['blk', 'bpg'],
+  usg: ['usg', 'usage', 'usage%'],
   fg_pct: ['efg', 'fg%'],
   ts_pct: ['ts_per', 'ts%'],
+  twop_pct: ['2p%', '2pt%', '2ptpct', 'twop_pct'],
+  rim_pct: ['rim%', 'rimfg%'],
+  rim_att_100: ['rimatt100', 'rimatt/100', 'rimfga100', 'rimfga/100'],
+  dunks_100: ['dunks100', 'dunks/100'],
+  mid_pct: ['mid%', 'midfg%'],
   tp_pct: ['tp_per', '3p%', '3pt%'],
   tpa_100: ['3pa100', '3p100', '3pa/100', '3p/100'],
   ftr: ['ftr'],
   ast_pct: ['ast_per', 'ast%'],
+  rim_assts_100: ['rimassts100', 'rimassts/100', 'rimast100', 'rimast/100'],
   ato: ['ast/tov', 'a/to'],
   to_pct: ['to_per', 'to%'],
+  uasst_dunks_100: ['uasstdunks100', 'uasstdunks/100'],
+  uasst_rim_fgm_100: ['uasstrimfgm100', 'uasstrimfgm/100'],
+  uasst_mid_fgm_100: ['uasstmidfgm100', 'uasstmidfgm/100'],
+  uasst_3pm_100: ['uasst3pm100', 'uasst3pm/100'],
+  unassisted_pts_100: ['unassistedpts100', 'unassistedpts/100'],
   stl_pct: ['stl_per', 'stl%'],
   blk_pct: ['blk_per', 'blk%'],
   oreb_pct: ['orb_per', 'oreb%'],
   dreb_pct: ['drb_per', 'dreb%'],
   bpm: ['gbpm', 'bpm'],
-  rapm: ['dgbpm', 'dbpm'],
+  rapm: ['rapm', 'epm', 'rpm'],
   obpm: ['obpm', 'ogbpm'],
   dbpm: ['dbpm', 'dgbpm'],
+  net_points: ['net points', 'net_points', 'netrating', 'netrtg', 'net'],
+  onoff_net: ['on/off net', 'onoff_net', 'onoff', 'onoffrating', 'onoffrtg'],
 };
 
 const METRIC_KEYS = Object.keys(METRIC_ALIASES);
@@ -190,7 +214,7 @@ async function loadGenderRows(source) {
     season: findCol(header, ['year', 'season']),
     role: findCol(header, ['role', 'pos', 'position']),
     height: findCol(header, ['ht', 'height']),
-    rsci: findCol(header, ['rec rank', 'rsci']),
+    rsci: findRsciCol(header),
     dob: findCol(header, ['dob']),
   };
   const metricIdx = Object.fromEntries(
@@ -216,7 +240,7 @@ async function loadGenderRows(source) {
       values[key] = metricIdx[key] >= 0 ? toNum(line[metricIdx[key]]) : null;
     }
 
-    const rsci = toNum(line[idx.rsci]) ?? toNum(bioExtras.rsci);
+    const rsci = toNum(bioExtras.rsci) ?? toNum(line[idx.rsci]);
     const age = calcAgeOnJune25(String(line[idx.dob] ?? '').trim(), season) ?? toNum(bioExtras.age_june25);
     const pos =
       dominantPosition(enrichedRow.posFreqs) ||
