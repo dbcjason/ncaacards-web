@@ -114,6 +114,8 @@ type RawLeaderboardRow = Omit<LeaderboardRow, "values" | "percentiles"> & {
   payload_json?: unknown;
   grade_boxes_html?: string | null;
   bt_row?: unknown;
+  bt_percentiles_html?: string | null;
+  self_creation_html?: string | null;
 };
 
 export type WatchlistGrade = {
@@ -154,6 +156,15 @@ function safeAnyObject(value: unknown): Record<string, unknown> {
 
 function normalizeStatKey(value: string): string {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function decodeHtmlEntities(text: string): string {
+  return String(text || "")
+    .replace(/&#x27;|&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
 }
 
 const METRIC_BT_ALIASES: Record<LeaderboardMetricKey, string[]> = {
@@ -200,15 +211,80 @@ function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMe
     const normalized = normalizeStatKey(rawKey);
     if (!normalized) continue;
     const value = numericOrNull(rawValue);
-    if (typeof value === "number") {
-      normalizedMap.set(normalized, value);
-    }
+    if (typeof value === "number") normalizedMap.set(normalized, value);
   }
   for (const alias of METRIC_BT_ALIASES[key] ?? []) {
     const found = normalizedMap.get(normalizeStatKey(alias));
     if (typeof found === "number") return found;
   }
   return null;
+}
+
+function mapHtmlMetricLabelToKey(rawLabel: string): LeaderboardMetricKey | null {
+  const label = decodeHtmlEntities(rawLabel).toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const map: Record<string, LeaderboardMetricKey> = {
+    usage: "usg",
+    ts: "ts_pct",
+    tspercent: "ts_pct",
+    "2p": "twop_pct",
+    "2ppercent": "twop_pct",
+    rim: "rim_pct",
+    rimpercent: "rim_pct",
+    rimatt100: "rim_att_100",
+    dunks100: "dunks_100",
+    mid: "mid_pct",
+    midpercent: "mid_pct",
+    "3p": "tp_pct",
+    "3ppercent": "tp_pct",
+    "3pa100": "tpa_100",
+    ftr: "ftr",
+    ast: "ast_pct",
+    astpercent: "ast_pct",
+    rimast100: "rim_assts_100",
+    rimassts100: "rim_assts_100",
+    ato: "ato",
+    to: "to_pct",
+    topercent: "to_pct",
+    stl: "stl_pct",
+    stlpercent: "stl_pct",
+    blk: "blk_pct",
+    blkpercent: "blk_pct",
+    oreb: "oreb_pct",
+    orebpercent: "oreb_pct",
+    dreb: "dreb_pct",
+    drebpercent: "dreb_pct",
+    bpm: "bpm",
+    rapm: "rapm",
+    netpts: "net_points",
+    onoffnetr: "onoff_net",
+    uasstdunks100: "uasst_dunks_100",
+    uasstrimfgm100: "uasst_rim_fgm_100",
+    uasstmidfgm100: "uasst_mid_fgm_100",
+    uasst3pm100: "uasst_3pm_100",
+    unassistedpts100: "unassisted_pts_100",
+  };
+  return map[label] ?? null;
+}
+
+function parseSectionMetricRows(html: string | null | undefined): {
+  values: Record<string, number | null>;
+  percentiles: Record<string, number | null>;
+} {
+  const values: Record<string, number | null> = {};
+  const percentiles: Record<string, number | null> = {};
+  const source = String(html || "");
+  if (!source) return { values, percentiles };
+  const rowRegex =
+    /<div class="metric-row">[\s\S]*?<div class="metric-label">([^<]+)<\/div>[\s\S]*?<div class="metric-val">([^<]+)<\/div>[\s\S]*?<div class="metric-pct">([^<]+)<\/div>[\s\S]*?<\/div>/g;
+  for (const match of source.matchAll(rowRegex)) {
+    const key = mapHtmlMetricLabelToKey(String(match[1] || ""));
+    if (!key) continue;
+    const value = numericOrNull(String(match[2] || "").replace(/%/g, "").trim());
+    const pct = numericOrNull(String(match[3] || "").replace(/[^0-9.\-]/g, "").trim());
+    if (typeof value === "number") values[key] = value;
+    if (typeof pct === "number") percentiles[key] = pct;
+  }
+  return { values, percentiles };
 }
 
 function parseGradeBoxesHtml(raw: string | null | undefined): WatchlistGrade[] {
@@ -245,15 +321,47 @@ export function isLeaderboardMetric(raw?: string): raw is LeaderboardMetricKey {
 function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
   const btRow = safeAnyObject(row.bt_row);
   const sourceValues = safeObject(row.values);
+  const sourcePercentiles = safeObject(row.percentiles);
+  const parsedBtPercentiles = parseSectionMetricRows(row.bt_percentiles_html);
+  const parsedSelfCreation = parseSectionMetricRows(row.self_creation_html);
+  const parsedValues = { ...parsedBtPercentiles.values, ...parsedSelfCreation.values };
+  const parsedPercentiles = { ...parsedBtPercentiles.percentiles, ...parsedSelfCreation.percentiles };
+
   const mergedValues: Record<string, number | null> = { ...sourceValues };
+  const mergedPercentiles: Record<string, number | null> = { ...sourcePercentiles };
+
   for (const metric of LEADERBOARD_METRICS) {
-    const current = mergedValues[metric.key];
-    if (typeof current === "number" && Number.isFinite(current)) continue;
-    const fallback = metricValueFromBtRow(btRow, metric.key);
-    if (typeof fallback === "number" && Number.isFinite(fallback)) {
-      mergedValues[metric.key] = fallback;
+    const key = metric.key;
+    const parsedValue = parsedValues[key];
+    const parsedPercentile = parsedPercentiles[key];
+    const currentValue = mergedValues[key];
+    const currentPercentile = mergedPercentiles[key];
+
+    const hasParsedValue = typeof parsedValue === "number" && Number.isFinite(parsedValue);
+    const hasParsedPercentile = typeof parsedPercentile === "number" && Number.isFinite(parsedPercentile);
+    const currentLooksPlaceholder =
+      currentValue == null ||
+      (currentValue === 0 &&
+        (currentPercentile == null ||
+          currentPercentile === 0 ||
+          !Number.isFinite(Number(currentPercentile))));
+
+    if (hasParsedValue && currentLooksPlaceholder) {
+      mergedValues[key] = parsedValue;
+    }
+    if (hasParsedPercentile && (currentPercentile == null || currentPercentile === 0)) {
+      mergedPercentiles[key] = parsedPercentile;
+    }
+
+    const nextValue = mergedValues[key];
+    if (nextValue == null || !Number.isFinite(Number(nextValue))) {
+      const fallback = metricValueFromBtRow(btRow, key);
+      if (typeof fallback === "number" && Number.isFinite(fallback)) {
+        mergedValues[key] = fallback;
+      }
     }
   }
+
   return {
     ...row,
     pos: normalizePositionCode(row.pos),
@@ -261,7 +369,7 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
     rsci: numericOrNull(row.rsci),
     statistical_height_delta: numericOrNull(row.statistical_height_delta),
     values: mergedValues,
-    percentiles: safeObject(row.percentiles),
+    percentiles: mergedPercentiles,
     minutes_per_game: numericOrNull(btRow.mp),
   };
 }
@@ -307,21 +415,11 @@ function sortRows(
         return (aVal - bVal) * direction;
       }
     }
-    if (sortBy === "player") {
-      return a.player.localeCompare(b.player) * direction;
-    }
-    if (sortBy === "team") {
-      return a.team.localeCompare(b.team) * direction;
-    }
-    if (sortBy === "pos") {
-      return a.pos.localeCompare(b.pos) * direction;
-    }
-    if (sortBy === "height") {
-      return a.height.localeCompare(b.height) * direction;
-    }
-    if (sortBy === "statistical_height") {
-      return a.statistical_height.localeCompare(b.statistical_height) * direction;
-    }
+    if (sortBy === "player") return a.player.localeCompare(b.player) * direction;
+    if (sortBy === "team") return a.team.localeCompare(b.team) * direction;
+    if (sortBy === "pos") return a.pos.localeCompare(b.pos) * direction;
+    if (sortBy === "height") return a.height.localeCompare(b.height) * direction;
+    if (sortBy === "statistical_height") return a.statistical_height.localeCompare(b.statistical_height) * direction;
     if (sortBy === "age") {
       const aVal = a.age ?? Number.NEGATIVE_INFINITY;
       const bVal = b.age ?? Number.NEGATIVE_INFINITY;
@@ -354,32 +452,26 @@ export async function queryLeaderboard(params: {
   minMpg?: number | null;
 }) {
   const sqlParams: unknown[] = [params.gender];
-  const where: string[] = ["gender = $1"];
+  const where: string[] = ["l.gender = $1"];
   const rawConferenceFilter = String(params.conference ?? "").trim();
   const conferenceFilterKey = rawConferenceFilter.toLowerCase();
-  const highMajorConferences = new Set([
-    "ACC",
-    "Big 12",
-    "Big East",
-    "Big Ten",
-    "SEC",
-  ]);
+  const highMajorConferences = new Set(["ACC", "Big 12", "Big East", "Big Ten", "SEC"]);
 
   if (Number.isFinite(params.season)) {
     sqlParams.push(params.season);
-    where.push(`season = $${sqlParams.length}`);
+    where.push(`l.season = $${sqlParams.length}`);
   }
   if (params.team?.trim()) {
     sqlParams.push(`%${params.team.trim()}%`);
-    where.push(`team ilike $${sqlParams.length}`);
+    where.push(`l.team ilike $${sqlParams.length}`);
   }
   if (params.player?.trim()) {
     sqlParams.push(`%${params.player.trim()}%`);
-    where.push(`player ilike $${sqlParams.length}`);
+    where.push(`l.player ilike $${sqlParams.length}`);
   }
   if (params.position?.trim()) {
     sqlParams.push(`%${params.position.trim()}%`);
-    where.push(`pos ilike $${sqlParams.length}`);
+    where.push(`l.pos ilike $${sqlParams.length}`);
   }
   if (
     rawConferenceFilter &&
@@ -388,30 +480,37 @@ export async function queryLeaderboard(params: {
     conferenceFilterKey !== "mid/low major"
   ) {
     sqlParams.push(`%${rawConferenceFilter}%`);
-    where.push(`conference ilike $${sqlParams.length}`);
+    where.push(`l.conference ilike $${sqlParams.length}`);
   }
 
   const rows = await dbQuery<RawLeaderboardRow>(
     `select
-        gender,
-        season,
-        team,
-        player,
-        conference,
-        class,
-        pos,
-        age,
-        height,
-        statistical_height,
-        statistical_height_delta,
-        rsci,
-        values,
-        percentiles,
-        bt_row,
-        updated_at
-      from public.leaderboard_player_stats
+        l.gender,
+        l.season,
+        l.team,
+        l.player,
+        l.conference,
+        l.class,
+        l.pos,
+        l.age,
+        l.height,
+        l.statistical_height,
+        l.statistical_height_delta,
+        l.rsci,
+        l.values,
+        l.percentiles,
+        l.bt_row,
+        p.payload_json -> 'sections_html' ->> 'bt_percentiles_html' as bt_percentiles_html,
+        p.payload_json -> 'sections_html' ->> 'self_creation_html' as self_creation_html,
+        l.updated_at
+      from public.leaderboard_player_stats l
+      left join public.player_payload_index p
+        on p.gender = l.gender
+       and p.season = l.season
+       and p.team = l.team
+       and p.player = l.player
       where ${where.join(" and ")}
-      order by season desc, team asc, player asc`,
+      order by l.season desc, l.team asc, l.player asc`,
     sqlParams,
   );
 
