@@ -468,6 +468,20 @@ function WatchlistPageInner() {
     if (!needle) return allPlayerChoices;
     return allPlayerChoices.filter((option) => option.label.toLowerCase().includes(needle));
   }, [allPlayerChoices, playerSearch]);
+
+  useEffect(() => {
+    if (!filteredPlayerOptions.length) {
+      setPlayerChoiceValue("");
+      setPlayer("");
+      return;
+    }
+    const selectedStillVisible = filteredPlayerOptions.some((option) => option.value === playerChoiceValue);
+    if (selectedStillVisible) return;
+    const next = filteredPlayerOptions[0];
+    setPlayerChoiceValue(next.value);
+    setPlayer(next.player);
+    setTeam(next.team);
+  }, [filteredPlayerOptions, playerChoiceValue]);
   const navSeason = season || 2026;
   const transferRowByKey = useMemo(() => {
     const map = new Map<string, TransferGradeRow>();
@@ -548,10 +562,13 @@ function WatchlistPageInner() {
   }, [dest, favoriteConference, gender, items, liveTransferGrades, mode, transferRowByKey, transferRowByPlayerKey]);
 
   async function addPlayer() {
-    const [selectedPlayer, selectedTeam] = String(playerChoiceValue || "").split("|||");
-    const nextPlayer = String(selectedPlayer || player || "").trim();
-    const nextTeam = String(selectedTeam || team || "").trim();
-    if (!nextTeam || !nextPlayer) return;
+    const selectedOption = allPlayerChoices.find((option) => option.value === playerChoiceValue);
+    const nextPlayer = String(selectedOption?.player || "").trim();
+    const nextTeam = String(selectedOption?.team || "").trim();
+    if (!nextTeam || !nextPlayer) {
+      setWatchlistError("Select a player from the dropdown before adding.");
+      return;
+    }
     setWatchlistError("");
     try {
       const res = await fetch("/api/watchlist", {
@@ -887,7 +904,6 @@ function WatchlistPageInner() {
             <Link href={`/cards?gender=${gender}`} className="text-zinc-300">Player Profiles</Link>
             <Link href={`/roster?gender=${gender}`} className="text-zinc-300">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Transfer Grades</Link>
-            <Link href={`/jason-created-stats?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Leaderboard</Link>
             <Link href={`/watchlist?gender=${gender}&season=${navSeason}`} className="text-red-400">Watchlist</Link>
           </div>

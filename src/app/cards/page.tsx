@@ -669,9 +669,6 @@ function CardsPageInner() {
             <Link href={`/transfer-grades?gender=${gender}&season=${season}`} className="text-zinc-300">
               Transfer Grades
             </Link>
-            <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-zinc-300">
-              Jason Created Stats
-            </Link>
             <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">
               Leaderboard
             </Link>
