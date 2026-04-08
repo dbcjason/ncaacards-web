@@ -419,32 +419,32 @@ function LeaderboardPageInner() {
         <div className="overflow-auto rounded-xl border border-zinc-700 bg-zinc-900">
           <table className="w-max min-w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-zinc-900 text-zinc-400">
-                <th colSpan={BIO_COLUMNS.length} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+              <tr className="bg-zinc-900 text-white">
+                <th colSpan={BIO_COLUMNS.length} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
                   Bio
                 </th>
                 {perGameCols ? (
-                  <th colSpan={perGameCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                  <th colSpan={perGameCols} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
                     Per Game
                   </th>
                 ) : null}
                 {offenseCols ? (
-                  <th colSpan={offenseCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                  <th colSpan={offenseCols} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
                     Offense
                   </th>
                 ) : null}
                 {selfCreationCols ? (
-                  <th colSpan={selfCreationCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                  <th colSpan={selfCreationCols} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
                     Self-Creation
                   </th>
                 ) : null}
                 {defenseRebCols ? (
-                  <th colSpan={defenseRebCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                  <th colSpan={defenseRebCols} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
                     Defense and Rebounding
                   </th>
                 ) : null}
                 {impactCols ? (
-                  <th colSpan={impactCols} className="border-b border-zinc-700 p-2 text-left text-xs uppercase tracking-wide">
+                  <th colSpan={impactCols} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
                     Impact
                   </th>
                 ) : null}

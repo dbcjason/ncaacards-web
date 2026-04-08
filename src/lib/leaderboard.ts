@@ -339,17 +339,12 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
 
     const hasParsedValue = typeof parsedValue === "number" && Number.isFinite(parsedValue);
     const hasParsedPercentile = typeof parsedPercentile === "number" && Number.isFinite(parsedPercentile);
-    const currentLooksPlaceholder =
-      currentValue == null ||
-      (currentValue === 0 &&
-        (currentPercentile == null ||
-          currentPercentile === 0 ||
-          !Number.isFinite(Number(currentPercentile))));
+    const currentLooksPlaceholder = currentValue == null || currentValue === 0;
 
     if (hasParsedValue && currentLooksPlaceholder) {
       mergedValues[key] = parsedValue;
     }
-    if (hasParsedPercentile && (currentPercentile == null || currentPercentile === 0)) {
+    if (hasParsedPercentile && (currentPercentile == null || currentPercentile === 0 || currentValue === 0)) {
       mergedPercentiles[key] = parsedPercentile;
     }
 
