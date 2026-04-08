@@ -4,6 +4,11 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
+import {
+  buildWatchlistWarmRequest,
+  getCachedWatchlistProfile,
+  warmWatchlistProfile,
+} from "@/lib/watchlist-profile-session";
 
 type WatchlistItem = {
   id: string;
@@ -37,23 +42,6 @@ type PlayerChoice = {
   player: string;
   team: string;
   label: string;
-};
-
-type JobApiResponse = {
-  ok?: boolean;
-  id?: string;
-  error?: string;
-};
-
-type JobPollResponse = {
-  ok?: boolean;
-  error?: string;
-  job?: {
-    status?: string;
-    progress?: number;
-    result_json?: { cardHtml?: string } | null;
-    error_text?: string | null;
-  };
 };
 
 type NoteSaveState = "idle" | "saved";
@@ -152,6 +140,7 @@ function WatchlistPageInner() {
   const [liveTransferGrades, setLiveTransferGrades] = useState<Record<string, string>>({});
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [cardHtmlById, setCardHtmlById] = useState<Record<string, string>>({});
+  const [cardRequestKeyById, setCardRequestKeyById] = useState<Record<string, string>>({});
   const [cardLoadingById, setCardLoadingById] = useState<Record<string, boolean>>({});
   const [cardErrorById, setCardErrorById] = useState<Record<string, string>>({});
   const [notesById, setNotesById] = useState<Record<string, string>>({});
@@ -165,9 +154,20 @@ function WatchlistPageInner() {
   const [newListName, setNewListName] = useState("");
   const [renameListName, setRenameListName] = useState("");
   const [multiWatchlistsEnabled, setMultiWatchlistsEnabled] = useState(true);
+  const activeConference = (dest || favoriteConference || "SEC").trim() || "SEC";
 
   const noteStorageKeyFor = (item: WatchlistItem) =>
     `watchlist-note::${gender}::${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
+  const requestKeyForItem = useCallback((item: Pick<WatchlistItem, "season" | "team" | "player">) => {
+    return [
+      gender,
+      String(item.season),
+      item.team.trim().toLowerCase(),
+      item.player.trim().toLowerCase(),
+      mode,
+      mode === "transfer" ? activeConference.toLowerCase() : "",
+    ].join("::");
+  }, [activeConference, gender, mode]);
 
   function redirectToLogin() {
     if (typeof window === "undefined") return;
@@ -310,6 +310,68 @@ function WatchlistPageInner() {
   useEffect(() => {
     void loadWatchlist();
   }, [loadWatchlist]);
+
+  useEffect(() => {
+    if (!items.length) return;
+    const hydrated: Record<string, string> = {};
+    const hydratedKeys: Record<string, string> = {};
+    for (const item of items) {
+      const req = buildWatchlistWarmRequest({
+        gender,
+        season: item.season,
+        team: item.team,
+        player: item.player,
+        mode,
+        destinationConference: activeConference,
+      });
+      const cached = getCachedWatchlistProfile(req);
+      if (!cached) continue;
+      hydrated[item.id] = cached;
+      hydratedKeys[item.id] = requestKeyForItem(item);
+    }
+    if (!Object.keys(hydrated).length) return;
+    setCardHtmlById((current) => ({ ...current, ...hydrated }));
+    setCardRequestKeyById((current) => ({ ...current, ...hydratedKeys }));
+  }, [activeConference, gender, items, mode, requestKeyForItem]);
+
+  useEffect(() => {
+    if (!items.length) return;
+    let active = true;
+    const queue = items.map((item) => ({
+      id: item.id,
+      req: buildWatchlistWarmRequest({
+        gender,
+        season: item.season,
+        team: item.team,
+        player: item.player,
+        mode,
+        destinationConference: activeConference,
+      }),
+    }));
+
+    (async () => {
+      for (const entry of queue) {
+        try {
+          const html = await warmWatchlistProfile(entry.req);
+          if (!active || !html) continue;
+          setCardHtmlById((current) => {
+            if (current[entry.id]) return current;
+            return { ...current, [entry.id]: html };
+          });
+          setCardRequestKeyById((current) => {
+            if (current[entry.id]) return current;
+            const source = items.find((item) => item.id === entry.id);
+            if (!source) return current;
+            return { ...current, [entry.id]: requestKeyForItem(source) };
+          });
+        } catch {}
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [activeConference, gender, items, mode, requestKeyForItem]);
 
   useEffect(() => {
     if (!watchlists.length) return;
@@ -493,6 +555,16 @@ function WatchlistPageInner() {
         delete next[id];
         return next;
       });
+      setCardHtmlById((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setCardRequestKeyById((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to remove player");
     }
@@ -660,26 +732,6 @@ function WatchlistPageInner() {
     }
   }
 
-  async function pollJob(id: string): Promise<string> {
-    while (true) {
-      const res = await fetch(`/api/jobs/${id}`, { cache: "no-store" });
-      const data = (await res.json()) as JobPollResponse;
-      if (!res.ok || !data.ok || !data.job) {
-        throw new Error(data.error || "Failed to poll card build");
-      }
-      const status = String(data.job.status ?? "");
-      if (status === "done") {
-        const html = String(data.job.result_json?.cardHtml ?? "");
-        if (!html) throw new Error("Card HTML missing from job result");
-        return html;
-      }
-      if (status === "error") {
-        throw new Error(String(data.job.error_text ?? "Card build failed"));
-      }
-      await new Promise((resolve) => setTimeout(resolve, 900));
-    }
-  }
-
   async function waitForIframeReady(iframe: HTMLIFrameElement) {
     if (iframe.contentDocument?.readyState === "complete") return;
     await new Promise<void>((resolve) => {
@@ -716,12 +768,13 @@ function WatchlistPageInner() {
   }
 
   async function expandItem(item: WatchlistItem) {
+    const itemRequestKey = requestKeyForItem(item);
     if (expandedIds[item.id]) {
       setExpandedIds((current) => ({ ...current, [item.id]: false }));
       return;
     }
     setExpandedIds((current) => ({ ...current, [item.id]: true }));
-    if (cardHtmlById[item.id]) {
+    if (cardHtmlById[item.id] && cardRequestKeyById[item.id] === itemRequestKey) {
       if (mode === "transfer") {
         window.setTimeout(() => {
           void hydrateTransferPanel(item);
@@ -732,27 +785,17 @@ function WatchlistPageInner() {
     setCardLoadingById((current) => ({ ...current, [item.id]: true }));
     setCardErrorById((current) => ({ ...current, [item.id]: "" }));
     try {
-      const res = await fetch("/api/jobs/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jobType: "card",
-          request: {
-            gender,
-            season: item.season,
-            team: item.team,
-            player: item.player,
-            mode,
-            destinationConference: mode === "transfer" ? dest : "",
-          },
-        }),
+      const req = buildWatchlistWarmRequest({
+        gender,
+        season: item.season,
+        team: item.team,
+        player: item.player,
+        mode,
+        destinationConference: activeConference,
       });
-      const data = (await res.json()) as JobApiResponse;
-      if (!res.ok || !data.ok || !data.id) {
-        throw new Error(data.error || "Failed to start card build");
-      }
-      const html = await pollJob(data.id);
+      const html = await warmWatchlistProfile(req);
       setCardHtmlById((current) => ({ ...current, [item.id]: html }));
+      setCardRequestKeyById((current) => ({ ...current, [item.id]: itemRequestKey }));
       if (mode === "transfer") {
         window.setTimeout(() => {
           void hydrateTransferPanel(item);
