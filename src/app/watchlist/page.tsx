@@ -232,7 +232,7 @@ function WatchlistPageInner() {
   const [team, setTeam] = useState("");
   const [player, setPlayer] = useState("");
   const [playerSearch, setPlayerSearch] = useState("");
-  const [mode, setMode] = useState<"draft" | "transfer">("transfer");
+  const [mode, setMode] = useState<"draft" | "transfer">("draft");
   const [dest, setDest] = useState("SEC");
   const [favoriteTeam, setFavoriteTeam] = useState("");
   const [favoriteConference, setFavoriteConference] = useState("SEC");
@@ -1057,7 +1057,12 @@ function WatchlistPageInner() {
               {!filteredPlayerOptions.length ? <option value="">No matching players</option> : null}
               {filteredPlayerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
-            <select className="rounded bg-zinc-800 p-2" value={mode} onChange={() => setMode("transfer")}>
+            <select
+              className="rounded bg-zinc-800 p-2"
+              value={mode}
+              onChange={(e) => setMode(e.target.value as "draft" | "transfer")}
+            >
+              <option value="draft">{gender === "women" ? "WNBA Draft" : "NBA Draft"}</option>
               <option value="transfer">Transfer</option>
             </select>
             <select className="rounded bg-zinc-800 p-2" value={dest} onChange={(e) => setDest(e.target.value)} disabled={mode !== "transfer"}>

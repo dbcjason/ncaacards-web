@@ -67,7 +67,7 @@ function CardsPageInner() {
   const [compare, setCompare] = useState(false);
   const [teamB, setTeamB] = useState("");
   const [playerB, setPlayerB] = useState("");
-  const [mode, setMode] = useState<"draft" | "transfer">("transfer");
+  const [mode, setMode] = useState<"draft" | "transfer">("draft");
   const [dest, setDest] = useState("SEC");
   const [favoriteTeam, setFavoriteTeam] = useState("");
 
@@ -760,6 +760,7 @@ function CardsPageInner() {
             value={mode}
             onChange={(e) => setMode(e.target.value as "draft" | "transfer")}
           >
+            <option value="draft">{draftLabel}</option>
             <option value="transfer">Transfer</option>
           </select>
 
