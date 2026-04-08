@@ -101,6 +101,16 @@ function percentileTone(value: number | null | undefined) {
   return "text-zinc-500";
 }
 
+function normalizeClassLabel(raw: string | null | undefined): string {
+  const text = String(raw || "").trim().toLowerCase();
+  if (!text) return "N/A";
+  if (text === "fr" || text.includes("fresh")) return "Fr";
+  if (text === "so" || text.includes("soph")) return "So";
+  if (text === "jr" || text.includes("jun")) return "Jr";
+  if (text === "sr" || text.includes("sen")) return "Sr";
+  return "N/A";
+}
+
 function SortableHeader({
   label,
   sortKey,
@@ -136,8 +146,8 @@ export default function LeaderboardPage() {
 
 function LeaderboardPageInner() {
   const searchParams = useSearchParams();
-  const [gender, setGender] = useState<"all" | "men" | "women">("all");
-  const [season, setSeason] = useState<number>(2026);
+  const [gender, setGender] = useState<"men" | "women">("men");
+  const [season, setSeason] = useState<string>("2026");
   const [teamFilter, setTeamFilter] = useState("");
   const [positionFilter, setPositionFilter] = useState("");
   const [conferenceFilter, setConferenceFilter] = useState("");
@@ -157,10 +167,15 @@ function LeaderboardPageInner() {
 
   useEffect(() => {
     const g = searchParams.get("gender");
-    setGender(g === "women" ? "women" : g === "men" ? "men" : "all");
-    const seasonParam = Number(searchParams.get("season"));
+    setGender(g === "women" ? "women" : "men");
+    const seasonRaw = String(searchParams.get("season") || "").trim().toLowerCase();
+    if (seasonRaw === "all") {
+      setSeason("all");
+      return;
+    }
+    const seasonParam = Number(seasonRaw);
     if (Number.isFinite(seasonParam) && seasonParam > 2000) {
-      setSeason(seasonParam);
+      setSeason(String(seasonParam));
     }
   }, [searchParams]);
 
@@ -174,7 +189,7 @@ function LeaderboardPageInner() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             gender,
-            season,
+            season: season === "all" ? null : Number(season),
             team: teamFilter,
             position: positionFilter,
             conference: conferenceFilter,
@@ -227,11 +242,11 @@ function LeaderboardPageInner() {
   }, [conferences]);
   const filterFieldOptions = useMemo<FilterFieldMeta[]>(
     () => [
-      { key: "age", label: "Age", supportsPercentile: false },
+      ...(gender === "women" ? [] : [{ key: "age", label: "Age", supportsPercentile: false }]),
       { key: "rsci", label: "RSCI", supportsPercentile: false },
       ...metricOptions.map((metric) => ({ key: metric.key, label: metric.label, supportsPercentile: true })),
     ],
-    [metricOptions],
+    [gender, metricOptions],
   );
   const perGameCols = useMemo(
     () => metricOptions.filter((metric) => PER_GAME_KEYS.includes(metric.key as (typeof PER_GAME_KEYS)[number])).length,
@@ -267,42 +282,31 @@ function LeaderboardPageInner() {
     }
   };
 
-  const navSeason = season || 2026;
-  const navGender = gender === "all" ? "men" : gender;
+  const navSeason = Number(season) || 2026;
+  const showAge = gender !== "women";
+  const showClass = gender === "women";
+  const bioColCount = 6 + (showAge ? 1 : 0) + (showClass ? 1 : 0);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto w-full max-w-[1900px] px-6 py-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex gap-5 text-sm">
-            <Link href={`/cards?gender=${navGender}`} className="text-zinc-300">Player Profiles</Link>
-            <Link href={`/roster?gender=${navGender}`} className="text-zinc-300">Roster Construction</Link>
-            <Link href={`/transfer-grades?gender=${navGender}&season=${navSeason}`} className="text-zinc-300">Transfer Grades</Link>
-            <Link href={`/jason-created-stats?gender=${navGender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
+            <Link href={`/cards?gender=${gender}`} className="text-zinc-300">Player Profiles</Link>
+            <Link href={`/roster?gender=${gender}`} className="text-zinc-300">Roster Construction</Link>
+            <Link href={`/transfer-grades?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Transfer Grades</Link>
+            <Link href={`/jason-created-stats?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${navSeason}`} className="text-red-400">Leaderboard</Link>
-            <Link href={`/watchlist?gender=${navGender}&season=${navSeason}`} className="text-zinc-300">Watchlist</Link>
+            <Link href={`/watchlist?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Watchlist</Link>
           </div>
-          <Link href={`/?gender=${navGender}`} className="text-zinc-400">Home</Link>
+          <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
 
         <div className="mb-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-lg font-bold">Player Leaderboard</div>
-            <div className="flex items-center gap-2 text-sm">
-              {(["all", "men", "women"] as const).map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  className={`rounded px-3 py-1 ${gender === g ? "bg-zinc-700 text-white" : "bg-zinc-800 text-zinc-300"}`}
-                  onClick={() => setGender(g)}
-                >
-                  {g === "all" ? "All" : g === "men" ? "Men" : "Women"}
-                </button>
-              ))}
-            </div>
-          </div>
+          <div className="mb-2 text-lg font-bold">Player Leaderboard</div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
-            <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
+            <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(e.target.value)}>
+              <option value="all">All</option>
               {SEASONS.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter team" value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} list="leaderboard-teams" />
@@ -440,7 +444,7 @@ function LeaderboardPageInner() {
           <table className="w-max min-w-full border-collapse text-sm">
             <thead>
               <tr className="bg-zinc-900 text-white">
-                <th colSpan={BIO_COLUMNS.length} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
+                <th colSpan={bioColCount} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
                   Bio
                 </th>
                 {perGameCols ? (
@@ -475,8 +479,11 @@ function LeaderboardPageInner() {
                 <SortableHeader label="Pos" sortKey="pos" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
                 <SortableHeader label="Height" sortKey="height" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
                 <SortableHeader label="Stat Height" sortKey="statistical_height" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
-                <SortableHeader label="Age" sortKey="age" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                {showAge ? (
+                  <SortableHeader label="Age" sortKey="age" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                ) : null}
                 <SortableHeader label="RSCI" sortKey="rsci" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                {showClass ? <th className="border-b border-zinc-700 p-2 text-left">Class</th> : null}
                 {metricOptions.map((metric) => (
                   <SortableHeader
                     key={metric.key}
@@ -506,8 +513,9 @@ function LeaderboardPageInner() {
                       </div>
                     ) : null}
                   </td>
-                  <td className="p-2">{fmtNumber(row.age)}</td>
+                  {showAge ? <td className="p-2">{fmtNumber(row.age)}</td> : null}
                   <td className="p-2">{typeof row.rsci === "number" ? row.rsci : "UR"}</td>
+                  {showClass ? <td className="p-2">{normalizeClassLabel(row.class)}</td> : null}
                   {metricOptions.map((metric) => (
                     <td key={metric.key} className="min-w-[84px] p-2 text-center">
                       <div>{fmtNumber(row.values?.[metric.key])}</div>
