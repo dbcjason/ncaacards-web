@@ -45,6 +45,8 @@ type PlayerChoice = {
 };
 
 type NoteSaveState = "idle" | "saved";
+const CARD_IFRAME_BASE_WIDTH = 1110;
+const CARD_IFRAME_BASE_HEIGHT = 2300;
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
@@ -110,6 +112,60 @@ function transferConferenceCandidates(raw: string) {
 function parseTransferGradeFromHtml(html: string) {
   const match = html.match(/Transfer Grade:\s*([ABCDF][+-]?)/i);
   return match ? String(match[1]).toUpperCase() : "";
+}
+
+function ScaledCardFrame({
+  html,
+  title,
+  setFrameRef,
+}: {
+  html: string;
+  title: string;
+  setFrameRef: (node: HTMLIFrameElement | null) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(0.325);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+
+    const updateScale = () => {
+      const nextScale = node.clientWidth / CARD_IFRAME_BASE_WIDTH;
+      if (Number.isFinite(nextScale) && nextScale > 0) {
+        setScale(nextScale);
+      }
+    };
+
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const scaledHeight = Math.round(CARD_IFRAME_BASE_HEIGHT * scale);
+
+  return (
+    <div ref={containerRef} className="w-full overflow-hidden rounded">
+      <div className="relative w-full" style={{ height: `${scaledHeight}px` }}>
+        <iframe
+          ref={setFrameRef}
+          title={title}
+          srcDoc={html}
+          className="absolute left-0 top-0 rounded border-0"
+          style={
+            {
+              width: `${CARD_IFRAME_BASE_WIDTH}px`,
+              height: `${CARD_IFRAME_BASE_HEIGHT}px`,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+            } as CSSProperties
+          }
+          sandbox="allow-same-origin allow-scripts"
+        />
+      </div>
+    </div>
+  );
 }
 
 export default function WatchlistPage() {
@@ -1032,30 +1088,23 @@ function WatchlistPageInner() {
                 <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <div className="overflow-hidden rounded border border-zinc-800 bg-black">
                     {cardHtmlById[item.id] ? (
-                      <div className="mx-auto h-[50vh] min-h-[420px] max-h-[760px] w-full overflow-hidden rounded">
-                        <div className="h-full w-full">
-                          <iframe
-                            ref={(node) => {
-                              iframeRefs.current[item.id] = node;
-                            }}
-                            title={`${item.player} card`}
-                            srcDoc={cardHtmlById[item.id]}
-                            className="h-[2300px] w-full rounded"
-                            style={{ zoom: 0.325 } as CSSProperties}
-                            sandbox="allow-same-origin allow-scripts"
-                          />
-                        </div>
-                      </div>
+                      <ScaledCardFrame
+                        html={cardHtmlById[item.id]}
+                        title={`${item.player} card`}
+                        setFrameRef={(node) => {
+                          iframeRefs.current[item.id] = node;
+                        }}
+                      />
                     ) : (
                       <div className="flex min-h-[420px] items-center justify-center text-sm text-zinc-400">
                         {cardLoadingById[item.id] ? "Building card..." : "Card preview unavailable."}
                       </div>
                     )}
                   </div>
-                  <div className="rounded border border-zinc-800 bg-zinc-950 p-4">
+                  <div className="flex h-full flex-col rounded border border-zinc-800 bg-zinc-950 p-4">
                     <div className="mb-2 text-base font-semibold text-zinc-100">Notes</div>
                     <textarea
-                      className="min-h-[320px] w-full rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                      className="min-h-[320px] w-full flex-1 rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
                       placeholder="Add notes on this player..."
                       value={notesById[item.id] ?? ""}
                       onChange={(e) => {
