@@ -92,15 +92,36 @@ function geoFromHeaders(h: Headers): { country: string | null; region: string | 
   };
 }
 
+function canonicalCookieDomainFromHost(rawHost: string | null | undefined): string | null {
+  const host = String(rawHost || "").trim().toLowerCase().split(":")[0];
+  if (!host) return null;
+  if (host === "dbcjason.com" || host.endsWith(".dbcjason.com")) {
+    return ".dbcjason.com";
+  }
+  return null;
+}
+
+async function sessionCookieConfig(expiresAt: Date) {
+  const h = await headers();
+  return {
+    base: {
+      httpOnly: true as const,
+      sameSite: "lax" as const,
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      expires: expiresAt,
+    },
+    domain: canonicalCookieDomainFromHost(h.get("host")),
+  };
+}
+
 async function setSessionCookie(rawToken: string, expiresAt: Date) {
   const jar = await cookies();
-  jar.set(SESSION_COOKIE_NAME, rawToken, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    expires: expiresAt,
-  });
+  const config = await sessionCookieConfig(expiresAt);
+  jar.set(SESSION_COOKIE_NAME, rawToken, config.base);
+  if (config.domain) {
+    jar.set(SESSION_COOKIE_NAME, rawToken, { ...config.base, domain: config.domain });
+  }
 }
 
 export async function clearSessionCookie() {

@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateUser, createSessionForUser, logUsageEvent, SESSION_COOKIE_NAME } from "@/lib/auth";
 
+function cookieDomainForRequest(req: NextRequest): string | null {
+  const host = String(req.headers.get("host") || "").trim().toLowerCase().split(":")[0];
+  if (!host) return null;
+  if (host === "dbcjason.com" || host.endsWith(".dbcjason.com")) return ".dbcjason.com";
+  return null;
+}
+
 function redirectWithMessage(req: NextRequest, kind: "notice" | "error", message: string) {
   const url = req.nextUrl.clone();
   url.pathname = "/";
@@ -38,13 +45,18 @@ export async function POST(req: NextRequest) {
     url.pathname = nextPath || (user.role === "admin" ? "/dashboard" : "/cards");
     url.search = nextPath ? url.search : "";
     const response = NextResponse.redirect(url, 303);
-    response.cookies.set(SESSION_COOKIE_NAME, session.token, {
+    const cookieBase = {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
       expires: session.expiresAt,
-    });
+    } as const;
+    response.cookies.set(SESSION_COOKIE_NAME, session.token, cookieBase);
+    const domain = cookieDomainForRequest(req);
+    if (domain) {
+      response.cookies.set(SESSION_COOKIE_NAME, session.token, { ...cookieBase, domain });
+    }
     return response;
   } catch (error) {
     console.error("[auth] login failed", error);
