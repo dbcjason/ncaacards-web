@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { canAccessGenderScope, getCurrentUser } from "@/lib/auth";
-import HeaderUserNav from "@/components/header-user-nav";
+import { getCurrentUser } from "@/lib/auth";
+import { WatchlistSessionPreloader } from "@/components/watchlist-session-preloader";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -32,14 +32,6 @@ async function AppChrome({
   children: React.ReactNode;
 }) {
   const user = await userPromise;
-  const canViewMen = user
-    ? canAccessGenderScope(user.access_scope, "men") &&
-      canAccessGenderScope(user.organization_access_scope, "men")
-    : false;
-  const canViewWomen = user
-    ? canAccessGenderScope(user.access_scope, "women") &&
-      canAccessGenderScope(user.organization_access_scope, "women")
-    : false;
 
   return (
     <>
@@ -51,10 +43,31 @@ async function AppChrome({
             </Link>
           </div>
           {user ? (
-            <HeaderUserNav canViewMen={canViewMen} canViewWomen={canViewWomen} isAdmin={user.role === "admin"} />
+            <div className="flex items-center gap-5 text-sm text-zinc-300">
+              {user.access_scope !== "women" && <Link href="/cards?gender=men" className="hover:text-white">Men</Link>}
+              {user.access_scope !== "men" && <Link href="/cards?gender=women" className="hover:text-white">Women</Link>}
+              {user.role === "admin" && <Link href="/dashboard" className="hover:text-white">Admin Dashboard</Link>}
+              <Link href="/profile" className="hover:text-white">Profile</Link>
+              <form action="/api/auth/logout" method="post">
+                <button type="submit" className="hover:text-white">Sign Out</button>
+              </form>
+            </div>
           ) : null}
         </div>
       </header>
+      {user ? (
+        <WatchlistSessionPreloader
+          accessScope={user.access_scope}
+          favoriteConference={
+            String(
+              user.effective_favorite_conference ||
+              user.favorite_conference ||
+              user.organization_favorite_conference ||
+              "SEC",
+            )
+          }
+        />
+      ) : null}
       <main>{children}</main>
     </>
   );

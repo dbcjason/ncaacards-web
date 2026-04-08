@@ -1,9 +1,14 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
+import {
+  buildWatchlistWarmRequest,
+  getCachedWatchlistProfile,
+  warmWatchlistProfile,
+} from "@/lib/watchlist-profile-session";
 
 type WatchlistItem = {
   id: string;
@@ -25,38 +30,12 @@ type WatchlistItem = {
 };
 
 type TransferGradeRow = Record<string, string>;
-type WatchlistSummary = {
-  id: string;
-  name: string;
-  sort_order: number;
-  item_count: number;
-};
-
 type PlayerChoice = {
   value: string;
   player: string;
   team: string;
   label: string;
 };
-
-type JobApiResponse = {
-  ok?: boolean;
-  id?: string;
-  error?: string;
-};
-
-type JobPollResponse = {
-  ok?: boolean;
-  error?: string;
-  job?: {
-    status?: string;
-    progress?: number;
-    result_json?: { cardHtml?: string } | null;
-    error_text?: string | null;
-  };
-};
-
-type NoteSaveState = "idle" | "saved";
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
@@ -124,6 +103,20 @@ function parseTransferGradeFromHtml(html: string) {
   return match ? String(match[1]).toUpperCase() : "";
 }
 
+function requestKeyForItemContext(
+  item: Pick<WatchlistItem, "season" | "team" | "player">,
+  context: { gender: "men" | "women"; mode: "draft" | "transfer"; destinationConference: string },
+) {
+  return [
+    context.gender,
+    String(item.season),
+    item.team.trim().toLowerCase(),
+    item.player.trim().toLowerCase(),
+    context.mode,
+    context.mode === "transfer" ? context.destinationConference.trim().toLowerCase() : "",
+  ].join("::");
+}
+
 export default function WatchlistPage() {
   return (
     <Suspense fallback={null}>
@@ -152,36 +145,14 @@ function WatchlistPageInner() {
   const [liveTransferGrades, setLiveTransferGrades] = useState<Record<string, string>>({});
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [cardHtmlById, setCardHtmlById] = useState<Record<string, string>>({});
+  const [cardRequestKeyById, setCardRequestKeyById] = useState<Record<string, string>>({});
   const [cardLoadingById, setCardLoadingById] = useState<Record<string, boolean>>({});
   const [cardErrorById, setCardErrorById] = useState<Record<string, string>>({});
-  const [notesById, setNotesById] = useState<Record<string, string>>({});
-  const [noteSaveStateById, setNoteSaveStateById] = useState<Record<string, NoteSaveState>>({});
   const [dragId, setDragId] = useState("");
   const [optionsError, setOptionsError] = useState("");
   const [watchlistError, setWatchlistError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [watchlists, setWatchlists] = useState<WatchlistSummary[]>([]);
-  const [activeListId, setActiveListId] = useState("");
-  const [newListName, setNewListName] = useState("");
-  const [renameListName, setRenameListName] = useState("");
-  const [multiWatchlistsEnabled, setMultiWatchlistsEnabled] = useState(true);
-
-  const noteStorageKeyFor = (item: WatchlistItem) =>
-    `watchlist-note::${gender}::${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
-
-  function redirectToLogin() {
-    if (typeof window === "undefined") return;
-    const next = `${window.location.pathname}${window.location.search}`;
-    window.location.href = `/?next=${encodeURIComponent(next)}`;
-  }
-
-  function isAuthError(status: number, error?: string) {
-    return (
-      status === 401 ||
-      String(error ?? "") === "UNAUTHENTICATED" ||
-      String(error ?? "") === "ACCOUNT_EXPIRED"
-    );
-  }
+  const activeConference = (dest || favoriteConference || "SEC").trim() || "SEC";
 
   useEffect(() => {
     const g = searchParams.get("gender");
@@ -268,68 +239,99 @@ function WatchlistPageInner() {
     };
   }, [gender, season]);
 
-  const loadWatchlist = useCallback(async (listId?: string) => {
+  async function loadWatchlist() {
     setLoading(true);
     setWatchlistError("");
     try {
-      const query = new URLSearchParams({ gender, season: String(season) });
-      if (listId) query.set("listId", listId);
-      const res = await fetch(`/api/watchlist?${query.toString()}`, { cache: "no-store" });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        items?: WatchlistItem[];
-        watchlists?: WatchlistSummary[];
-        activeListId?: string;
-        multiWatchlistsEnabled?: boolean;
-      };
-      if (isAuthError(res.status, data.error)) {
-        redirectToLogin();
-        return;
-      }
+      const res = await fetch(`/api/watchlist?gender=${gender}&season=${season}`, { cache: "no-store" });
+      const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load watchlist");
       setItems(Array.isArray(data.items) ? data.items : []);
-      const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
-      setWatchlists(nextWatchlists);
-      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
-      const nextActive = String(data.activeListId ?? "");
-      setActiveListId(nextActive);
-      const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
-      if (currentActive) setRenameListName(currentActive.name);
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to load watchlist");
       setItems([]);
-      setWatchlists([]);
-      setActiveListId("");
-      setMultiWatchlistsEnabled(false);
     } finally {
       setLoading(false);
     }
-  }, [gender, season]);
+  }
 
   useEffect(() => {
     void loadWatchlist();
-  }, [loadWatchlist]);
+  }, [gender, season]);
 
   useEffect(() => {
-    if (!watchlists.length) return;
-    const currentActive = watchlists.find((entry) => entry.id === activeListId);
-    if (currentActive) setRenameListName(currentActive.name);
-  }, [activeListId, watchlists]);
-
-  useEffect(() => {
-    const next: Record<string, string> = {};
+    if (!items.length) return;
+    const hydrated: Record<string, string> = {};
+    const hydratedKeys: Record<string, string> = {};
     for (const item of items) {
-      try {
-        const saved = window.localStorage.getItem(noteStorageKeyFor(item));
-        next[item.id] = saved ?? "";
-      } catch {
-        next[item.id] = "";
+      const req = buildWatchlistWarmRequest({
+        gender,
+        season: item.season,
+        team: item.team,
+        player: item.player,
+        mode,
+        destinationConference: activeConference,
+      });
+      const cached = getCachedWatchlistProfile(req);
+      if (cached) {
+        hydrated[item.id] = cached;
+        hydratedKeys[item.id] = requestKeyForItemContext(item, {
+          gender,
+          mode,
+          destinationConference: activeConference,
+        });
       }
     }
-    setNotesById(next);
-    setNoteSaveStateById({});
-  }, [items, gender]);
+    if (!Object.keys(hydrated).length) return;
+    setCardHtmlById((current) => ({ ...current, ...hydrated }));
+    setCardRequestKeyById((current) => ({ ...current, ...hydratedKeys }));
+  }, [activeConference, gender, items, mode]);
+
+  useEffect(() => {
+    if (!items.length) return;
+    let active = true;
+    const queue = items.map((item) => ({
+      id: item.id,
+      req: buildWatchlistWarmRequest({
+        gender,
+        season: item.season,
+        team: item.team,
+        player: item.player,
+        mode,
+        destinationConference: activeConference,
+      }),
+    }));
+
+    (async () => {
+      for (const entry of queue) {
+        try {
+          const html = await warmWatchlistProfile(entry.req);
+          if (!active || !html) continue;
+          setCardHtmlById((current) => {
+            if (current[entry.id]) return current;
+            return { ...current, [entry.id]: html };
+          });
+          setCardRequestKeyById((current) => {
+            if (current[entry.id]) return current;
+            const item = items.find((candidate) => candidate.id === entry.id);
+            if (!item) return current;
+            return {
+              ...current,
+              [entry.id]: requestKeyForItemContext(item, {
+                gender,
+                mode,
+                destinationConference: activeConference,
+              }),
+            };
+          });
+        } catch {}
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [activeConference, gender, items, mode]);
 
   const allPlayerChoices = useMemo<PlayerChoice[]>(() => {
     const out: PlayerChoice[] = [];
@@ -359,35 +361,13 @@ function WatchlistPageInner() {
     }
     return map;
   }, [transferRows]);
-  const transferRowByPlayerKey = useMemo(() => {
-    const grouped = new Map<string, TransferGradeRow[]>();
-    for (const row of transferRows) {
-      const key = `${String(row.season || "").trim()}::${String(row.player || "").trim().toLowerCase()}`;
-      const list = grouped.get(key) ?? [];
-      list.push(row);
-      grouped.set(key, list);
-    }
-    const unique = new Map<string, TransferGradeRow>();
-    for (const [key, list] of grouped.entries()) {
-      if (list.length === 1) unique.set(key, list[0]);
-    }
-    return unique;
-  }, [transferRows]);
-
-  function getTransferRow(item: { season: number; team: string; player: string }) {
-    const exactKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
-    const exact = transferRowByKey.get(exactKey);
-    if (exact) return exact;
-    const playerOnlyKey = `${item.season}::${item.player.trim().toLowerCase()}`;
-    return transferRowByPlayerKey.get(playerOnlyKey);
-  }
 
   useEffect(() => {
     if (mode !== "transfer" || !items.length) return;
     const conference = dest || favoriteConference || "SEC";
     const missing = items.filter((item) => {
       const baseKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
-      const row = getTransferRow(item);
+      const row = transferRowByKey.get(baseKey);
       const csvGrade = row
         ? transferConferenceCandidates(conference)
             .map((candidate) => String(row[candidate] || "").trim())
@@ -427,7 +407,7 @@ function WatchlistPageInner() {
     return () => {
       active = false;
     };
-  }, [dest, favoriteConference, gender, items, liveTransferGrades, mode, transferRowByKey, transferRowByPlayerKey]);
+  }, [dest, favoriteConference, gender, items, liveTransferGrades, mode, transferRowByKey]);
 
   async function addPlayer() {
     const [selectedPlayer, selectedTeam] = String(playerChoiceValue || "").split("|||");
@@ -439,25 +419,11 @@ function WatchlistPageInner() {
       const res = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gender, season, listId: activeListId, team: nextTeam, player: nextPlayer }),
+        body: JSON.stringify({ gender, season, team: nextTeam, player: nextPlayer }),
       });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        items?: WatchlistItem[];
-        watchlists?: WatchlistSummary[];
-        activeListId?: string;
-        multiWatchlistsEnabled?: boolean;
-      };
-      if (isAuthError(res.status, data.error)) {
-        redirectToLogin();
-        return;
-      }
+      const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to add player");
       setItems(Array.isArray(data.items) ? data.items : []);
-      setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
-      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
-      setActiveListId(String(data.activeListId ?? activeListId));
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to add player");
     }
@@ -466,29 +432,23 @@ function WatchlistPageInner() {
   async function removeItem(id: string) {
     setWatchlistError("");
     try {
-      const query = new URLSearchParams({ gender, season: String(season), id });
-      if (activeListId) query.set("listId", activeListId);
-      const res = await fetch(`/api/watchlist?${query.toString()}`, {
+      const res = await fetch(`/api/watchlist?gender=${gender}&season=${season}&id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        items?: WatchlistItem[];
-        watchlists?: WatchlistSummary[];
-        activeListId?: string;
-        multiWatchlistsEnabled?: boolean;
-      };
-      if (isAuthError(res.status, data.error)) {
-        redirectToLogin();
-        return;
-      }
+      const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to remove player");
       setItems(Array.isArray(data.items) ? data.items : []);
-      setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
-      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
-      setActiveListId(String(data.activeListId ?? activeListId));
       setExpandedIds((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setCardHtmlById((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setCardRequestKeyById((current) => {
         const next = { ...current };
         delete next[id];
         return next;
@@ -503,181 +463,13 @@ function WatchlistPageInner() {
     const res = await fetch("/api/watchlist", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gender, season, listId: activeListId, orderedIds }),
+      body: JSON.stringify({ gender, season, orderedIds }),
     });
-    const data = (await res.json()) as {
-      ok?: boolean;
-      error?: string;
-      items?: WatchlistItem[];
-      watchlists?: WatchlistSummary[];
-      activeListId?: string;
-      multiWatchlistsEnabled?: boolean;
-    };
-    if (isAuthError(res.status, data.error)) {
-      redirectToLogin();
-      return;
-    }
+    const data = (await res.json()) as { ok?: boolean; error?: string; items?: WatchlistItem[] };
     if (!res.ok || !data.ok) {
       throw new Error(data.error || "Failed to reorder watchlist");
     }
     setItems(Array.isArray(data.items) ? data.items : nextItems);
-    setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
-    setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
-    setActiveListId(String(data.activeListId ?? activeListId));
-  }
-
-  async function createWatchlist() {
-    const name = newListName.trim();
-    if (!name) return;
-    if (!multiWatchlistsEnabled) {
-      setWatchlistError("Multiple watchlists will activate after database migration runs.");
-      return;
-    }
-    setWatchlistError("");
-    try {
-      const res = await fetch("/api/watchlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "createList", gender, season, name }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        items?: WatchlistItem[];
-        watchlists?: WatchlistSummary[];
-        activeListId?: string;
-        multiWatchlistsEnabled?: boolean;
-      };
-      if (isAuthError(res.status, data.error)) {
-        redirectToLogin();
-        return;
-      }
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to create watchlist");
-      setItems(Array.isArray(data.items) ? data.items : []);
-      const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
-      setWatchlists(nextWatchlists);
-      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
-      const nextActive = String(data.activeListId ?? "");
-      setActiveListId(nextActive);
-      const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
-      if (currentActive) setRenameListName(currentActive.name);
-      setNewListName("");
-    } catch (err) {
-      setWatchlistError(err instanceof Error ? err.message : "Failed to create watchlist");
-    }
-  }
-
-  async function renameWatchlist() {
-    const name = renameListName.trim();
-    if (!activeListId || !name) return;
-    if (!multiWatchlistsEnabled) {
-      setWatchlistError("Multiple watchlists will activate after database migration runs.");
-      return;
-    }
-    setWatchlistError("");
-    const previous = watchlists;
-    setWatchlists((current) => current.map((entry) => (entry.id === activeListId ? { ...entry, name } : entry)));
-    try {
-      const res = await fetch("/api/watchlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "renameList",
-          gender,
-          season,
-          listId: activeListId,
-          name,
-        }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        items?: WatchlistItem[];
-        watchlists?: WatchlistSummary[];
-        activeListId?: string;
-        multiWatchlistsEnabled?: boolean;
-      };
-      if (isAuthError(res.status, data.error)) {
-        redirectToLogin();
-        return;
-      }
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to rename watchlist");
-      setItems(Array.isArray(data.items) ? data.items : []);
-      setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
-      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
-      setActiveListId(String(data.activeListId ?? activeListId));
-    } catch (err) {
-      setWatchlists(previous);
-      setWatchlistError(err instanceof Error ? err.message : "Failed to rename watchlist");
-    }
-  }
-
-  async function deleteWatchlist() {
-    if (!activeListId) return;
-    if (!multiWatchlistsEnabled) {
-      setWatchlistError("Multiple watchlists will activate after database migration runs.");
-      return;
-    }
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm("Delete this watchlist and all players in it?");
-      if (!confirmed) return;
-    }
-    setWatchlistError("");
-    try {
-      const res = await fetch("/api/watchlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "deleteList",
-          gender,
-          season,
-          listId: activeListId,
-        }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        items?: WatchlistItem[];
-        watchlists?: WatchlistSummary[];
-        activeListId?: string;
-        multiWatchlistsEnabled?: boolean;
-      };
-      if (isAuthError(res.status, data.error)) {
-        redirectToLogin();
-        return;
-      }
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to delete watchlist");
-      setItems(Array.isArray(data.items) ? data.items : []);
-      const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
-      setWatchlists(nextWatchlists);
-      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
-      const nextActive = String(data.activeListId ?? "");
-      setActiveListId(nextActive);
-      const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
-      if (currentActive) setRenameListName(currentActive.name);
-    } catch (err) {
-      setWatchlistError(err instanceof Error ? err.message : "Failed to delete watchlist");
-    }
-  }
-
-  async function pollJob(id: string): Promise<string> {
-    while (true) {
-      const res = await fetch(`/api/jobs/${id}`, { cache: "no-store" });
-      const data = (await res.json()) as JobPollResponse;
-      if (!res.ok || !data.ok || !data.job) {
-        throw new Error(data.error || "Failed to poll card build");
-      }
-      const status = String(data.job.status ?? "");
-      if (status === "done") {
-        const html = String(data.job.result_json?.cardHtml ?? "");
-        if (!html) throw new Error("Card HTML missing from job result");
-        return html;
-      }
-      if (status === "error") {
-        throw new Error(String(data.job.error_text ?? "Card build failed"));
-      }
-      await new Promise((resolve) => setTimeout(resolve, 900));
-    }
   }
 
   async function waitForIframeReady(iframe: HTMLIFrameElement) {
@@ -716,12 +508,17 @@ function WatchlistPageInner() {
   }
 
   async function expandItem(item: WatchlistItem) {
+    const itemRequestKey = requestKeyForItemContext(item, {
+      gender,
+      mode,
+      destinationConference: activeConference,
+    });
     if (expandedIds[item.id]) {
       setExpandedIds((current) => ({ ...current, [item.id]: false }));
       return;
     }
     setExpandedIds((current) => ({ ...current, [item.id]: true }));
-    if (cardHtmlById[item.id]) {
+    if (cardHtmlById[item.id] && cardRequestKeyById[item.id] === itemRequestKey) {
       if (mode === "transfer") {
         window.setTimeout(() => {
           void hydrateTransferPanel(item);
@@ -732,27 +529,17 @@ function WatchlistPageInner() {
     setCardLoadingById((current) => ({ ...current, [item.id]: true }));
     setCardErrorById((current) => ({ ...current, [item.id]: "" }));
     try {
-      const res = await fetch("/api/jobs/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jobType: "card",
-          request: {
-            gender,
-            season: item.season,
-            team: item.team,
-            player: item.player,
-            mode,
-            destinationConference: mode === "transfer" ? dest : "",
-          },
-        }),
+      const req = buildWatchlistWarmRequest({
+        gender,
+        season: item.season,
+        team: item.team,
+        player: item.player,
+        mode,
+        destinationConference: activeConference,
       });
-      const data = (await res.json()) as JobApiResponse;
-      if (!res.ok || !data.ok || !data.id) {
-        throw new Error(data.error || "Failed to start card build");
-      }
-      const html = await pollJob(data.id);
+      const html = await warmWatchlistProfile(req);
       setCardHtmlById((current) => ({ ...current, [item.id]: html }));
+      setCardRequestKeyById((current) => ({ ...current, [item.id]: itemRequestKey }));
       if (mode === "transfer") {
         window.setTimeout(() => {
           void hydrateTransferPanel(item);
@@ -765,18 +552,6 @@ function WatchlistPageInner() {
       }));
     } finally {
       setCardLoadingById((current) => ({ ...current, [item.id]: false }));
-    }
-  }
-
-  function saveNote(item: WatchlistItem) {
-    try {
-      window.localStorage.setItem(noteStorageKeyFor(item), String(notesById[item.id] ?? ""));
-      setNoteSaveStateById((current) => ({ ...current, [item.id]: "saved" }));
-      window.setTimeout(() => {
-        setNoteSaveStateById((current) => ({ ...current, [item.id]: "idle" }));
-      }, 1500);
-    } catch {
-      setWatchlistError("Could not save note in this browser.");
     }
   }
 
@@ -797,61 +572,6 @@ function WatchlistPageInner() {
 
         <div className="mb-4 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Watchlist</div>
-          <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-[1.2fr_1fr_auto_0.8fr_auto_auto]">
-            <select
-              className="rounded bg-zinc-800 p-2"
-              value={activeListId}
-              onChange={(e) => {
-                const nextId = e.target.value;
-                setActiveListId(nextId);
-                void loadWatchlist(nextId);
-              }}
-            >
-              {watchlists.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.name}
-                </option>
-              ))}
-            </select>
-            <input
-              className="rounded bg-zinc-800 p-2"
-              placeholder="New watchlist name"
-              value={newListName}
-              onChange={(e) => setNewListName(e.target.value)}
-              disabled={!multiWatchlistsEnabled}
-            />
-            <button
-              type="button"
-              className="rounded bg-zinc-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={createWatchlist}
-              disabled={!multiWatchlistsEnabled}
-            >
-              Create List
-            </button>
-            <input
-              className="rounded bg-zinc-800 p-2"
-              placeholder="Rename current list"
-              value={renameListName}
-              onChange={(e) => setRenameListName(e.target.value)}
-              disabled={!activeListId || !multiWatchlistsEnabled}
-            />
-            <button
-              type="button"
-              className="rounded bg-zinc-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={renameWatchlist}
-              disabled={!activeListId || !multiWatchlistsEnabled}
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              className="rounded bg-rose-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={deleteWatchlist}
-              disabled={!activeListId || !multiWatchlistsEnabled}
-            >
-              Delete List
-            </button>
-          </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {SEASONS.map((year) => <option key={year} value={year}>{year}</option>)}
@@ -862,6 +582,19 @@ function WatchlistPageInner() {
               value={playerSearch}
               onChange={(e) => setPlayerSearch(e.target.value)}
             />
+            <select
+              className="rounded bg-zinc-800 p-2"
+              value={team}
+              onChange={(e) => {
+                const nextTeam = e.target.value;
+                setTeam(nextTeam);
+                const nextPlayers = playersByTeam[nextTeam] ?? [];
+                setPlayer(nextPlayers[0] ?? "");
+                setPlayerChoiceValue(nextPlayers[0] ? `${nextPlayers[0]}|||${nextTeam}` : "");
+              }}
+            >
+              {teamOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
             <select
               className="rounded bg-zinc-800 p-2"
               value={playerChoiceValue}
@@ -876,27 +609,18 @@ function WatchlistPageInner() {
               {!filteredPlayerOptions.length ? <option value="">No matching players</option> : null}
               {filteredPlayerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
-            <select className="rounded bg-zinc-800 p-2" value={mode} onChange={() => setMode("transfer")}>
+            <select className="rounded bg-zinc-800 p-2" value={mode} onChange={(e) => setMode(e.target.value === "draft" ? "draft" : "transfer")}>
               <option value="transfer">Transfer</option>
+              <option value="draft">{gender === "women" ? "WNBA Draft" : "NBA Draft"}</option>
             </select>
             <select className="rounded bg-zinc-800 p-2" value={dest} onChange={(e) => setDest(e.target.value)} disabled={mode !== "transfer"}>
               {CONFERENCES.map((conference) => <option key={conference} value={conference}>{conference}</option>)}
             </select>
-            <button
-              type="button"
-              className="rounded bg-red-500 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={addPlayer}
-              disabled={!activeListId}
-            >
+            <button type="button" className="rounded bg-red-500 px-4 py-2 font-semibold text-white" onClick={addPlayer}>
               Add Player
             </button>
           </div>
           {optionsError && <div className="mt-2 text-sm text-rose-400">{optionsError}</div>}
-          {!multiWatchlistsEnabled ? (
-            <div className="mt-2 text-sm text-amber-300">
-              Multiple watchlists are pending a database migration. Your current watchlist is still saved.
-            </div>
-          ) : null}
           {watchlistError && <div className="mt-2 text-sm text-rose-400">{watchlistError}</div>}
         </div>
 
@@ -949,7 +673,7 @@ function WatchlistPageInner() {
                     value={(() => {
                       const conference = dest || favoriteConference || "SEC";
                       const baseKey = `${item.season}::${item.team.trim().toLowerCase()}::${item.player.trim().toLowerCase()}`;
-                      const row = getTransferRow(item);
+                      const row = transferRowByKey.get(baseKey);
                       const csvGrade = row
                         ? transferConferenceCandidates(conference)
                             .map((candidate) => String(row[candidate] || "").trim())
@@ -985,57 +709,16 @@ function WatchlistPageInner() {
               {cardErrorById[item.id] ? <div className="mt-3 text-sm text-rose-400">{cardErrorById[item.id]}</div> : null}
               {cardLoadingById[item.id] ? <div className="mt-3 text-sm text-zinc-400">Building card...</div> : null}
 
-              {expandedIds[item.id] ? (
-                <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  <div className="overflow-hidden rounded border border-zinc-800 bg-black">
-                    {cardHtmlById[item.id] ? (
-                      <div className="mx-auto h-[50vh] min-h-[420px] max-h-[760px] w-full overflow-hidden rounded">
-                        <div className="h-full w-full">
-                          <iframe
-                            ref={(node) => {
-                              iframeRefs.current[item.id] = node;
-                            }}
-                            title={`${item.player} card`}
-                            srcDoc={cardHtmlById[item.id]}
-                            className="h-[2300px] w-full rounded"
-                            style={{ zoom: 0.325 } as CSSProperties}
-                            sandbox="allow-same-origin allow-scripts"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex min-h-[420px] items-center justify-center text-sm text-zinc-400">
-                        {cardLoadingById[item.id] ? "Building card..." : "Card preview unavailable."}
-                      </div>
-                    )}
-                  </div>
-                  <div className="rounded border border-zinc-800 bg-zinc-950 p-4">
-                    <div className="mb-2 text-base font-semibold text-zinc-100">Notes</div>
-                    <textarea
-                      className="min-h-[320px] w-full rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
-                      placeholder="Add notes on this player..."
-                      value={notesById[item.id] ?? ""}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setNotesById((current) => ({ ...current, [item.id]: value }));
-                        setNoteSaveStateById((current) => ({ ...current, [item.id]: "idle" }));
-                      }}
-                    />
-                    <div className="mt-3 flex items-center gap-3">
-                      <button
-                        type="button"
-                        className="rounded bg-red-500 px-4 py-2 text-sm font-semibold text-white"
-                        onClick={() => saveNote(item)}
-                      >
-                        Save
-                      </button>
-                      {noteSaveStateById[item.id] === "saved" ? (
-                        <span className="text-xs text-emerald-400">Saved</span>
-                      ) : (
-                        <span className="text-xs text-zinc-500">Notes are saved per player on this account/browser.</span>
-                      )}
-                    </div>
-                  </div>
+              {expandedIds[item.id] && cardHtmlById[item.id] ? (
+                <div className="mt-4 overflow-hidden rounded border border-zinc-800 bg-black">
+                  <iframe
+                    ref={(node) => {
+                      iframeRefs.current[item.id] = node;
+                    }}
+                    title={`${item.player} card`}
+                    srcDoc={cardHtmlById[item.id]}
+                    className="h-[1500px] w-full"
+                  />
                 </div>
               ) : null}
             </div>
