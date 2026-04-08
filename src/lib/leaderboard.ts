@@ -131,6 +131,10 @@ function safeObject(value: unknown): Record<string, number | null> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const out: Record<string, number | null> = {};
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw === "string" && raw.trim() === "") {
+      out[key] = null;
+      continue;
+    }
     const num = Number(raw);
     out[key] = Number.isFinite(num) ? num : null;
   }
@@ -138,6 +142,7 @@ function safeObject(value: unknown): Record<string, number | null> {
 }
 
 function numericOrNull(value: unknown): number | null {
+  if (typeof value === "string" && value.trim() === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -350,6 +355,15 @@ export async function queryLeaderboard(params: {
 }) {
   const sqlParams: unknown[] = [params.gender];
   const where: string[] = ["gender = $1"];
+  const rawConferenceFilter = String(params.conference ?? "").trim();
+  const conferenceFilterKey = rawConferenceFilter.toLowerCase();
+  const highMajorConferences = new Set([
+    "ACC",
+    "Big 12",
+    "Big East",
+    "Big Ten",
+    "SEC",
+  ]);
 
   if (Number.isFinite(params.season)) {
     sqlParams.push(params.season);
@@ -367,8 +381,13 @@ export async function queryLeaderboard(params: {
     sqlParams.push(`%${params.position.trim()}%`);
     where.push(`pos ilike $${sqlParams.length}`);
   }
-  if (params.conference?.trim()) {
-    sqlParams.push(`%${params.conference.trim()}%`);
+  if (
+    rawConferenceFilter &&
+    conferenceFilterKey !== "all" &&
+    conferenceFilterKey !== "high major" &&
+    conferenceFilterKey !== "mid/low major"
+  ) {
+    sqlParams.push(`%${rawConferenceFilter}%`);
     where.push(`conference ilike $${sqlParams.length}`);
   }
 
@@ -402,6 +421,14 @@ export async function queryLeaderboard(params: {
     if (!Number.isFinite(minMpg) || minMpg <= 0) return true;
     return typeof row.minutes_per_game === "number" && row.minutes_per_game >= minMpg;
   });
+  if (conferenceFilterKey === "high major") {
+    normalized = normalized.filter((row) => highMajorConferences.has(String(row.conference || "").trim()));
+  } else if (conferenceFilterKey === "mid/low major") {
+    normalized = normalized.filter((row) => {
+      const conference = String(row.conference || "").trim();
+      return conference.length > 0 && !highMajorConferences.has(conference);
+    });
+  }
   normalized = applyFilters(normalized, Array.isArray(params.filters) ? params.filters : []);
   normalized = sortRows(normalized, params.sortBy, params.sortDir, params.sortMode);
 

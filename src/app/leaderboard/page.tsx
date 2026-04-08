@@ -81,6 +81,7 @@ const SELF_CREATION_KEYS = [
 ] as const;
 const DEF_REB_KEYS = ["stl_pct", "blk_pct", "oreb_pct", "dreb_pct"] as const;
 const IMPACT_KEYS = ["bpm", "rapm", "obpm", "dbpm", "net_points", "onoff_net"] as const;
+const POSITION_FILTER_OPTIONS = ["PG", "SG", "SF", "PF", "C"] as const;
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
@@ -149,7 +150,6 @@ function LeaderboardPageInner() {
   ]);
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
   const [teams, setTeams] = useState<string[]>([]);
-  const [positions, setPositions] = useState<string[]>([]);
   const [conferences, setConferences] = useState<string[]>([]);
   const [metrics, setMetrics] = useState<MetricMeta[]>([]);
   const [loading, setLoading] = useState(false);
@@ -203,7 +203,6 @@ function LeaderboardPageInner() {
         if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load leaderboard");
         setRows(Array.isArray(data.rows) ? data.rows : []);
         setTeams(Array.isArray(data.teams) ? data.teams : []);
-        setPositions(Array.isArray(data.positions) ? data.positions : []);
         setConferences(Array.isArray(data.conferences) ? data.conferences : []);
         setMetrics(Array.isArray(data.metrics) ? data.metrics : []);
         setTotal(Number(data.total ?? 0));
@@ -224,6 +223,14 @@ function LeaderboardPageInner() {
   }, [conferenceFilter, filters, gender, minMpg, playerFilter, positionFilter, season, sortBy, sortDir, sortMode, teamFilter]);
 
   const metricOptions = useMemo(() => metrics.length ? metrics : [{ key: "bpm", label: "BPM" }], [metrics]);
+  const conferenceOptions = useMemo(() => {
+    const sorted = [...conferences].sort((a, b) => a.localeCompare(b));
+    const withoutSpecial = sorted.filter(
+      (conference) =>
+        !["All", "High Major", "Mid/Low Major"].includes(conference),
+    );
+    return ["All", "High Major", "Mid/Low Major", ...withoutSpecial];
+  }, [conferences]);
   const filterFieldOptions = useMemo<FilterFieldMeta[]>(
     () => [
       { key: "age", label: "Age", supportsPercentile: false },
@@ -291,8 +298,13 @@ function LeaderboardPageInner() {
             </select>
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter team" value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} list="leaderboard-teams" />
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter player" value={playerFilter} onChange={(e) => setPlayerFilter(e.target.value)} />
-            <input className="rounded bg-zinc-800 p-2" placeholder="Filter position" value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)} list="leaderboard-positions" />
-            <input className="rounded bg-zinc-800 p-2" placeholder="Filter conference" value={conferenceFilter} onChange={(e) => setConferenceFilter(e.target.value)} list="leaderboard-conferences" />
+            <select className="rounded bg-zinc-800 p-2" value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)}>
+              <option value="">All Positions</option>
+              {POSITION_FILTER_OPTIONS.map((position) => <option key={position} value={position}>{position}</option>)}
+            </select>
+            <select className="rounded bg-zinc-800 p-2" value={conferenceFilter} onChange={(e) => setConferenceFilter(e.target.value)}>
+              {conferenceOptions.map((conference) => <option key={conference} value={conference}>{conference}</option>)}
+            </select>
             <div className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-400">
               {loading ? "Loading..." : `${rows.length} shown / ${total} matched / min ${minMpg} MPG`}
             </div>
@@ -398,9 +410,6 @@ function LeaderboardPageInner() {
 
           <datalist id="leaderboard-teams">
             {teams.map((team) => <option key={team} value={team} />)}
-          </datalist>
-          <datalist id="leaderboard-positions">
-            {positions.map((position) => <option key={position} value={position} />)}
           </datalist>
           <datalist id="leaderboard-conferences">
             {conferences.map((conference) => <option key={conference} value={conference} />)}
