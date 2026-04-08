@@ -129,6 +129,7 @@ async function loadLegacyWatchlistPayload(params: {
     },
   ];
   return {
+    multiWatchlistsEnabled: false,
     watchlists,
     activeListId: LEGACY_LIST_ID,
     items,
@@ -174,6 +175,7 @@ async function loadWatchlistPayload(params: {
     listId: context.activeListId,
   });
   return {
+    multiWatchlistsEnabled: true,
     ...context,
     items,
   };
@@ -229,10 +231,10 @@ export async function POST(req: NextRequest) {
     if (mode === "legacy" && (action === "createList" || action === "renameList")) {
       const payload = await loadLegacyWatchlistPayload({ userId: user.id, gender, season });
       return NextResponse.json({
-        ok: true,
+        ok: false,
         ...payload,
-        notice: "Multiple watchlists will activate after database migration runs.",
-      });
+        error: "Multiple watchlists will activate after database migration runs.",
+      }, { status: 409 });
     }
 
     if (action === "createList") {

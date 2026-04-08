@@ -160,6 +160,7 @@ function WatchlistPageInner() {
   const [activeListId, setActiveListId] = useState("");
   const [newListName, setNewListName] = useState("");
   const [renameListName, setRenameListName] = useState("");
+  const [multiWatchlistsEnabled, setMultiWatchlistsEnabled] = useState(true);
 
   function redirectToLogin() {
     if (typeof window === "undefined") return;
@@ -273,6 +274,7 @@ function WatchlistPageInner() {
         items?: WatchlistItem[];
         watchlists?: WatchlistSummary[];
         activeListId?: string;
+        multiWatchlistsEnabled?: boolean;
       };
       if (isAuthError(res.status, data.error)) {
         redirectToLogin();
@@ -282,6 +284,7 @@ function WatchlistPageInner() {
       setItems(Array.isArray(data.items) ? data.items : []);
       const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
       setWatchlists(nextWatchlists);
+      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
       const nextActive = String(data.activeListId ?? "");
       setActiveListId(nextActive);
       const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
@@ -291,6 +294,7 @@ function WatchlistPageInner() {
       setItems([]);
       setWatchlists([]);
       setActiveListId("");
+      setMultiWatchlistsEnabled(false);
     } finally {
       setLoading(false);
     }
@@ -422,6 +426,7 @@ function WatchlistPageInner() {
         items?: WatchlistItem[];
         watchlists?: WatchlistSummary[];
         activeListId?: string;
+        multiWatchlistsEnabled?: boolean;
       };
       if (isAuthError(res.status, data.error)) {
         redirectToLogin();
@@ -430,6 +435,7 @@ function WatchlistPageInner() {
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to add player");
       setItems(Array.isArray(data.items) ? data.items : []);
       setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
+      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
       setActiveListId(String(data.activeListId ?? activeListId));
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to add player");
@@ -450,6 +456,7 @@ function WatchlistPageInner() {
         items?: WatchlistItem[];
         watchlists?: WatchlistSummary[];
         activeListId?: string;
+        multiWatchlistsEnabled?: boolean;
       };
       if (isAuthError(res.status, data.error)) {
         redirectToLogin();
@@ -458,6 +465,7 @@ function WatchlistPageInner() {
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to remove player");
       setItems(Array.isArray(data.items) ? data.items : []);
       setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
+      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
       setActiveListId(String(data.activeListId ?? activeListId));
       setExpandedIds((current) => {
         const next = { ...current };
@@ -482,6 +490,7 @@ function WatchlistPageInner() {
       items?: WatchlistItem[];
       watchlists?: WatchlistSummary[];
       activeListId?: string;
+      multiWatchlistsEnabled?: boolean;
     };
     if (isAuthError(res.status, data.error)) {
       redirectToLogin();
@@ -492,12 +501,17 @@ function WatchlistPageInner() {
     }
     setItems(Array.isArray(data.items) ? data.items : nextItems);
     setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
+    setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
     setActiveListId(String(data.activeListId ?? activeListId));
   }
 
   async function createWatchlist() {
     const name = newListName.trim();
     if (!name) return;
+    if (!multiWatchlistsEnabled) {
+      setWatchlistError("Multiple watchlists will activate after database migration runs.");
+      return;
+    }
     setWatchlistError("");
     try {
       const res = await fetch("/api/watchlist", {
@@ -511,7 +525,7 @@ function WatchlistPageInner() {
         items?: WatchlistItem[];
         watchlists?: WatchlistSummary[];
         activeListId?: string;
-        notice?: string;
+        multiWatchlistsEnabled?: boolean;
       };
       if (isAuthError(res.status, data.error)) {
         redirectToLogin();
@@ -521,12 +535,12 @@ function WatchlistPageInner() {
       setItems(Array.isArray(data.items) ? data.items : []);
       const nextWatchlists = Array.isArray(data.watchlists) ? data.watchlists : [];
       setWatchlists(nextWatchlists);
+      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
       const nextActive = String(data.activeListId ?? "");
       setActiveListId(nextActive);
       const currentActive = nextWatchlists.find((entry) => entry.id === nextActive);
       if (currentActive) setRenameListName(currentActive.name);
       setNewListName("");
-      if (data.notice) setWatchlistError(data.notice);
     } catch (err) {
       setWatchlistError(err instanceof Error ? err.message : "Failed to create watchlist");
     }
@@ -535,7 +549,13 @@ function WatchlistPageInner() {
   async function renameWatchlist() {
     const name = renameListName.trim();
     if (!activeListId || !name) return;
+    if (!multiWatchlistsEnabled) {
+      setWatchlistError("Multiple watchlists will activate after database migration runs.");
+      return;
+    }
     setWatchlistError("");
+    const previous = watchlists;
+    setWatchlists((current) => current.map((entry) => (entry.id === activeListId ? { ...entry, name } : entry)));
     try {
       const res = await fetch("/api/watchlist", {
         method: "POST",
@@ -554,7 +574,7 @@ function WatchlistPageInner() {
         items?: WatchlistItem[];
         watchlists?: WatchlistSummary[];
         activeListId?: string;
-        notice?: string;
+        multiWatchlistsEnabled?: boolean;
       };
       if (isAuthError(res.status, data.error)) {
         redirectToLogin();
@@ -563,9 +583,10 @@ function WatchlistPageInner() {
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to rename watchlist");
       setItems(Array.isArray(data.items) ? data.items : []);
       setWatchlists(Array.isArray(data.watchlists) ? data.watchlists : []);
+      setMultiWatchlistsEnabled(data.multiWatchlistsEnabled !== false);
       setActiveListId(String(data.activeListId ?? activeListId));
-      if (data.notice) setWatchlistError(data.notice);
     } catch (err) {
+      setWatchlists(previous);
       setWatchlistError(err instanceof Error ? err.message : "Failed to rename watchlist");
     }
   }
@@ -707,7 +728,7 @@ function WatchlistPageInner() {
             >
               {watchlists.map((entry) => (
                 <option key={entry.id} value={entry.id}>
-                  {entry.name} ({entry.item_count})
+                  {entry.name}
                 </option>
               ))}
             </select>
@@ -716,8 +737,14 @@ function WatchlistPageInner() {
               placeholder="New watchlist name"
               value={newListName}
               onChange={(e) => setNewListName(e.target.value)}
+              disabled={!multiWatchlistsEnabled}
             />
-            <button type="button" className="rounded bg-zinc-700 px-4 py-2 font-semibold text-white" onClick={createWatchlist}>
+            <button
+              type="button"
+              className="rounded bg-zinc-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={createWatchlist}
+              disabled={!multiWatchlistsEnabled}
+            >
               Create List
             </button>
             <input
@@ -725,13 +752,13 @@ function WatchlistPageInner() {
               placeholder="Rename current list"
               value={renameListName}
               onChange={(e) => setRenameListName(e.target.value)}
-              disabled={!activeListId}
+              disabled={!activeListId || !multiWatchlistsEnabled}
             />
             <button
               type="button"
               className="rounded bg-zinc-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               onClick={renameWatchlist}
-              disabled={!activeListId}
+              disabled={!activeListId || !multiWatchlistsEnabled}
             >
               Rename
             </button>
@@ -776,6 +803,11 @@ function WatchlistPageInner() {
             </button>
           </div>
           {optionsError && <div className="mt-2 text-sm text-rose-400">{optionsError}</div>}
+          {!multiWatchlistsEnabled ? (
+            <div className="mt-2 text-sm text-amber-300">
+              Multiple watchlists are pending a database migration. Your current watchlist is still saved.
+            </div>
+          ) : null}
           {watchlistError && <div className="mt-2 text-sm text-rose-400">{watchlistError}</div>}
         </div>
 
