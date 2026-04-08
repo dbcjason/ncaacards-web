@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toCanvas } from "html-to-image";
 import { CONFERENCES, SEASONS } from "@/lib/ui-options";
+import { AddToWatchlistDialog } from "@/components/add-to-watchlist-dialog";
 
 type CardJobResult = {
   cache?: string;
@@ -87,6 +88,7 @@ function CardsPageInner() {
   const [runError, setRunError] = useState("");
   const [exportBusy, setExportBusy] = useState<"" | "download" | "clipboard">("");
   const [exportError, setExportError] = useState("");
+  const [watchlistOpen, setWatchlistOpen] = useState(false);
   const draftLabel =
     gender === "women"
       ? "WNBA Draft"
@@ -876,6 +878,14 @@ function CardsPageInner() {
               >
                 {exportBusy === "clipboard" ? "Copying..." : "Save Image to Clipboard"}
               </button>
+              <button
+                type="button"
+                className="site-button-secondary"
+                onClick={() => setWatchlistOpen(true)}
+                disabled={!team || !player}
+              >
+                Add to Watchlist
+              </button>
               {compare && resultHtmlB ? (
                 <div className="self-center text-xs text-zinc-500">
                   Export includes both profiles side by side.
@@ -915,6 +925,14 @@ function CardsPageInner() {
             Select a player and run card build.
           </div>
         )}
+        <AddToWatchlistDialog
+          open={watchlistOpen}
+          gender={gender}
+          season={season}
+          team={team}
+          player={player}
+          onClose={() => setWatchlistOpen(false)}
+        />
       </div>
     </div>
   );

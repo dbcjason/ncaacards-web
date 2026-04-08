@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
+import { HomeNoticePopup } from "@/components/home-notice-popup";
 
 type HomePageProps = {
   searchParams: Promise<{
@@ -9,6 +11,7 @@ type HomePageProps = {
     tab?: string;
     code?: string;
     email?: string;
+    popup?: string;
   }>;
 };
 
@@ -26,6 +29,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   return (
     <div className="flex min-h-[calc(100vh-77px)] items-center justify-center px-6 py-12">
+      <HomeNoticePopup notice={String(params.notice || "")} popup={String(params.popup || "") === "1"} />
       <div className="site-panel w-full max-w-md rounded-xl p-6">
         {(params.notice || params.error) && (
           <div className={`mb-4 rounded-md px-4 py-3 text-sm ${params.error ? "bg-rose-950 text-rose-200" : "bg-emerald-950 text-emerald-200"}`}>
@@ -34,8 +38,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         )}
 
         <div className="mb-4 flex gap-2">
-          <a href="/?tab=create-account" className="site-button-secondary">Create Your Account</a>
-          <a href="/?tab=request-access" className="site-button-secondary">Request An Access Code</a>
+          <Link href="/?tab=create-account" className="site-button-secondary">Create Your Account</Link>
+          <Link href="/?tab=request-access" className="site-button-secondary">Request An Access Code</Link>
         </div>
 
         {activeTab === "sign-in" && (
@@ -64,7 +68,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               />
               <button type="submit" className="site-button w-full">Create Account</button>
             </form>
-            <a href="/" className="site-button-secondary block text-center">Back to Log-In</a>
+            <Link href="/" className="site-button-secondary block text-center">Back to Log-In</Link>
           </div>
         )}
 
@@ -77,7 +81,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               <textarea className="site-input min-h-28" name="notes" placeholder="Anything else we should know?" />
               <button type="submit" className="site-button w-full">Request Access Code</button>
             </form>
-            <a href="/" className="site-button-secondary block text-center">Back to Log-In</a>
+            <Link href="/" className="site-button-secondary block text-center">Back to Log-In</Link>
           </div>
         )}
       </div>

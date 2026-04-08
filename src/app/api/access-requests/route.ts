@@ -3,12 +3,19 @@ import { withDbTransaction } from "@/lib/db";
 import { sendAccessRequestNotification } from "@/lib/email";
 import { ensureAccessRequestSchema } from "@/lib/access-requests";
 
-function redirectHome(req: NextRequest, kind: "notice" | "error", message: string) {
+function redirectHome(
+  req: NextRequest,
+  kind: "notice" | "error",
+  message: string,
+  tab: "sign-in" | "request-access" = "request-access",
+  popup = false,
+) {
   const url = req.nextUrl.clone();
   url.pathname = "/";
   url.search = "";
-  url.searchParams.set("tab", "request-access");
+  url.searchParams.set("tab", tab);
   url.searchParams.set(kind, message);
+  if (popup) url.searchParams.set("popup", "1");
   return NextResponse.redirect(url);
 }
 
@@ -42,10 +49,16 @@ export async function POST(req: NextRequest) {
     });
 
     if (!emailResult.ok) {
-      return redirectHome(req, "notice", `Access request submitted. Admin email was not sent yet: ${emailResult.error}`);
+      return redirectHome(
+        req,
+        "notice",
+        `Access request submitted. Admin email was not sent yet: ${emailResult.error}`,
+        "sign-in",
+        true,
+      );
     }
 
-    return redirectHome(req, "notice", "Access request submitted.");
+    return redirectHome(req, "notice", "Access request submitted.", "sign-in", true);
   } catch (error) {
     return redirectHome(req, "error", error instanceof Error ? error.message : "Could not submit access request.");
   }
