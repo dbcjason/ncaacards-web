@@ -223,10 +223,10 @@ export function renderCardHtmlFromPayload(
   const projectionHtml =
     input.mode === "transfer"
       ? transferProjectionHtml ||
-        missingPanel(
+        `<div id="transfer-projection-panel">${missingPanel(
           "Transfer Projection",
-          "Transfer projection is unavailable for this player/conference in the current cache.",
-        )
+          "Loading transfer projection...",
+        )}</div>`
       : draftProjectionHtml || missingPanel("Draft Projection");
 
   return `<!doctype html>
