@@ -124,7 +124,23 @@ function ScaledCardFrame({
   setFrameRef: (node: HTMLIFrameElement | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const iframeInnerRef = useRef<HTMLIFrameElement | null>(null);
   const [scale, setScale] = useState(0.325);
+  const [contentHeight, setContentHeight] = useState(CARD_IFRAME_BASE_HEIGHT);
+
+  const measureCardHeight = useCallback(() => {
+    const iframe = iframeInnerRef.current;
+    const doc = iframe?.contentDocument;
+    if (!doc) return;
+    const cardRoot =
+      (doc.querySelector(".wrap > .card") as HTMLElement | null) ??
+      (doc.querySelector(".card") as HTMLElement | null) ??
+      doc.body;
+    const next = Math.ceil(cardRoot.getBoundingClientRect().height || cardRoot.scrollHeight || 0);
+    if (Number.isFinite(next) && next > 300) {
+      setContentHeight(next);
+    }
+  }, []);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -143,20 +159,51 @@ function ScaledCardFrame({
     return () => observer.disconnect();
   }, []);
 
-  const scaledHeight = Math.round(CARD_IFRAME_BASE_HEIGHT * scale);
+  useEffect(() => {
+    const iframe = iframeInnerRef.current;
+    if (!iframe) return;
+
+    const onLoad = () => {
+      measureCardHeight();
+      window.setTimeout(measureCardHeight, 75);
+      window.setTimeout(measureCardHeight, 300);
+      window.setTimeout(measureCardHeight, 700);
+    };
+    iframe.addEventListener("load", onLoad);
+    onLoad();
+
+    let observer: MutationObserver | null = null;
+    const doc = iframe.contentDocument;
+    if (doc?.body && typeof MutationObserver !== "undefined") {
+      observer = new MutationObserver(() => {
+        measureCardHeight();
+      });
+      observer.observe(doc.body, { childList: true, subtree: true, attributes: true });
+    }
+
+    return () => {
+      iframe.removeEventListener("load", onLoad);
+      if (observer) observer.disconnect();
+    };
+  }, [html, measureCardHeight]);
+
+  const scaledHeight = Math.round(contentHeight * scale);
 
   return (
     <div ref={containerRef} className="w-full overflow-hidden rounded">
       <div className="relative w-full" style={{ height: `${scaledHeight}px` }}>
         <iframe
-          ref={setFrameRef}
+          ref={(node) => {
+            iframeInnerRef.current = node;
+            setFrameRef(node);
+          }}
           title={title}
           srcDoc={html}
           className="absolute left-0 top-0 rounded border-0"
           style={
             {
               width: `${CARD_IFRAME_BASE_WIDTH}px`,
-              height: `${CARD_IFRAME_BASE_HEIGHT}px`,
+              height: `${contentHeight}px`,
               transform: `scale(${scale})`,
               transformOrigin: "top left",
             } as CSSProperties
