@@ -58,7 +58,7 @@ type TransferProjectionCacheRow = {
   player?: string;
   team?: string;
   projections?: Record<string, TransferProjectionEntry>;
-};
+} & Record<string, unknown>;
 type TransferProjectionCacheFile = {
   rows?: TransferProjectionCacheRow[];
 };
@@ -179,6 +179,49 @@ function conferenceKey(raw: string): string {
     sunbeltconference: "sunbelt",
   };
   return aliases[s] ?? s;
+}
+
+function isTransferMetadataKey(key: string): boolean {
+  const normalized = conferenceKey(key);
+  return (
+    normalized === "season" ||
+    normalized === "player" ||
+    normalized === "team" ||
+    normalized === "source" ||
+    normalized === "sourceconference" ||
+    normalized === "class" ||
+    normalized === "generatedat" ||
+    normalized === "section" ||
+    normalized === "partindex" ||
+    normalized === "partcount" ||
+    normalized === "rowcount"
+  );
+}
+
+function readTransferGradeFromFlatRow(
+  row: TransferProjectionCacheRow,
+  destinationConference: string,
+): string | null {
+  const directCandidates = [
+    destinationConference,
+    destinationConference.replace(/\s+/g, ""),
+    destinationConference.trim().toUpperCase(),
+    destinationConference.trim().toLowerCase(),
+  ].filter(Boolean);
+  for (const candidate of directCandidates) {
+    const value = row[candidate];
+    const grade = String(value ?? "").trim();
+    if (grade) return grade;
+  }
+
+  const target = conferenceKey(destinationConference);
+  for (const [key, raw] of Object.entries(row)) {
+    if (isTransferMetadataKey(key)) continue;
+    if (conferenceKey(key) !== target) continue;
+    const grade = String(raw ?? "").trim();
+    if (grade) return grade;
+  }
+  return null;
 }
 
 function renderTransferProjectionPanel(input: TransferProjectionRenderData): string {
@@ -1106,10 +1149,11 @@ export async function loadTransferProjectionHtml(
     }
   }
   if (!row?.projections) {
+    const flatGrade = row ? readTransferGradeFromFlatRow(row, destinationConference) : null;
     return renderTransferProjectionPanel({
       destConfRaw: String(destinationConference).trim() || "Selected conference",
       predicted: {},
-      transferGrade: "N/A",
+      transferGrade: flatGrade || "N/A",
       weightedCount: 0,
     });
   }
