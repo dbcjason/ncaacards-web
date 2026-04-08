@@ -367,6 +367,19 @@ function btCsvCandidates(cfg: SourceCfg): string[] {
   ];
 }
 
+function transferProjectionCsvCandidates(season: number): string[] {
+  const y = normSeason(season);
+  return [
+    `player_cards_pipeline/output/transfer_projection_${y}_all_conferences.csv`,
+    `transfer_projection_${y}_all_conferences.csv`,
+    "player_cards_pipeline/output/transfer_projection_2026_all_conferences.csv",
+    "player_cards_pipeline/output/transfer_projection_all_conferences.csv",
+    "player_cards_pipeline/output/transfer_projection_2026_all_conferences_matrix.csv",
+    "player_cards_pipeline/output/transfer_projection_2026_all_conference_grades.csv",
+    "transfer_projection_2026_all_conferences.csv",
+  ];
+}
+
 function parseCsvLine(line: string): string[] {
   const out: string[] = [];
   let cur = "";
@@ -947,6 +960,41 @@ async function loadTransferProjectionLookup(
         }
       } catch {
         // Missing part files are fine; we just use whatever is available.
+      }
+    }
+
+    // Fallback: full-matrix CSV often has broader player coverage than part JSON caches.
+    for (const csvPath of transferProjectionCsvCandidates(season)) {
+      try {
+        const text = await fetchRepoText(csvPath, cfg);
+        const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+        if (lines.length < 2) continue;
+        const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
+        const pIdx = findCol(header, ["player", "player_name", "name"]);
+        const tIdx = findCol(header, ["team", "school"]);
+        const yIdx = findCol(header, ["season", "year"]);
+        if (pIdx < 0 || tIdx < 0) continue;
+        for (let i = 1; i < lines.length; i += 1) {
+          const cols = parseCsvLine(lines[i]);
+          const player = String(cols[pIdx] ?? "").trim();
+          const team = String(cols[tIdx] ?? "").trim();
+          const rowSeason = normSeason(yIdx >= 0 ? cols[yIdx] ?? season : season);
+          if (!player || !team || !rowSeason) continue;
+          const key = transferCacheKey(player, team, rowSeason);
+          if (lookup[key]) continue;
+          const row: TransferProjectionCacheRow = {};
+          for (let c = 0; c < header.length; c += 1) {
+            row[header[c]] = String(cols[c] ?? "").trim();
+          }
+          row.player = player;
+          row.team = team;
+          row.season = rowSeason;
+          lookup[key] = row;
+        }
+        // Stop after first successful CSV load to avoid extra network requests.
+        break;
+      } catch {
+        continue;
       }
     }
     return lookup;
