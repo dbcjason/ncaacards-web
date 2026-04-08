@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertGenderAccess, requireUser } from "@/lib/auth";
+import { canAccessGenderScope, requireUser } from "@/lib/auth";
 import {
   isLeaderboardMetric,
-  parseLeaderboardGender,
+  parseLeaderboardGenderFilter,
   queryLeaderboard,
   type LeaderboardFilter,
 } from "@/lib/leaderboard";
@@ -48,8 +48,26 @@ export async function POST(req: NextRequest) {
       minMpg?: number;
     };
 
-    const gender = parseLeaderboardGender(body.gender);
-    assertGenderAccess(user, gender);
+    const gender = parseLeaderboardGenderFilter(body.gender);
+    if (gender === "all") {
+      if (
+        !canAccessGenderScope(user.access_scope, "men") &&
+        !canAccessGenderScope(user.access_scope, "women")
+      ) {
+        throw new Error("FORBIDDEN_SCOPE");
+      }
+      if (
+        !canAccessGenderScope(user.organization_access_scope, "men") &&
+        !canAccessGenderScope(user.organization_access_scope, "women")
+      ) {
+        throw new Error("FORBIDDEN_SCOPE");
+      }
+    } else if (
+      !canAccessGenderScope(user.access_scope, gender) ||
+      !canAccessGenderScope(user.organization_access_scope, gender)
+    ) {
+      throw new Error("FORBIDDEN_SCOPE");
+    }
 
     const result = await queryLeaderboard({
       gender,

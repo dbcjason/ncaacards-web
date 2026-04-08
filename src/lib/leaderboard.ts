@@ -3,6 +3,7 @@ import "server-only";
 import { dbQuery } from "@/lib/db";
 
 export type LeaderboardGender = "men" | "women";
+export type LeaderboardGenderFilter = LeaderboardGender | "all";
 
 export type LeaderboardMetricKey =
   | "ppg"
@@ -308,14 +309,22 @@ function mergeValueMaps(primary: Record<string, number | null>, fallback: Record
 function normalizePositionCode(raw: unknown): string {
   const text = String(raw ?? "").trim().toUpperCase();
   if (!text) return "";
-  for (const code of ["PG", "SG", "SF", "PF", "C"] as const) {
-    if (text === code || text.includes(code)) return code;
-  }
-  return String(raw ?? "").trim();
+  if (text.includes("PG") || text.includes("POINT GUARD")) return "PG";
+  if (text.includes("SG") || text.includes("WING G") || text.includes("GUARD")) return "SG";
+  if (text.includes("SF") || text.includes("WING F") || text.includes("FORWARD")) return "SF";
+  if (text.includes("PF") || text.includes("BIG F") || text.includes("POWER")) return "PF";
+  if (text.includes(" C") || text === "C" || text.includes("CENTER")) return "C";
+  return "";
 }
 
 export function parseLeaderboardGender(raw?: string): LeaderboardGender {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
+}
+
+export function parseLeaderboardGenderFilter(raw?: string): LeaderboardGenderFilter {
+  const value = String(raw || "").toLowerCase();
+  if (value === "all") return "all";
+  return value === "women" ? "women" : "men";
 }
 
 export function isLeaderboardMetric(raw?: string): raw is LeaderboardMetricKey {
@@ -365,7 +374,12 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
     ...row,
     pos: normalizePositionCode(row.pos),
     age: numericOrNull(row.age),
-    rsci: numericOrNull(row.rsci),
+    rsci: (() => {
+      const value = numericOrNull(row.rsci);
+      if (value == null || !Number.isFinite(value)) return null;
+      const rounded = Math.round(value);
+      return rounded >= 1 && rounded <= 100 ? rounded : null;
+    })(),
     statistical_height_delta: numericOrNull(row.statistical_height_delta),
     values: mergedValues,
     percentiles: mergedPercentiles,
@@ -437,7 +451,7 @@ function sortRows(
 }
 
 export async function queryLeaderboard(params: {
-  gender: LeaderboardGender;
+  gender: LeaderboardGenderFilter;
   season?: number | null;
   team?: string;
   player?: string;
@@ -450,11 +464,16 @@ export async function queryLeaderboard(params: {
   limit?: number;
   minMpg?: number | null;
 }) {
-  const sqlParams: unknown[] = [params.gender];
-  const where: string[] = ["l.gender = $1"];
+  const sqlParams: unknown[] = [];
+  const where: string[] = [];
   const rawConferenceFilter = String(params.conference ?? "").trim();
   const conferenceFilterKey = rawConferenceFilter.toLowerCase();
   const highMajorConferences = new Set(["ACC", "Big 12", "Big East", "Big Ten", "SEC"]);
+
+  if (params.gender !== "all") {
+    sqlParams.push(params.gender);
+    where.push(`l.gender = $${sqlParams.length}`);
+  }
 
   if (Number.isFinite(params.season)) {
     sqlParams.push(params.season);
@@ -508,7 +527,7 @@ export async function queryLeaderboard(params: {
        and p.season = l.season
        and p.team = l.team
        and p.player = l.player
-      where ${where.join(" and ")}
+      where ${where.length ? where.join(" and ") : "true"}
       order by l.season desc, l.team asc, l.player asc`,
     sqlParams,
   );

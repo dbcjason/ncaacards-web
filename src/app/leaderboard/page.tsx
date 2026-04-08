@@ -136,7 +136,7 @@ export default function LeaderboardPage() {
 
 function LeaderboardPageInner() {
   const searchParams = useSearchParams();
-  const [gender, setGender] = useState<"men" | "women">("men");
+  const [gender, setGender] = useState<"all" | "men" | "women">("all");
   const [season, setSeason] = useState<number>(2026);
   const [teamFilter, setTeamFilter] = useState("");
   const [positionFilter, setPositionFilter] = useState("");
@@ -152,14 +152,12 @@ function LeaderboardPageInner() {
   const [teams, setTeams] = useState<string[]>([]);
   const [conferences, setConferences] = useState<string[]>([]);
   const [metrics, setMetrics] = useState<MetricMeta[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [total, setTotal] = useState(0);
   const [minMpg, setMinMpg] = useState(10);
 
   useEffect(() => {
     const g = searchParams.get("gender");
-    setGender(g === "women" ? "women" : "men");
+    setGender(g === "women" ? "women" : g === "men" ? "men" : "all");
     const seasonParam = Number(searchParams.get("season"));
     if (Number.isFinite(seasonParam) && seasonParam > 2000) {
       setSeason(seasonParam);
@@ -169,7 +167,6 @@ function LeaderboardPageInner() {
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(async () => {
-      setLoading(true);
       setError("");
       try {
         const res = await fetch("/api/leaderboard", {
@@ -205,14 +202,11 @@ function LeaderboardPageInner() {
         setTeams(Array.isArray(data.teams) ? data.teams : []);
         setConferences(Array.isArray(data.conferences) ? data.conferences : []);
         setMetrics(Array.isArray(data.metrics) ? data.metrics : []);
-        setTotal(Number(data.total ?? 0));
         setMinMpg(Number(data.minMpg ?? 10));
       } catch (err) {
         if (!active) return;
         setError(err instanceof Error ? err.message : "Failed to load leaderboard");
         setRows([]);
-      } finally {
-        if (active) setLoading(false);
       }
     }, 250);
 
@@ -274,24 +268,39 @@ function LeaderboardPageInner() {
   };
 
   const navSeason = season || 2026;
+  const navGender = gender === "all" ? "men" : gender;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto w-full max-w-[1900px] px-6 py-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex gap-5 text-sm">
-            <Link href={`/cards?gender=${gender}`} className="text-zinc-300">Player Profiles</Link>
-            <Link href={`/roster?gender=${gender}`} className="text-zinc-300">Roster Construction</Link>
-            <Link href={`/transfer-grades?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Transfer Grades</Link>
-            <Link href={`/jason-created-stats?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
+            <Link href={`/cards?gender=${navGender}`} className="text-zinc-300">Player Profiles</Link>
+            <Link href={`/roster?gender=${navGender}`} className="text-zinc-300">Roster Construction</Link>
+            <Link href={`/transfer-grades?gender=${navGender}&season=${navSeason}`} className="text-zinc-300">Transfer Grades</Link>
+            <Link href={`/jason-created-stats?gender=${navGender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${navSeason}`} className="text-red-400">Leaderboard</Link>
-            <Link href={`/watchlist?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Watchlist</Link>
+            <Link href={`/watchlist?gender=${navGender}&season=${navSeason}`} className="text-zinc-300">Watchlist</Link>
           </div>
-          <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
+          <Link href={`/?gender=${navGender}`} className="text-zinc-400">Home</Link>
         </div>
 
         <div className="mb-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
-          <div className="mb-2 text-lg font-bold">Player Leaderboard</div>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-lg font-bold">Player Leaderboard</div>
+            <div className="flex items-center gap-2 text-sm">
+              {(["all", "men", "women"] as const).map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  className={`rounded px-3 py-1 ${gender === g ? "bg-zinc-700 text-white" : "bg-zinc-800 text-zinc-300"}`}
+                  onClick={() => setGender(g)}
+                >
+                  {g === "all" ? "All" : g === "men" ? "Men" : "Women"}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {SEASONS.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -305,8 +314,19 @@ function LeaderboardPageInner() {
             <select className="rounded bg-zinc-800 p-2" value={conferenceFilter} onChange={(e) => setConferenceFilter(e.target.value)}>
               {conferenceOptions.map((conference) => <option key={conference} value={conference}>{conference}</option>)}
             </select>
-            <div className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-400">
-              {loading ? "Loading..." : `${rows.length} shown / ${total} matched / min ${minMpg} MPG`}
+            <div className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-300">
+              <label className="mr-2 text-zinc-400">Min MPG</label>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                className="w-20 rounded bg-zinc-900 px-2 py-1 text-zinc-100"
+                value={Number.isFinite(minMpg) ? minMpg : 10}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  setMinMpg(Number.isFinite(value) ? Math.max(0, value) : 10);
+                }}
+              />
             </div>
           </div>
 
@@ -487,7 +507,7 @@ function LeaderboardPageInner() {
                     ) : null}
                   </td>
                   <td className="p-2">{fmtNumber(row.age)}</td>
-                  <td className="p-2">{fmtNumber(row.rsci)}</td>
+                  <td className="p-2">{typeof row.rsci === "number" ? row.rsci : "UR"}</td>
                   {metricOptions.map((metric) => (
                     <td key={metric.key} className="min-w-[84px] p-2 text-center">
                       <div>{fmtNumber(row.values?.[metric.key])}</div>
