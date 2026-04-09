@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CONFERENCES, seasonsForGender } from "@/lib/ui-options";
@@ -217,9 +217,21 @@ function ScaledCardFrame({
 
 export default function WatchlistPage() {
   return (
-    <Suspense fallback={null}>
-      <WatchlistPageInner />
-    </Suspense>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="mx-auto w-full max-w-[1200px] px-6 py-12">
+        <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-6">
+          <div className="text-xl font-semibold">Watchlist is temporarily hidden</div>
+          <div className="mt-2 text-sm text-zinc-400">
+            Public access is enabled right now, so watchlist actions are turned off.
+          </div>
+          <div className="mt-4">
+            <Link href="/cards?gender=men" className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-100">
+              Go to Player Profiles
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

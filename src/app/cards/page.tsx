@@ -7,7 +7,6 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toCanvas } from "html-to-image";
 import { CONFERENCES, seasonsForGender } from "@/lib/ui-options";
-import { AddToWatchlistDialog } from "@/components/add-to-watchlist-dialog";
 
 type CardJobResult = {
   cache?: string;
@@ -88,7 +87,6 @@ function CardsPageInner() {
   const [runError, setRunError] = useState("");
   const [exportBusy, setExportBusy] = useState<"" | "download" | "clipboard">("");
   const [exportError, setExportError] = useState("");
-  const [watchlistOpen, setWatchlistOpen] = useState(false);
   const seasonOptions = useMemo(() => seasonsForGender(gender), [gender]);
   useEffect(() => {
     if (!seasonOptions.length) return;
@@ -687,9 +685,6 @@ function CardsPageInner() {
             <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">
               Leaderboard
             </Link>
-            <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">
-              Watchlist
-            </Link>
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">
             Home
@@ -892,14 +887,6 @@ function CardsPageInner() {
               >
                 {exportBusy === "clipboard" ? "Copying..." : "Save Image to Clipboard"}
               </button>
-              <button
-                type="button"
-                className="site-button-secondary"
-                onClick={() => setWatchlistOpen(true)}
-                disabled={!team || !player}
-              >
-                Add to Watchlist
-              </button>
               {compare && resultHtmlB ? (
                 <div className="self-center text-xs text-zinc-500">
                   Export includes both profiles side by side.
@@ -939,14 +926,6 @@ function CardsPageInner() {
             Select a player and run card build.
           </div>
         )}
-        <AddToWatchlistDialog
-          open={watchlistOpen}
-          gender={gender}
-          season={season}
-          team={team}
-          player={player}
-          onClose={() => setWatchlistOpen(false)}
-        />
       </div>
     </div>
   );

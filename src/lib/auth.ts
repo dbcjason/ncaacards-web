@@ -33,6 +33,28 @@ export type AuthUser = {
   effective_favorite_conference: string | null;
 };
 
+const PUBLIC_ACCESS_MODE = String(process.env.PUBLIC_ACCESS_MODE ?? "1").trim() !== "0";
+
+const PUBLIC_GUEST_USER: AuthUser = {
+  id: "public-user",
+  email: "public@dbcjason.com",
+  role: "member",
+  access_scope: "both",
+  status: "active",
+  expires_at: null,
+  organization_id: "public-org",
+  organization_name: "Public Access",
+  organization_access_scope: "both",
+  organization_account_type: "paid",
+  organization_status: "active",
+  favorite_team: null,
+  favorite_conference: null,
+  organization_favorite_team: null,
+  organization_favorite_conference: null,
+  effective_favorite_team: null,
+  effective_favorite_conference: null,
+};
+
 export function hashPassword(password: string): string {
   const salt = randomBytes(16);
   const derived = scryptSync(password, salt, 64);
@@ -166,6 +188,7 @@ export async function createSessionForUser(userId: string): Promise<{ token: str
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
+  if (PUBLIC_ACCESS_MODE) return PUBLIC_GUEST_USER;
   try {
     const jar = await cookies();
     const tokenCandidates = new Set<string>();
@@ -226,6 +249,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 }
 
 export async function requireUser(): Promise<AuthUser> {
+  if (PUBLIC_ACCESS_MODE) return PUBLIC_GUEST_USER;
   const user = await getCurrentUser();
   if (!user) {
     throw new Error("UNAUTHENTICATED");

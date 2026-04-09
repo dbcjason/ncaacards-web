@@ -4,7 +4,6 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { seasonsForGender } from "@/lib/ui-options";
-import { AddToWatchlistDialog } from "@/components/add-to-watchlist-dialog";
 
 type GradeRow = Record<string, string>;
 
@@ -89,11 +88,6 @@ function TransferGradesPageInner() {
   const [teams, setTeams] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [watchlistTarget, setWatchlistTarget] = useState<{
-    player: string;
-    team: string;
-    season: number;
-  } | null>(null);
 
   useEffect(() => {
     const g = searchParams.get("gender");
@@ -200,7 +194,6 @@ function TransferGradesPageInner() {
             <Link href={`/transfer-grades?gender=${gender}&season=${season}`} className="text-red-400">Transfer Grades</Link>
             <Link href={`/jason-created-stats?gender=${gender}&season=${season}`} className="text-zinc-300">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">Leaderboard</Link>
-            <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">Watchlist</Link>
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
@@ -286,21 +279,7 @@ function TransferGradesPageInner() {
               {filtered.map((r, idx) => (
                 <tr key={`${r.season}-${r.player}-${r.team}-${idx}`} className="odd:bg-zinc-900 even:bg-zinc-950">
                   <td className="border-b border-zinc-800 p-2 text-left">{r.season}</td>
-                  <td className="border-b border-zinc-800 p-2 text-left">
-                    <button
-                      type="button"
-                      className="text-left text-zinc-100 underline-offset-2 hover:text-red-300 hover:underline"
-                      onClick={() =>
-                        setWatchlistTarget({
-                          player: String(r.player || ""),
-                          team: String(r.team || ""),
-                          season: Number(r.season) || season,
-                        })
-                      }
-                    >
-                      {r.player}
-                    </button>
-                  </td>
+                  <td className="border-b border-zinc-800 p-2 text-left">{r.player}</td>
                   <td className="border-b border-zinc-800 p-2 text-left">{r.team}</td>
                   <td className="border-b border-zinc-800 p-2 text-left">{r.source_conference}</td>
                   <td className="border-b border-zinc-800 p-2 text-left">{r.class}</td>
@@ -319,14 +298,6 @@ function TransferGradesPageInner() {
             </tbody>
           </table>
         </div>
-        <AddToWatchlistDialog
-          open={Boolean(watchlistTarget)}
-          gender={gender}
-          season={watchlistTarget?.season ?? season}
-          team={watchlistTarget?.team ?? ""}
-          player={watchlistTarget?.player ?? ""}
-          onClose={() => setWatchlistTarget(null)}
-        />
       </div>
     </div>
   );

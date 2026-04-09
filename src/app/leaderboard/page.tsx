@@ -4,7 +4,6 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { seasonsForGender } from "@/lib/ui-options";
-import { AddToWatchlistDialog } from "@/components/add-to-watchlist-dialog";
 
 type MetricMeta = {
   key: string;
@@ -173,11 +172,6 @@ function LeaderboardPageInner() {
   const [error, setError] = useState("");
   const [minMpg, setMinMpg] = useState(10);
   const [draftedPlus2026Only, setDraftedPlus2026Only] = useState(false);
-  const [watchlistTarget, setWatchlistTarget] = useState<{
-    player: string;
-    team: string;
-    season: number;
-  } | null>(null);
 
   useEffect(() => {
     const g = searchParams.get("gender");
@@ -336,7 +330,6 @@ function LeaderboardPageInner() {
             <Link href={`/transfer-grades?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Transfer Grades</Link>
             <Link href={`/jason-created-stats?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${navSeason}`} className="text-red-400">Leaderboard</Link>
-            <Link href={`/watchlist?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Watchlist</Link>
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
@@ -528,8 +521,8 @@ function LeaderboardPageInner() {
                 ) : null}
               </tr>
               <tr className="bg-zinc-800 text-zinc-100">
-                <SortableHeader label="Year" sortKey="season" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="sticky left-0 z-20 bg-zinc-800 text-left" />
-                <SortableHeader label="Player" sortKey="player" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
+                <SortableHeader label="Year" sortKey="season" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="sticky left-0 z-30 min-w-[76px] bg-zinc-800 text-left" />
+                <SortableHeader label="Player" sortKey="player" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="sticky left-[76px] z-30 min-w-[210px] bg-zinc-800 text-left" />
                 <SortableHeader label="Team" sortKey="team" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
                 <SortableHeader label="Pos" sortKey="pos" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
                 <SortableHeader label="Height" sortKey="height" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-left" />
@@ -555,22 +548,8 @@ function LeaderboardPageInner() {
             <tbody>
               {rows.map((row) => (
                 <tr key={`${row.season}:${row.team}:${row.player}`} className="border-b border-zinc-800 align-top">
-                  <td className="sticky left-0 z-10 bg-zinc-900 p-2">{row.season}</td>
-                  <td className="p-2 font-medium">
-                    <button
-                      type="button"
-                      className="text-left text-zinc-100 underline-offset-2 hover:text-red-300 hover:underline"
-                      onClick={() =>
-                        setWatchlistTarget({
-                          player: row.player,
-                          team: row.team,
-                          season: Number(row.season) || navSeason,
-                        })
-                      }
-                    >
-                      {row.player}
-                    </button>
-                  </td>
+                  <td className="sticky left-0 z-20 min-w-[76px] bg-zinc-900 p-2">{row.season}</td>
+                  <td className="sticky left-[76px] z-20 min-w-[210px] bg-zinc-900 p-2 font-medium">{row.player}</td>
                   <td className="p-2">{row.team}</td>
                   <td className="p-2">{row.pos || "N/A"}</td>
                   <td className="p-2">{row.height || "N/A"}</td>
@@ -599,14 +578,6 @@ function LeaderboardPageInner() {
             </tbody>
           </table>
         </div>
-        <AddToWatchlistDialog
-          open={Boolean(watchlistTarget)}
-          gender={gender}
-          season={watchlistTarget?.season ?? navSeason}
-          team={watchlistTarget?.team ?? ""}
-          player={watchlistTarget?.player ?? ""}
-          onClose={() => setWatchlistTarget(null)}
-        />
       </div>
     </div>
   );
