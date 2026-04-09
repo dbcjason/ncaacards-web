@@ -45,10 +45,12 @@ function buildSubtitleHtml(
   input: { mode?: string; destinationConference?: string } = {},
 ): string {
   const bio = payload.bio ?? {};
+  const ageValue = num(bio.age_june25 ?? bio.age);
+  const ageDisplay = ageValue === null ? String(bio.age_june25 ?? bio.age ?? "N/A") : ageValue.toFixed(1);
   const bits: string[] = [
     esc(payload.team),
     esc(payload.season),
-    `Age: ${esc(String(bio.age_june25 ?? bio.age ?? "N/A"))}`,
+    `Age: ${esc(ageDisplay)}`,
     `RSCI: ${esc(String(bio.rsci ?? "N/A"))}`,
     `Position: ${esc(bio.position || "N/A")}`,
   ];

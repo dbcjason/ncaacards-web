@@ -1200,10 +1200,10 @@ async function loadRsciLookup(cfg: SourceCfg): Promise<Record<string, number>> {
   const promise = (async () => {
     const lookup: Record<string, number> = {};
     const candidates = [
-      process.env.GITHUB_RSCI_CSV_PATH || "",
       "player_cards_pipeline/data/manual/rsci/rsci_rankings.csv",
       "player_cards_pipeline/data/manual/rsci_rankings.csv",
       "rsci_rankings.csv",
+      process.env.GITHUB_RSCI_CSV_PATH || "",
     ].filter(Boolean);
 
     for (const path of candidates) {
@@ -1486,9 +1486,12 @@ export async function loadStaticPayload(
     rsci:
       numericOrNull(rsciFromManualCsv) ??
       numericOrNull(bundledBio?.rsci) ??
-      numericOrNull(btGet(targetRow ?? {}, ["rsci", "rec rank", "recrank"])) ??
       "N/A",
   };
+  if (typeof bio.rsci === "number" && Number.isFinite(bio.rsci)) {
+    const rounded = Math.round(bio.rsci);
+    bio.rsci = rounded >= 1 && rounded <= 100 ? rounded : "N/A";
+  }
   if (statisticalHeight) {
     bio.statistical_height = statisticalHeight;
     bio.statistical_height_text = statDelta !== null ? `${statisticalHeight}, ${statDelta > 0 ? "+" : ""}${statDelta.toFixed(2)} in` : statisticalHeight;
@@ -1533,13 +1536,47 @@ export async function loadStaticPayload(
     percentiles: per_game_percentiles,
   };
 
+  const shotChartHtml = String(sections_html.shot_chart_html ?? "");
+  const ppsLineFromHtml = (() => {
+    const match = shotChartHtml.match(/Points per Shot Over Expectation:\s*([^<\n\r]+)/i);
+    if (!match) return "";
+    return `Points per Shot Over Expectation: ${String(match[1] ?? "").trim()}`;
+  })();
+  const ppsLineFromEnriched = (() => {
+    const directKeys = [
+      "pps_line",
+      "pps_over_expectation_line",
+      "points_per_shot_over_expectation_line",
+      "shot_pps_oe_line",
+    ];
+    for (const key of directKeys) {
+      const value = String(nestedValue(enrichedRow, key) ?? "").trim();
+      if (value) return value;
+    }
+    const nestedKeys = [
+      ["shot_chart", "pps_over_expectation_line"],
+      ["shot_chart", "pps_line"],
+      ["shotchart", "pps_over_expectation_line"],
+      ["shotchart", "pps_line"],
+    ] as const;
+    for (const path of nestedKeys) {
+      const value = String(nestedValue(enrichedRow, ...path) ?? "").trim();
+      if (value) return value;
+    }
+    return "";
+  })();
+  const ppsLine =
+    ppsLineFromEnriched ||
+    ppsLineFromHtml ||
+    "Points per Shot Over Expectation: N/A";
+
   const shotBuild = enrichedRow ? buildShotsFromEnrichedRow(enrichedRow) : { shots: [], makes: 0, attempts: 0 };
   const shot_chart: Record<string, unknown> = {
     shots: shotBuild.shots,
     makes: shotBuild.makes,
     attempts: shotBuild.attempts,
     fg_pct: shotBuild.attempts > 0 ? (100 * shotBuild.makes) / shotBuild.attempts : null,
-    pps_over_expectation_line: "Points per Shot Over Expectation: N/A",
+    pps_over_expectation_line: ppsLine,
   };
 
   return {
