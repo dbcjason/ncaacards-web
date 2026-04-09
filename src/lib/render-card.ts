@@ -48,6 +48,7 @@ function buildSubtitleHtml(
   const bits: string[] = [
     esc(payload.team),
     esc(payload.season),
+    `Age: ${esc(String(bio.age_june25 ?? bio.age ?? "N/A"))}`,
     `Position: ${esc(bio.position || "N/A")}`,
   ];
 

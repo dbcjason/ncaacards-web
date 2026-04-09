@@ -40,6 +40,8 @@ type BundledBioLookupRow = {
   statistical_height?: string;
   statistical_height_delta?: string;
   bt_height?: string;
+  age_june25?: string | number;
+  rsci?: string | number;
 };
 
 type WorkflowSectionPayload = {
@@ -133,6 +135,27 @@ function normSeason(v: string | number): string {
 
 function transferCacheKey(player: string, team: string, season: string | number): string {
   return `${normPlayer(player)}|${normTeam(team)}|${normSeason(season)}`;
+}
+
+function numericOrNull(value: unknown): number | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function calcAgeOnJune25(dobRaw: unknown, seasonRaw: unknown): number | null {
+  const dobText = String(dobRaw ?? "").trim();
+  if (!dobText) return null;
+  const dob = new Date(dobText);
+  if (!Number.isFinite(dob.getTime())) return null;
+  const season = Number(normSeason(seasonRaw as string | number));
+  if (!Number.isFinite(season) || season < 1900) return null;
+  const ref = new Date(Date.UTC(season, 5, 25));
+  let age = ref.getUTCFullYear() - dob.getUTCFullYear();
+  const monthDiff = ref.getUTCMonth() - dob.getUTCMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && ref.getUTCDate() < dob.getUTCDate())) age -= 1;
+  return Number.isFinite(age) ? age : null;
 }
 
 function conferenceKey(raw: string): string {
@@ -1150,6 +1173,8 @@ async function loadBundledBioFallback(
     height: String(row.bt_height || row.listed_height || row.enriched_height || "").trim(),
     statistical_height: String(row.statistical_height || "").trim(),
     statistical_height_delta: String(row.statistical_height_delta || "").trim(),
+    age_june25: String(row.age_june25 ?? "").trim(),
+    rsci: String(row.rsci ?? "").trim(),
   };
 }
 
@@ -1379,8 +1404,14 @@ export async function loadStaticPayload(
       String(btGet(targetRow ?? {}, ["pos", "position", "role"]) ?? "").trim() ||
       "N/A",
     height: listedHeight || "N/A",
-    age_june25: "N/A",
-    rsci: "N/A",
+    age_june25:
+      calcAgeOnJune25(
+        btGet(targetRow ?? {}, ["dob", "date_of_birth"]),
+        btGet(targetRow ?? {}, ["year", "season", "yr"]) || resolvedSeason,
+      ) ??
+      numericOrNull(bundledBio?.age_june25) ??
+      "N/A",
+    rsci: numericOrNull(bundledBio?.rsci) ?? numericOrNull(btGet(targetRow ?? {}, ["rsci", "rec rank", "recrank"])) ?? "N/A",
   };
   if (statisticalHeight) {
     bio.statistical_height = statisticalHeight;

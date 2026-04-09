@@ -596,6 +596,8 @@ export function isLeaderboardMetric(raw?: string): raw is LeaderboardMetricKey {
 
 function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
   const btRow = safeAnyObject(row.bt_row);
+  const payload = safeAnyObject(row.payload_json);
+  const payloadBio = safeAnyObject(payload.bio);
   const sourceValues = safeObject(row.values);
   const sourcePercentiles = safeObject(row.percentiles);
   const parsedBtPercentiles = parseSectionMetricRows(row.bt_percentiles_html);
@@ -634,6 +636,27 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
     }
   }
 
+  const payloadStatHeightText = String(
+    payloadBio.statistical_height_text ??
+      payloadBio.statistical_height ??
+      payloadBio.stat_height ??
+      payloadBio.statisticalHeight ??
+      "",
+  ).trim();
+  const payloadStatDelta =
+    numericOrNull(
+      payloadBio.statistical_height_delta ??
+        payloadBio.stat_height_delta ??
+        payloadBio.statisticalHeightDelta,
+    ) ??
+    (() => {
+      const match = payloadStatHeightText.match(/,\s*([+-]?\d+(?:\.\d+)?)\s*in\s*$/i);
+      return match ? numericOrNull(match[1]) : null;
+    })();
+  const payloadStatBase = payloadStatHeightText
+    ? payloadStatHeightText.replace(/,\s*[+-]?\d+(?:\.\d+)?\s*in\s*$/i, "").trim()
+    : "";
+
   return {
     ...row,
     pos: normalizePositionCode(row.pos),
@@ -644,7 +667,11 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
       const rounded = Math.round(value);
       return rounded >= 1 && rounded <= 100 ? rounded : null;
     })(),
-    statistical_height_delta: numericOrNull(row.statistical_height_delta),
+    height: String(payloadBio.height ?? row.height ?? "").trim() || row.height,
+    statistical_height: payloadStatBase || row.statistical_height,
+    statistical_height_delta:
+      payloadStatDelta ??
+      numericOrNull(row.statistical_height_delta),
     values: mergedValues,
     percentiles: mergedPercentiles,
     minutes_per_game:
@@ -792,6 +819,7 @@ export async function queryLeaderboard(params: {
         l.values,
         l.percentiles,
         l.bt_row,
+        p.payload_json,
         p.payload_json -> 'sections_html' ->> 'bt_percentiles_html' as bt_percentiles_html,
         p.payload_json -> 'sections_html' ->> 'self_creation_html' as self_creation_html,
         l.updated_at
