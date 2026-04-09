@@ -83,13 +83,9 @@ const DEF_REB_KEYS = ["stl_pct", "blk_pct", "oreb_pct", "dreb_pct"] as const;
 const IMPACT_KEYS = ["bpm", "rapm", "obpm", "dbpm", "net_points", "onoff_net"] as const;
 const JASON_KEYS = [
   "feel_plus",
-  "feel_plus_percentile",
   "rimfluence",
   "rimfluence_off",
   "rimfluence_def",
-  "rimfluence_percentile",
-  "height_delta_inches",
-  "height_delta_percentile",
 ] as const;
 const POSITION_FILTER_OPTIONS = ["PG", "SG", "SF", "PF", "C"] as const;
 const WOMEN_HIDDEN_METRICS = new Set(["uasst_dunks_100"]);
@@ -163,11 +159,11 @@ function LeaderboardPageInner() {
   const [positionFilter, setPositionFilter] = useState("");
   const [conferenceFilter, setConferenceFilter] = useState("");
   const [playerFilter, setPlayerFilter] = useState("");
-  const [sortBy, setSortBy] = useState("bpm");
+  const [sortBy, setSortBy] = useState("ppg");
   const [sortMode, setSortMode] = useState<"stat" | "percentile">("stat");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [filters, setFilters] = useState<FilterRow[]>([
-    { id: "f1", metric: "bpm", comparator: ">=", value: "", mode: "stat" },
+    { id: "f1", metric: "ppg", comparator: ">=", value: "", mode: "stat" },
   ]);
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
   const [teams, setTeams] = useState<string[]>([]);
@@ -214,9 +210,9 @@ function LeaderboardPageInner() {
             sortBy,
             sortMode,
             sortDir,
-            limit: 750,
+            limit: season === "all" ? 20000 : 750,
             minMpg,
-            draftedPlus2026: draftedPlus2026Only,
+            draftedPlus2026: season === "all" && draftedPlus2026Only,
             filters: filters
               .filter((filter) => filter.metric && filter.value.trim() !== "")
               .map((filter) => ({
@@ -272,6 +268,11 @@ function LeaderboardPageInner() {
       setSeason(String(seasonOptions[0] ?? 2026));
     }
   }, [season, seasonOptions]);
+  useEffect(() => {
+    if (season !== "all" && draftedPlus2026Only) {
+      setDraftedPlus2026Only(false);
+    }
+  }, [draftedPlus2026Only, season]);
   const filterFieldOptions = useMemo<FilterFieldMeta[]>(
     () => [
       ...(gender === "women" ? [] : [{ key: "age", label: "Age", supportsPercentile: false }]),
@@ -356,6 +357,16 @@ function LeaderboardPageInner() {
               {conferenceOptions.map((conference) => <option key={conference} value={conference}>{conference}</option>)}
             </select>
             <div className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-300">
+              {season === "all" ? (
+                <label className="mb-2 flex items-center gap-2 text-zinc-200">
+                  <input
+                    type="checkbox"
+                    checked={draftedPlus2026Only}
+                    onChange={(e) => setDraftedPlus2026Only(e.target.checked)}
+                  />
+                  Drafted + 2026
+                </label>
+              ) : null}
               <label className="mr-2 text-zinc-400">Min MPG</label>
               <input
                 type="number"
@@ -369,15 +380,6 @@ function LeaderboardPageInner() {
                 }}
               />
             </div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={`rounded px-3 py-1 text-sm ${draftedPlus2026Only ? "bg-red-500 text-white" : "bg-zinc-800 text-zinc-300"}`}
-              onClick={() => setDraftedPlus2026Only((current) => !current)}
-            >
-              Drafted + 2026
-            </button>
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">

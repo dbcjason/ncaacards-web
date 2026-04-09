@@ -42,13 +42,9 @@ export type LeaderboardMetricKey =
   | "net_points"
   | "onoff_net"
   | "feel_plus"
-  | "feel_plus_percentile"
   | "rimfluence"
   | "rimfluence_off"
-  | "rimfluence_def"
-  | "rimfluence_percentile"
-  | "height_delta_inches"
-  | "height_delta_percentile";
+  | "rimfluence_def";
 
 export const LEADERBOARD_METRICS: ReadonlyArray<{
   key: LeaderboardMetricKey;
@@ -90,13 +86,9 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
   { key: "net_points", label: "Net Points" },
   { key: "onoff_net", label: "On/Off Net" },
   { key: "feel_plus", label: "Feel+" },
-  { key: "feel_plus_percentile", label: "Feel+ %ile" },
   { key: "rimfluence", label: "Rimfluence" },
   { key: "rimfluence_off", label: "Off Rimfluence" },
   { key: "rimfluence_def", label: "Def Rimfluence" },
-  { key: "rimfluence_percentile", label: "Rimfluence %ile" },
-  { key: "height_delta_inches", label: "Height Delta (in)" },
-  { key: "height_delta_percentile", label: "Height Delta %ile" },
 ] as const;
 
 export type LeaderboardFilter = {
@@ -142,6 +134,7 @@ type JasonStatsRow = {
   class_raw: string;
   draft_pick: number | null;
   values: Record<string, number | null>;
+  percentiles: Record<string, number | null>;
 };
 
 const JASON_CACHE_TTL_MS = 1000 * 60 * 30;
@@ -235,13 +228,9 @@ const METRIC_BT_ALIASES: Record<LeaderboardMetricKey, string[]> = {
   net_points: ["netpoints", "net_pts", "netrating", "netrtg", "net", "netpointsr", "netpointsdiff"],
   onoff_net: ["onoffnet", "onoff", "onoffrating", "onoffrtg", "on_off_net", "onoffnetr"],
   feel_plus: ["feelplus"],
-  feel_plus_percentile: ["feelpluspercentile"],
   rimfluence: ["rimfluence"],
   rimfluence_off: ["rimfluenceoff"],
   rimfluence_def: ["rimfluencedef"],
-  rimfluence_percentile: ["rimfluencepercentile"],
-  height_delta_inches: ["heightdeltainches"],
-  height_delta_percentile: ["heightdeltapercentile"],
 };
 
 function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMetricKey): number | null {
@@ -572,13 +561,13 @@ async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsR
       if (!Number.isFinite(season) || !team || !player) return null;
       const values: Record<string, number | null> = {
         feel_plus: numericOrNull(row.feel_plus),
-        feel_plus_percentile: numericOrNull(row.feel_plus_percentile),
         rimfluence: numericOrNull(row.rimfluence),
         rimfluence_off: numericOrNull(row.rimfluence_off),
         rimfluence_def: numericOrNull(row.rimfluence_def),
-        rimfluence_percentile: numericOrNull(row.rimfluence_percentile),
-        height_delta_inches: numericOrNull(row.height_delta_inches),
-        height_delta_percentile: numericOrNull(row.height_delta_percentile),
+      };
+      const percentiles: Record<string, number | null> = {
+        feel_plus: numericOrNull(row.feel_plus_percentile),
+        rimfluence: numericOrNull(row.rimfluence_percentile),
       };
       return {
         season,
@@ -587,6 +576,7 @@ async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsR
         class_raw: String(row.class ?? "").trim(),
         draft_pick: numericOrNull(row.draft_pick),
         values,
+        percentiles,
       };
     })
     .filter((row): row is JasonStatsRow => Boolean(row));
@@ -916,16 +906,26 @@ export async function queryLeaderboard(params: {
       : await fetchJasonCsvRows(params.gender);
   const rsciLookup = await fetchRsciLookup();
   const jasonLookup = new Map<string, JasonStatsRow>();
+  const jasonByPlayerSeason = new Map<string, JasonStatsRow[]>();
   for (const row of jasonRows) {
     jasonLookup.set(
       `${row.season}::${normalizeTeamName(row.team)}::${normalizePlayerName(row.player)}`,
       row,
     );
+    const key = `${row.season}::${normalizePlayerName(row.player)}`;
+    const bucket = jasonByPlayerSeason.get(key) ?? [];
+    bucket.push(row);
+    jasonByPlayerSeason.set(key, bucket);
   }
 
   normalized = normalized.map((row) => {
     const lookupKey = `${row.season}::${normalizeTeamName(row.team)}::${normalizePlayerName(row.player)}`;
-    const jason = jasonLookup.get(lookupKey);
+    const jason =
+      jasonLookup.get(lookupKey) ??
+      (() => {
+        const bucket = jasonByPlayerSeason.get(`${row.season}::${normalizePlayerName(row.player)}`) ?? [];
+        return bucket.length === 1 ? bucket[0] : undefined;
+      })();
     const draftPick = (() => {
       const raw = jason?.draft_pick;
       if (typeof raw === "number" && Number.isFinite(raw) && raw > 0 && raw < 100000) return raw;
@@ -944,6 +944,10 @@ export async function queryLeaderboard(params: {
         ...row.values,
         draft_pick: draftPick,
         ...(jason?.values ?? {}),
+      },
+      percentiles: {
+        ...row.percentiles,
+        ...(jason?.percentiles ?? {}),
       },
     };
   });
@@ -974,7 +978,7 @@ export async function queryLeaderboard(params: {
   normalized = applyFilters(normalized, Array.isArray(params.filters) ? params.filters : []);
   normalized = sortRows(normalized, params.sortBy, params.sortDir, params.sortMode);
 
-  const limited = normalized.slice(0, Math.max(1, Math.min(2000, params.limit ?? 500)));
+  const limited = normalized.slice(0, Math.max(1, Math.min(50000, params.limit ?? 500)));
   const seasons = Array.from(new Set(normalized.map((row) => row.season))).sort((a, b) => b - a);
   const teams = Array.from(new Set(normalized.map((row) => row.team))).sort((a, b) => a.localeCompare(b));
   const positions = Array.from(new Set(normalized.map((row) => row.pos).filter(Boolean))).sort((a, b) => a.localeCompare(b));
