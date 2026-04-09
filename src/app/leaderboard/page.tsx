@@ -81,6 +81,16 @@ const SELF_CREATION_KEYS = [
 ] as const;
 const DEF_REB_KEYS = ["stl_pct", "blk_pct", "oreb_pct", "dreb_pct"] as const;
 const IMPACT_KEYS = ["bpm", "rapm", "obpm", "dbpm", "net_points", "onoff_net"] as const;
+const JASON_KEYS = [
+  "feel_plus",
+  "feel_plus_percentile",
+  "rimfluence",
+  "rimfluence_off",
+  "rimfluence_def",
+  "rimfluence_percentile",
+  "height_delta_inches",
+  "height_delta_percentile",
+] as const;
 const POSITION_FILTER_OPTIONS = ["PG", "SG", "SF", "PF", "C"] as const;
 const WOMEN_HIDDEN_METRICS = new Set(["uasst_dunks_100"]);
 
@@ -165,6 +175,7 @@ function LeaderboardPageInner() {
   const [metrics, setMetrics] = useState<MetricMeta[]>([]);
   const [error, setError] = useState("");
   const [minMpg, setMinMpg] = useState(10);
+  const [draftedPlus2026Only, setDraftedPlus2026Only] = useState(false);
   const [watchlistTarget, setWatchlistTarget] = useState<{
     player: string;
     team: string;
@@ -205,6 +216,7 @@ function LeaderboardPageInner() {
             sortDir,
             limit: 750,
             minMpg,
+            draftedPlus2026: draftedPlus2026Only,
             filters: filters
               .filter((filter) => filter.metric && filter.value.trim() !== "")
               .map((filter) => ({
@@ -235,7 +247,7 @@ function LeaderboardPageInner() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [conferenceFilter, filters, gender, minMpg, playerFilter, positionFilter, season, sortBy, sortDir, sortMode, teamFilter]);
+  }, [conferenceFilter, draftedPlus2026Only, filters, gender, minMpg, playerFilter, positionFilter, season, sortBy, sortDir, sortMode, teamFilter]);
 
   const metricOptions = useMemo(
     () =>
@@ -264,6 +276,7 @@ function LeaderboardPageInner() {
     () => [
       ...(gender === "women" ? [] : [{ key: "age", label: "Age", supportsPercentile: false }]),
       { key: "rsci", label: "RSCI", supportsPercentile: false },
+      { key: "draft_pick", label: "Draft Pick", supportsPercentile: false },
       ...metricOptions.map((metric) => ({ key: metric.key, label: metric.label, supportsPercentile: true })),
     ],
     [gender, metricOptions],
@@ -288,6 +301,10 @@ function LeaderboardPageInner() {
   );
   const impactCols = useMemo(
     () => metricOptions.filter((metric) => IMPACT_KEYS.includes(metric.key as (typeof IMPACT_KEYS)[number])).length,
+    [metricOptions],
+  );
+  const jasonCols = useMemo(
+    () => metricOptions.filter((metric) => JASON_KEYS.includes(metric.key as (typeof JASON_KEYS)[number])).length,
     [metricOptions],
   );
   const onSort = (key: string) => {
@@ -353,6 +370,15 @@ function LeaderboardPageInner() {
               />
             </div>
           </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={`rounded px-3 py-1 text-sm ${draftedPlus2026Only ? "bg-red-500 text-white" : "bg-zinc-800 text-zinc-300"}`}
+              onClick={() => setDraftedPlus2026Only((current) => !current)}
+            >
+              Drafted + 2026
+            </button>
+          </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
             <select className="rounded bg-zinc-800 p-2" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
@@ -404,7 +430,7 @@ function LeaderboardPageInner() {
                   <select
                     className="rounded bg-zinc-800 p-2"
                     value={filter.mode}
-                    disabled={filter.metric === "age" || filter.metric === "rsci"}
+                    disabled={filter.metric === "age" || filter.metric === "rsci" || filter.metric === "draft_pick"}
                     onChange={(e) =>
                       setFilters((current) =>
                         current.map((row) =>
@@ -490,6 +516,11 @@ function LeaderboardPageInner() {
                 {impactCols ? (
                   <th colSpan={impactCols} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
                     Impact
+                  </th>
+                ) : null}
+                {jasonCols ? (
+                  <th colSpan={jasonCols} className="border-b border-zinc-700 p-2 text-center text-xs font-bold uppercase tracking-wide">
+                    Jason Created Stats
                   </th>
                 ) : null}
               </tr>

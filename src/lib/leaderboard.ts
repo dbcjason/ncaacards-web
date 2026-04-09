@@ -40,7 +40,15 @@ export type LeaderboardMetricKey =
   | "obpm"
   | "dbpm"
   | "net_points"
-  | "onoff_net";
+  | "onoff_net"
+  | "feel_plus"
+  | "feel_plus_percentile"
+  | "rimfluence"
+  | "rimfluence_off"
+  | "rimfluence_def"
+  | "rimfluence_percentile"
+  | "height_delta_inches"
+  | "height_delta_percentile";
 
 export const LEADERBOARD_METRICS: ReadonlyArray<{
   key: LeaderboardMetricKey;
@@ -81,10 +89,18 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
   { key: "dbpm", label: "DBPM" },
   { key: "net_points", label: "Net Points" },
   { key: "onoff_net", label: "On/Off Net" },
+  { key: "feel_plus", label: "Feel+" },
+  { key: "feel_plus_percentile", label: "Feel+ %ile" },
+  { key: "rimfluence", label: "Rimfluence" },
+  { key: "rimfluence_off", label: "Off Rimfluence" },
+  { key: "rimfluence_def", label: "Def Rimfluence" },
+  { key: "rimfluence_percentile", label: "Rimfluence %ile" },
+  { key: "height_delta_inches", label: "Height Delta (in)" },
+  { key: "height_delta_percentile", label: "Height Delta %ile" },
 ] as const;
 
 export type LeaderboardFilter = {
-  metric: LeaderboardMetricKey | "age" | "rsci";
+  metric: LeaderboardMetricKey | "age" | "rsci" | "draft_pick";
   comparator: ">=" | "<=";
   value: number;
   mode: "stat" | "percentile";
@@ -118,6 +134,18 @@ type RawLeaderboardRow = Omit<LeaderboardRow, "values" | "percentiles"> & {
   bt_percentiles_html?: string | null;
   self_creation_html?: string | null;
 };
+
+type JasonStatsRow = {
+  season: number;
+  team: string;
+  player: string;
+  class_raw: string;
+  draft_pick: number | null;
+  values: Record<string, number | null>;
+};
+
+const JASON_CACHE_TTL_MS = 1000 * 60 * 30;
+const jasonStatsCache = new Map<LeaderboardGender, { ts: number; rows: JasonStatsRow[] }>();
 
 export type WatchlistGrade = {
   label: string;
@@ -177,16 +205,16 @@ const METRIC_BT_ALIASES: Record<LeaderboardMetricKey, string[]> = {
   usg: ["usg", "usage", "usagepct", "usg_pct", "usgper"],
   fg_pct: ["fgpct", "fg%", "efg", "efg_pct", "efg%"],
   ts_pct: ["tspct", "ts%", "ts_per", "tsp"],
-  twop_pct: ["2ppct", "2p%", "2ptpct", "2pt%", "twop_pct", "twoppct"],
-  rim_pct: ["rimpct", "rim%", "rimfgpct", "rimfg%"],
-  rim_att_100: ["rimatt100", "rimatt/100", "rimatt", "rimfga100", "rimfga/100"],
-  dunks_100: ["dunks100", "dunks/100", "dunk100"],
-  mid_pct: ["midpct", "mid%", "midfgpct", "midfg%"],
+  twop_pct: ["2ppct", "2p%", "2ptpct", "2pt%", "twop_pct", "twoppct", "twopper"],
+  rim_pct: ["rimpct", "rim%", "rimfgpct", "rimfg%", "rimmaderimmaderimmiss"],
+  rim_att_100: ["rimatt100", "rimatt/100", "rimatt", "rimfga100", "rimfga/100", "rimattempts100"],
+  dunks_100: ["dunks100", "dunks/100", "dunk100", "dunksmissdunksmade"],
+  mid_pct: ["midpct", "mid%", "midfgpct", "midfg%", "midmademidmademidmiss"],
   tp_pct: ["3ppct", "3p%", "tp_per", "3ptpct", "3pt%"],
   tpa_100: ["3pa100", "3pa/100", "3p100", "3p/100"],
   ftr: ["ftr", "ftrate", "ftratio"],
   ast_pct: ["astpct", "ast%", "ast_per"],
-  rim_assts_100: ["rimassts100", "rimassts/100", "rimast100", "rimast/100"],
+  rim_assts_100: ["rimassts100", "rimassts/100", "rimast100", "rimast/100", "rimasst100", "rimasst/100"],
   ato: ["asttov", "a/to", "ato"],
   to_pct: ["topct", "to%", "to_per"],
   uasst_dunks_100: ["uasstdunks100", "uasstdunks/100", "unassisteddunks100"],
@@ -202,8 +230,16 @@ const METRIC_BT_ALIASES: Record<LeaderboardMetricKey, string[]> = {
   rapm: ["rapm", "epm", "rpm"],
   obpm: ["obpm", "ogbpm"],
   dbpm: ["dbpm", "dgbpm"],
-  net_points: ["netpoints", "net_pts", "netrating", "netrtg", "net"],
-  onoff_net: ["onoffnet", "onoff", "onoffrating", "onoffrtg", "on_off_net"],
+  net_points: ["netpoints", "net_pts", "netrating", "netrtg", "net", "netpointsr", "netpointsdiff"],
+  onoff_net: ["onoffnet", "onoff", "onoffrating", "onoffrtg", "on_off_net", "onoffnetr"],
+  feel_plus: ["feelplus"],
+  feel_plus_percentile: ["feelpluspercentile"],
+  rimfluence: ["rimfluence"],
+  rimfluence_off: ["rimfluenceoff"],
+  rimfluence_def: ["rimfluencedef"],
+  rimfluence_percentile: ["rimfluencepercentile"],
+  height_delta_inches: ["heightdeltainches"],
+  height_delta_percentile: ["heightdeltapercentile"],
 };
 
 function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMetricKey): number | null {
@@ -214,10 +250,80 @@ function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMe
     const value = numericOrNull(rawValue);
     if (typeof value === "number") normalizedMap.set(normalized, value);
   }
-  for (const alias of METRIC_BT_ALIASES[key] ?? []) {
-    const found = normalizedMap.get(normalizeStatKey(alias));
+  const aliases = METRIC_BT_ALIASES[key] ?? [];
+  for (const alias of aliases) {
+    const aliasNorm = normalizeStatKey(alias);
+    const found = normalizedMap.get(aliasNorm);
     if (typeof found === "number") return found;
   }
+
+  for (const alias of aliases) {
+    const aliasNorm = normalizeStatKey(alias);
+    for (const [mapKey, mapVal] of normalizedMap.entries()) {
+      if (!aliasNorm || !mapKey) continue;
+      if (mapKey.includes(aliasNorm) || aliasNorm.includes(mapKey)) {
+        return mapVal;
+      }
+    }
+  }
+
+  const read = (...aliasesToRead: string[]) => {
+    for (const alias of aliasesToRead) {
+      const aliasNorm = normalizeStatKey(alias);
+      const direct = normalizedMap.get(aliasNorm);
+      if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+      for (const [mapKey, mapVal] of normalizedMap.entries()) {
+        if (!mapKey || !aliasNorm) continue;
+        if (mapKey.includes(aliasNorm) || aliasNorm.includes(mapKey)) return mapVal;
+      }
+    }
+    return null;
+  };
+  const normalizePct = (value: number | null) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    return Math.abs(value) <= 1 ? value * 100 : value;
+  };
+
+  if (key === "twop_pct") {
+    return normalizePct(read("twop_per", "twopper", "twoP_per", "2p_per"));
+  }
+  if (key === "rim_pct") {
+    const ratio = normalizePct(read("rimmade/(rimmade+rimmiss)", "rimpct"));
+    if (typeof ratio === "number") return ratio;
+    const rimMade = read("rimmade");
+    const rimAtt = read("rimmade+rimmiss", "rimattempts");
+    if (typeof rimMade === "number" && typeof rimAtt === "number" && rimAtt > 0) {
+      return (rimMade / rimAtt) * 100;
+    }
+  }
+  if (key === "mid_pct") {
+    const ratio = normalizePct(read("midmade/(midmade+midmiss)", "midpct"));
+    if (typeof ratio === "number") return ratio;
+    const midMade = read("midmade");
+    const midAtt = read("midmade+midmiss", "midattempts");
+    if (typeof midMade === "number" && typeof midAtt === "number" && midAtt > 0) {
+      return (midMade / midAtt) * 100;
+    }
+  }
+  if (key === "rim_att_100") {
+    const direct = read("rimatt100", "rimfga100");
+    if (typeof direct === "number") return direct;
+    const rimAtt = read("rimmade+rimmiss", "rimattempts");
+    const mp = read("mp", "min_per", "minper");
+    if (typeof rimAtt === "number" && typeof mp === "number" && mp > 0) {
+      return (rimAtt / mp) * 100;
+    }
+  }
+  if (key === "dunks_100") {
+    const direct = read("dunks100");
+    if (typeof direct === "number") return direct;
+    const dunkAtt = read("dunksmiss+dunksmade", "dunkattempts");
+    const mp = read("mp", "min_per", "minper");
+    if (typeof dunkAtt === "number" && typeof mp === "number" && mp > 0) {
+      return (dunkAtt / mp) * 100;
+    }
+  }
+
   return null;
 }
 
@@ -256,7 +362,9 @@ function mapHtmlMetricLabelToKey(rawLabel: string): LeaderboardMetricKey | null 
     drebpercent: "dreb_pct",
     bpm: "bpm",
     rapm: "rapm",
+    netpoints: "net_points",
     netpts: "net_points",
+    onoffnet: "onoff_net",
     onoffnetr: "onoff_net",
     uasstdunks100: "uasst_dunks_100",
     uasstddunks100: "uasst_dunks_100",
@@ -317,6 +425,161 @@ function normalizePositionCode(raw: unknown): string {
   return "";
 }
 
+function normalizeTextKey(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeTeamName(value: unknown): string {
+  return normalizeTextKey(value).replace(/\b(st|state)\b/g, "state");
+}
+
+function normalizePlayerName(value: unknown): string {
+  return normalizeTextKey(value);
+}
+
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === "," && !inQuotes) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseCsv(text: string): Array<Record<string, string>> {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0);
+  if (lines.length < 2) return [];
+  const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
+  const rows: Array<Record<string, string>> = [];
+  for (let i = 1; i < lines.length; i += 1) {
+    const cols = parseCsvLine(lines[i]);
+    const row: Record<string, string> = {};
+    for (let c = 0; c < header.length; c += 1) {
+      row[header[c]] = String(cols[c] ?? "").trim();
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function githubCsvCandidates(explicitPath: string | undefined): string[] {
+  const defaults = ["player_cards_pipeline/output/jason_created_stats.csv", "jason_created_stats.csv"];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (candidate: string | undefined) => {
+    const value = String(candidate || "").trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    out.push(value);
+  };
+  add(explicitPath);
+  if (explicitPath && !explicitPath.includes("/")) add(`player_cards_pipeline/output/${explicitPath}`);
+  for (const path of defaults) add(path);
+  return out;
+}
+
+async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsRow[]> {
+  const cached = jasonStatsCache.get(gender);
+  const now = Date.now();
+  if (cached && now - cached.ts < JASON_CACHE_TTL_MS) return cached.rows;
+
+  const owner =
+    gender === "women"
+      ? process.env.GITHUB_DATA_OWNER_WOMEN || process.env.GITHUB_DATA_OWNER || "dbcjason"
+      : process.env.GITHUB_DATA_OWNER || "dbcjason";
+  const repo =
+    gender === "women"
+      ? process.env.GITHUB_DATA_REPO_WOMEN || "NCAAWCards"
+      : process.env.GITHUB_DATA_REPO || "NCAACards";
+  const ref =
+    gender === "women"
+      ? process.env.GITHUB_DATA_REF_WOMEN || process.env.GITHUB_DATA_REF || "main"
+      : process.env.GITHUB_DATA_REF || "main";
+  const explicitPath =
+    gender === "women" ? process.env.GITHUB_JASON_STATS_CSV_PATH_WOMEN : process.env.GITHUB_JASON_STATS_CSV_PATH;
+  const csvPaths = githubCsvCandidates(explicitPath);
+  const headers: HeadersInit = {};
+  const token = process.env.GITHUB_TOKEN || "";
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers["X-GitHub-Api-Version"] = "2022-11-28";
+  }
+
+  let rowsRaw: Array<Record<string, string>> = [];
+  let lastError = "";
+  for (const csvPath of csvPaths) {
+    const url = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${csvPath}`;
+    try {
+      const res = await fetch(url, { cache: "no-store", headers });
+      if (!res.ok) {
+        lastError = `status ${res.status} @ ${csvPath}`;
+        continue;
+      }
+      rowsRaw = parseCsv(await res.text());
+      if (rowsRaw.length) break;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (!rowsRaw.length) {
+    console.warn(`[leaderboard] Jason stats unavailable for ${gender}: ${lastError}`);
+    jasonStatsCache.set(gender, { ts: now, rows: [] });
+    return [];
+  }
+
+  const parsed: JasonStatsRow[] = rowsRaw
+    .map((row) => {
+      const season = Number(row.season ?? "");
+      const team = String(row.team ?? "").trim();
+      const player = String(row.player_name ?? row.player ?? "").trim();
+      if (!Number.isFinite(season) || !team || !player) return null;
+      const values: Record<string, number | null> = {
+        feel_plus: numericOrNull(row.feel_plus),
+        feel_plus_percentile: numericOrNull(row.feel_plus_percentile),
+        rimfluence: numericOrNull(row.rimfluence),
+        rimfluence_off: numericOrNull(row.rimfluence_off),
+        rimfluence_def: numericOrNull(row.rimfluence_def),
+        rimfluence_percentile: numericOrNull(row.rimfluence_percentile),
+        height_delta_inches: numericOrNull(row.height_delta_inches),
+        height_delta_percentile: numericOrNull(row.height_delta_percentile),
+      };
+      return {
+        season,
+        team,
+        player,
+        class_raw: String(row.class ?? "").trim(),
+        draft_pick: numericOrNull(row.draft_pick),
+        values,
+      };
+    })
+    .filter((row): row is JasonStatsRow => Boolean(row));
+
+  jasonStatsCache.set(gender, { ts: now, rows: parsed });
+  return parsed;
+}
+
 export function parseLeaderboardGender(raw?: string): LeaderboardGender {
   return String(raw || "").toLowerCase() === "women" ? "women" : "men";
 }
@@ -362,7 +625,8 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
     }
 
     const nextValue = mergedValues[key];
-    if (nextValue == null || !Number.isFinite(Number(nextValue))) {
+    const nextLooksPlaceholder = nextValue === 0 && (currentPercentile == null || currentPercentile === 0);
+    if (nextValue == null || !Number.isFinite(Number(nextValue)) || nextLooksPlaceholder) {
       const fallback = metricValueFromBtRow(btRow, key);
       if (typeof fallback === "number" && Number.isFinite(fallback)) {
         mergedValues[key] = fallback;
@@ -402,6 +666,11 @@ function applyFilters(rows: LeaderboardRow[], filters: LeaderboardFilter[]): Lea
       }
       if (filter.metric === "rsci") {
         const value = row.rsci;
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
+        return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
+      }
+      if (filter.metric === "draft_pick") {
+        const value = row.values?.draft_pick;
         if (typeof value !== "number" || !Number.isFinite(value)) return false;
         return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
       }
@@ -467,6 +736,7 @@ export async function queryLeaderboard(params: {
   sortMode?: "stat" | "percentile";
   limit?: number;
   minMpg?: number | null;
+  draftedPlus2026?: boolean;
 }) {
   const sqlParams: unknown[] = [];
   const where: string[] = [];
@@ -542,12 +812,57 @@ export async function queryLeaderboard(params: {
     if (!Number.isFinite(minMpg) || minMpg <= 0) return true;
     return typeof row.minutes_per_game === "number" && row.minutes_per_game >= minMpg;
   });
+  const jasonRows =
+    params.gender === "all"
+      ? [...(await fetchJasonCsvRows("men")), ...(await fetchJasonCsvRows("women"))]
+      : await fetchJasonCsvRows(params.gender);
+  const jasonLookup = new Map<string, JasonStatsRow>();
+  for (const row of jasonRows) {
+    jasonLookup.set(
+      `${row.season}::${normalizeTeamName(row.team)}::${normalizePlayerName(row.player)}`,
+      row,
+    );
+  }
+
+  normalized = normalized.map((row) => {
+    const lookupKey = `${row.season}::${normalizeTeamName(row.team)}::${normalizePlayerName(row.player)}`;
+    const jason = jasonLookup.get(lookupKey);
+    const draftPick = (() => {
+      const raw = jason?.draft_pick;
+      if (typeof raw === "number" && Number.isFinite(raw) && raw > 0 && raw < 100000) return raw;
+      return 100000;
+    })();
+    return {
+      ...row,
+      values: {
+        ...row.values,
+        draft_pick: draftPick,
+        ...(jason?.values ?? {}),
+      },
+    };
+  });
+
   if (conferenceFilterKey === "high major") {
-    normalized = normalized.filter((row) => highMajorConferences.has(String(row.conference || "").trim()));
+    normalized = normalized.filter((row) => {
+      if (normalizeTeamName(row.team) === "gonzaga") return true;
+      return highMajorConferences.has(String(row.conference || "").trim());
+    });
   } else if (conferenceFilterKey === "mid/low major") {
     normalized = normalized.filter((row) => {
       const conference = String(row.conference || "").trim();
+      if (normalizeTeamName(row.team) === "gonzaga") return false;
       return conference.length > 0 && !highMajorConferences.has(conference);
+    });
+  }
+  if (params.draftedPlus2026) {
+    normalized = normalized.filter((row) => {
+      const draftPick = numericOrNull(row.values?.draft_pick);
+      const isDrafted = typeof draftPick === "number" && Number.isFinite(draftPick) && draftPick > 0 && draftPick < 100000;
+      const classRaw = String(
+        (jasonLookup.get(`${row.season}::${normalizeTeamName(row.team)}::${normalizePlayerName(row.player)}`)?.class_raw ?? row.class) || "",
+      );
+      const class2026 = /\b2026\b/.test(classRaw);
+      return isDrafted || class2026;
     });
   }
   normalized = applyFilters(normalized, Array.isArray(params.filters) ? params.filters : []);

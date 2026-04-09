@@ -13,7 +13,7 @@ function parseFilters(raw: unknown): LeaderboardFilter[] {
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const metric = String((item as Record<string, unknown>).metric ?? "");
-    const isSpecial = metric === "age" || metric === "rsci";
+    const isSpecial = metric === "age" || metric === "rsci" || metric === "draft_pick";
     if (!isSpecial && !isLeaderboardMetric(metric)) continue;
     const value = Number((item as Record<string, unknown>).value ?? "");
     if (!Number.isFinite(value)) continue;
@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
       sortMode?: "stat" | "percentile";
       limit?: number;
       minMpg?: number;
+      draftedPlus2026?: boolean;
     };
 
     const gender = parseLeaderboardGenderFilter(body.gender);
@@ -90,6 +91,7 @@ export async function POST(req: NextRequest) {
       sortMode: body.sortMode === "percentile" ? "percentile" : "stat",
       limit: Number.isFinite(Number(body.limit)) ? Number(body.limit) : 500,
       minMpg: Number.isFinite(Number(body.minMpg)) ? Number(body.minMpg) : 10,
+      draftedPlus2026: Boolean(body.draftedPlus2026),
     });
 
     return NextResponse.json({
