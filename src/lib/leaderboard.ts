@@ -42,6 +42,7 @@ export type LeaderboardMetricKey =
   | "net_points"
   | "onoff_net"
   | "feel_plus"
+  | "poss_created_100"
   | "rimfluence"
   | "rimfluence_off"
   | "rimfluence_def";
@@ -86,6 +87,7 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
   { key: "net_points", label: "Net Points" },
   { key: "onoff_net", label: "On/Off Net" },
   { key: "feel_plus", label: "Feel+" },
+  { key: "poss_created_100", label: "Possessions Created/100" },
   { key: "rimfluence", label: "Rimfluence" },
   { key: "rimfluence_off", label: "Off Rimfluence" },
   { key: "rimfluence_def", label: "Def Rimfluence" },
@@ -132,6 +134,10 @@ type JasonStatsRow = {
   team: string;
   player: string;
   class_raw: string;
+  position_raw: string;
+  listed_height: string;
+  statistical_height: string;
+  height_delta_inches: number | null;
   draft_pick: number | null;
   values: Record<string, number | null>;
   percentiles: Record<string, number | null>;
@@ -228,6 +234,7 @@ const METRIC_BT_ALIASES: Record<LeaderboardMetricKey, string[]> = {
   net_points: ["netpoints", "net_pts", "netrating", "netrtg", "net", "netpointsr", "netpointsdiff"],
   onoff_net: ["onoffnet", "onoff", "onoffrating", "onoffrtg", "on_off_net", "onoffnetr"],
   feel_plus: ["feelplus"],
+  poss_created_100: ["posscreated100", "possessionscreated100", "poss_created_100"],
   rimfluence: ["rimfluence"],
   rimfluence_off: ["rimfluenceoff"],
   rimfluence_def: ["rimfluencedef"],
@@ -561,12 +568,22 @@ async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsR
       if (!Number.isFinite(season) || !team || !player) return null;
       const values: Record<string, number | null> = {
         feel_plus: numericOrNull(row.feel_plus),
+        poss_created_100: numericOrNull(
+          row.possessions_created_100 ??
+            row.poss_created_100 ??
+            row.posscreated100,
+        ),
         rimfluence: numericOrNull(row.rimfluence),
         rimfluence_off: numericOrNull(row.rimfluence_off),
         rimfluence_def: numericOrNull(row.rimfluence_def),
       };
       const percentiles: Record<string, number | null> = {
         feel_plus: numericOrNull(row.feel_plus_percentile),
+        poss_created_100: numericOrNull(
+          row.possessions_created_100_percentile ??
+            row.poss_created_100_percentile ??
+            row.posscreated100_percentile,
+        ),
         rimfluence: numericOrNull(row.rimfluence_percentile),
       };
       return {
@@ -574,6 +591,10 @@ async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsR
         team,
         player,
         class_raw: String(row.class ?? "").trim(),
+        position_raw: String(row.position ?? row.pos ?? "").trim(),
+        listed_height: String(row.listed_height ?? row.height ?? "").trim(),
+        statistical_height: String(row.statistical_height ?? row.stat_height ?? "").trim(),
+        height_delta_inches: numericOrNull(row.height_delta_inches),
         draft_pick: numericOrNull(row.draft_pick),
         values,
         percentiles,
@@ -937,8 +958,19 @@ export async function queryLeaderboard(params: {
           rsciLookup[rsciLookupKey(row.player, "", row.season)] ??
           rsciLookup[rsciLookupKey(row.player, "", "")]
         : null;
+    const jasonPos = normalizePositionCode(jason?.position_raw ?? "");
+    const jasonListedHeight = String(jason?.listed_height ?? "").trim();
+    const jasonStatHeight = String(jason?.statistical_height ?? "").trim();
+    const jasonHeightDelta = jason?.height_delta_inches;
     return {
       ...row,
+      pos: jasonPos || row.pos,
+      height: jasonListedHeight || row.height,
+      statistical_height: jasonStatHeight || row.statistical_height,
+      statistical_height_delta:
+        typeof jasonHeightDelta === "number" && Number.isFinite(jasonHeightDelta)
+          ? jasonHeightDelta
+          : row.statistical_height_delta,
       rsci: typeof rsciFromCsv === "number" ? rsciFromCsv : row.rsci,
       values: {
         ...row.values,

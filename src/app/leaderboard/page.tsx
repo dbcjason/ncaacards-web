@@ -83,6 +83,7 @@ const DEF_REB_KEYS = ["stl_pct", "blk_pct", "oreb_pct", "dreb_pct"] as const;
 const IMPACT_KEYS = ["bpm", "rapm", "obpm", "dbpm", "net_points", "onoff_net"] as const;
 const JASON_KEYS = [
   "feel_plus",
+  "poss_created_100",
   "rimfluence",
   "rimfluence_off",
   "rimfluence_def",
