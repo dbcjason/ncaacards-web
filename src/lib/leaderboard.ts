@@ -146,6 +146,8 @@ type JasonStatsRow = {
 
 const JASON_CACHE_TTL_MS = 1000 * 60 * 30;
 const jasonStatsCache = new Map<LeaderboardGender, { ts: number; rows: JasonStatsRow[] }>();
+const RSCI_CACHE_TTL_MS = 1000 * 60 * 30;
+const rsciLookupCache = new Map<string, { ts: number; lookup: Record<string, number> }>();
 
 export type WatchlistGrade = {
   label: string;
@@ -440,6 +442,19 @@ function normalizePlayerName(value: unknown): string {
   return normalizeTextKey(value);
 }
 
+function rsciLookupKey(player: string, team: string, season: number | string): string {
+  return `${normalizePlayerName(player)}::${normalizeTeamName(team)}::${String(season).trim()}`;
+}
+
+function parseRsciSeason(raw: unknown): number | null {
+  const text = String(raw ?? "").trim();
+  const m = text.match(/(20\d{2})\s*[-/]\s*(\d{2})/);
+  if (m) return Number(`20${m[2]}`);
+  const direct = text.match(/20\d{2}/);
+  if (direct) return Number(direct[0]);
+  return null;
+}
+
 function parseCsvLine(line: string): string[] {
   const out: string[] = [];
   let cur = "";
@@ -578,6 +593,61 @@ async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsR
 
   jasonStatsCache.set(gender, { ts: now, rows: parsed });
   return parsed;
+}
+
+async function fetchRsciLookup(): Promise<Record<string, number>> {
+  const owner = process.env.GITHUB_DATA_OWNER || "dbcjason";
+  const repo = process.env.GITHUB_DATA_REPO || "NCAACards";
+  const ref = process.env.GITHUB_DATA_REF || "main";
+  const cacheKey = `${owner}/${repo}@${ref}:rsci`;
+  const cached = rsciLookupCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && now - cached.ts < RSCI_CACHE_TTL_MS) return cached.lookup;
+
+  const csvPaths = [
+    process.env.GITHUB_RSCI_CSV_PATH || "",
+    "player_cards_pipeline/data/manual/rsci/rsci_rankings.csv",
+    "player_cards_pipeline/data/manual/rsci_rankings.csv",
+    "rsci_rankings.csv",
+  ].filter(Boolean);
+  const headers: HeadersInit = {};
+  const token = process.env.GITHUB_TOKEN || "";
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers["X-GitHub-Api-Version"] = "2022-11-28";
+  }
+
+  const lookup: Record<string, number> = {};
+  for (const csvPath of csvPaths) {
+    const url = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${csvPath}`;
+    try {
+      const res = await fetch(url, { cache: "no-store", headers });
+      if (!res.ok) continue;
+      const rows = parseCsv(await res.text());
+      if (!rows.length) continue;
+      for (const row of rows) {
+        const player = String(row.Player ?? row.player_name ?? row.player ?? "").trim();
+        if (!player) continue;
+        const rank = numericOrNull(row.Rank ?? row.rsci ?? row.RSCI ?? row.rsci_rank);
+        if (typeof rank !== "number" || !Number.isFinite(rank)) continue;
+        const rankRounded = Math.round(rank);
+        if (rankRounded < 1 || rankRounded > 100) continue;
+        const team = String(row.Team ?? row.team ?? row.school ?? "").trim();
+        const season = parseRsciSeason(row.Season ?? row.season ?? row.year);
+        if (season) {
+          lookup[rsciLookupKey(player, team, season)] = rankRounded;
+          lookup[rsciLookupKey(player, "", season)] = rankRounded;
+        }
+        lookup[rsciLookupKey(player, "", "")] = rankRounded;
+      }
+      if (Object.keys(lookup).length) break;
+    } catch {
+      continue;
+    }
+  }
+
+  rsciLookupCache.set(cacheKey, { ts: now, lookup });
+  return lookup;
 }
 
 export function parseLeaderboardGender(raw?: string): LeaderboardGender {
@@ -844,6 +914,7 @@ export async function queryLeaderboard(params: {
     params.gender === "all"
       ? [...(await fetchJasonCsvRows("men")), ...(await fetchJasonCsvRows("women"))]
       : await fetchJasonCsvRows(params.gender);
+  const rsciLookup = await fetchRsciLookup();
   const jasonLookup = new Map<string, JasonStatsRow>();
   for (const row of jasonRows) {
     jasonLookup.set(
@@ -860,8 +931,15 @@ export async function queryLeaderboard(params: {
       if (typeof raw === "number" && Number.isFinite(raw) && raw > 0 && raw < 100000) return raw;
       return 100000;
     })();
+    const rsciFromCsv =
+      row.gender === "men"
+        ? rsciLookup[rsciLookupKey(row.player, row.team, row.season)] ??
+          rsciLookup[rsciLookupKey(row.player, "", row.season)] ??
+          rsciLookup[rsciLookupKey(row.player, "", "")]
+        : null;
     return {
       ...row,
+      rsci: typeof rsciFromCsv === "number" ? rsciFromCsv : row.rsci,
       values: {
         ...row.values,
         draft_pick: draftPick,
