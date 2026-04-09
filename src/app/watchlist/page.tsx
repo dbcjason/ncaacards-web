@@ -118,10 +118,12 @@ function ScaledCardFrame({
   html,
   title,
   setFrameRef,
+  isMobile,
 }: {
   html: string;
   title: string;
   setFrameRef: (node: HTMLIFrameElement | null) => void;
+  isMobile: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const iframeInnerRef = useRef<HTMLIFrameElement | null>(null);
@@ -147,7 +149,7 @@ function ScaledCardFrame({
     if (!node || typeof ResizeObserver === "undefined") return;
 
     const updateScale = () => {
-      const nextScale = node.clientWidth / CARD_IFRAME_BASE_WIDTH;
+      const nextScale = Math.min(node.clientWidth / CARD_IFRAME_BASE_WIDTH, 1);
       if (Number.isFinite(nextScale) && nextScale > 0) {
         setScale(nextScale);
       }
@@ -209,6 +211,7 @@ function ScaledCardFrame({
             } as CSSProperties
           }
           sandbox="allow-same-origin allow-scripts"
+          scrolling={isMobile ? "no" : undefined}
         />
       </div>
     </div>
@@ -258,6 +261,7 @@ function WatchlistPageInner() {
   const [newListName, setNewListName] = useState("");
   const [renameListName, setRenameListName] = useState("");
   const [multiWatchlistsEnabled, setMultiWatchlistsEnabled] = useState(true);
+  const [isMobileClient, setIsMobileClient] = useState(false);
   const activeConference = (dest || favoriteConference || "SEC").trim() || "SEC";
 
   const noteStorageKeyFor = (item: WatchlistItem) =>
@@ -293,6 +297,22 @@ function WatchlistPageInner() {
     const seasonParam = Number(searchParams.get("season"));
     if (Number.isFinite(seasonParam) && seasonParam > 2000) setSeason(seasonParam);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ua = typeof navigator !== "undefined" ? String(navigator.userAgent || "") : "";
+    const uaMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+    const mediaQuery = window.matchMedia("(max-width: 1024px)");
+    const update = () => setIsMobileClient(uaMobile || mediaQuery.matches);
+    update();
+    const onChange = () => update();
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", onChange);
+      return () => mediaQuery.removeEventListener("change", onChange);
+    }
+    mediaQuery.addListener(onChange);
+    return () => mediaQuery.removeListener(onChange);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -963,8 +983,9 @@ function WatchlistPageInner() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto w-full max-w-[1900px] px-6 py-6">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100" data-device={isMobileClient ? "mobile" : "desktop"}>
+      <div className={isMobileClient ? "w-full overflow-x-hidden" : "w-full overflow-x-auto"}>
+      <div className={isMobileClient ? "mx-auto w-full max-w-[1900px] px-4 py-5" : "mx-auto w-full min-w-[1580px] max-w-[1900px] px-6 py-6"}>
         <div className="mb-4 flex items-center justify-between">
           <div className="flex gap-5 text-sm">
             <Link href={`/cards?gender=${gender}`} className="text-zinc-300">Player Profiles</Link>
@@ -976,9 +997,15 @@ function WatchlistPageInner() {
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
 
+        {isMobileClient ? (
+          <div className="mb-3 text-xs text-amber-300">
+            Mobile detected. Watchlist is locked to desktop layout; scroll horizontally to view full controls.
+          </div>
+        ) : null}
+
         <div className="mb-4 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Watchlist</div>
-          <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-[1.2fr_1fr_auto_0.8fr_auto_auto]">
+          <div className={isMobileClient ? "mb-3 grid grid-cols-1 gap-2 md:grid-cols-[1.2fr_1fr_auto_0.8fr_auto_auto]" : "mb-3 grid grid-cols-[1.2fr_1fr_auto_0.8fr_auto_auto] gap-2"}>
             <select
               className="rounded bg-zinc-800 p-2"
               value={activeListId}
@@ -1033,7 +1060,7 @@ function WatchlistPageInner() {
               Delete List
             </button>
           </div>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
+          <div className={isMobileClient ? "grid grid-cols-1 gap-2 md:grid-cols-6" : "grid grid-cols-6 gap-2"}>
             <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {seasonOptions.map((year) => <option key={year} value={year}>{year}</option>)}
             </select>
@@ -1119,7 +1146,7 @@ function WatchlistPageInner() {
                 }
               }}
             >
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_auto]">
+              <div className={isMobileClient ? "grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_auto]" : "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_auto] gap-3"}>
                 <div>
                   <div className="text-xl font-bold">{index + 1}. {item.player}</div>
                   <div className="text-sm text-zinc-400">
@@ -1145,7 +1172,7 @@ function WatchlistPageInner() {
                     })()}
                   />
                 </div>
-                <div className="flex gap-2 xl:justify-end">
+                <div className={isMobileClient ? "flex gap-2 xl:justify-end" : "flex justify-end gap-2"}>
                   <button type="button" className="rounded bg-zinc-800 px-3 py-2 text-sm" onClick={() => void expandItem(item)}>
                     {expandedIds[item.id] ? "Collapse" : "Expand Card"}
                   </button>
@@ -1156,7 +1183,7 @@ function WatchlistPageInner() {
               </div>
 
               <div className="mt-3">
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-8">
+                <div className={isMobileClient ? "grid grid-cols-2 gap-2 md:grid-cols-8" : "grid grid-cols-8 gap-2"}>
                 <Stat label="PPG" value={item.values.ppg} percentile={item.percentiles.ppg} />
                 <Stat label="APG" value={item.values.apg} percentile={item.percentiles.apg} />
                 <Stat label="RPG" value={item.values.rpg} percentile={item.percentiles.rpg} />
@@ -1172,12 +1199,13 @@ function WatchlistPageInner() {
               {cardLoadingById[item.id] ? <div className="mt-3 text-sm text-zinc-400">Building card...</div> : null}
 
               {expandedIds[item.id] ? (
-                <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className={isMobileClient ? "mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2" : "mt-4 grid grid-cols-2 gap-4"}>
                   <div className="overflow-hidden rounded border border-zinc-800 bg-black">
                     {cardHtmlById[item.id] ? (
                       <ScaledCardFrame
                         html={cardHtmlById[item.id]}
                         title={`${item.player} card`}
+                        isMobile={isMobileClient}
                         setFrameRef={(node) => {
                           iframeRefs.current[item.id] = node;
                         }}
@@ -1222,6 +1250,7 @@ function WatchlistPageInner() {
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );
