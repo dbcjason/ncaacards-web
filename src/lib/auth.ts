@@ -648,33 +648,42 @@ export async function logUsageEvent(event: {
   path?: string | null;
   source?: string | null;
 }) {
-  const h = await headers();
-  const geo = geoFromHeaders(h);
-  await withDbTransaction(async (client) => {
-    await client.query(
-      `insert into public.usage_events
-        (organization_id, user_id, event_type, email, gender, season, team, player, query_text, path, source, ip_address, country, region, city, user_agent)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-      [
-        event.organizationId,
-        event.userId || null,
-        event.eventType,
-        event.email || null,
-        event.gender || null,
-        event.season ?? null,
-        event.team || null,
-        event.player || null,
-        event.queryText || null,
-        event.path || null,
-        event.source || null,
-        String(h.get("x-forwarded-for") ?? "").split(",")[0]?.trim() || null,
-        geo.country,
-        geo.region,
-        geo.city,
-        String(h.get("user-agent") ?? "").trim().slice(0, 500) || null,
-      ],
-    );
-  });
+  const orgId = String(event.organizationId || "").trim();
+  // Public mode uses a synthetic org id that should not be written to UUID-backed tables.
+  if (orgId === "public-org") return;
+  const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidLike.test(orgId)) return;
+  try {
+    const h = await headers();
+    const geo = geoFromHeaders(h);
+    await withDbTransaction(async (client) => {
+      await client.query(
+        `insert into public.usage_events
+          (organization_id, user_id, event_type, email, gender, season, team, player, query_text, path, source, ip_address, country, region, city, user_agent)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        [
+          orgId,
+          event.userId || null,
+          event.eventType,
+          event.email || null,
+          event.gender || null,
+          event.season ?? null,
+          event.team || null,
+          event.player || null,
+          event.queryText || null,
+          event.path || null,
+          event.source || null,
+          String(h.get("x-forwarded-for") ?? "").split(",")[0]?.trim() || null,
+          geo.country,
+          geo.region,
+          geo.city,
+          String(h.get("user-agent") ?? "").trim().slice(0, 500) || null,
+        ],
+      );
+    });
+  } catch {
+    // Usage analytics should never block core user flows.
+  }
 }
 
 export async function createBillingRecord(params: {
