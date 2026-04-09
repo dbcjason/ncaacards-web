@@ -163,6 +163,17 @@ function calcAgeOnJune25(dobRaw: unknown, seasonRaw: unknown): number | null {
   return Number.isFinite(age) ? age : null;
 }
 
+function calcCurrentAge(dobRaw: unknown): number | null {
+  const dobText = String(dobRaw ?? "").trim();
+  if (!dobText) return null;
+  const dob = new Date(dobText);
+  if (!Number.isFinite(dob.getTime())) return null;
+  const now = new Date();
+  const ageYears = (now.getTime() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.2425);
+  if (!Number.isFinite(ageYears) || ageYears <= 0) return null;
+  return Math.round(ageYears * 10) / 10;
+}
+
 function parseSeasonFromRsciRow(raw: string): string {
   const text = String(raw || "").trim();
   const m = text.match(/(20\d{2})\s*[-/]\s*(\d{2})/);
@@ -1477,6 +1488,9 @@ export async function loadStaticPayload(
       "N/A",
     height: listedHeight || "N/A",
     age_june25:
+      calcCurrentAge(
+        btGet(targetRow ?? {}, ["dob", "date_of_birth"]),
+      ) ??
       calcAgeOnJune25(
         btGet(targetRow ?? {}, ["dob", "date_of_birth"]),
         btGet(targetRow ?? {}, ["year", "season", "yr"]) || resolvedSeason,
@@ -1486,11 +1500,11 @@ export async function loadStaticPayload(
     rsci:
       numericOrNull(rsciFromManualCsv) ??
       numericOrNull(bundledBio?.rsci) ??
-      "N/A",
+      "UR",
   };
   if (typeof bio.rsci === "number" && Number.isFinite(bio.rsci)) {
     const rounded = Math.round(bio.rsci);
-    bio.rsci = rounded >= 1 && rounded <= 100 ? rounded : "N/A";
+    bio.rsci = rounded >= 1 && rounded <= 100 ? rounded : "UR";
   }
   if (statisticalHeight) {
     bio.statistical_height = statisticalHeight;
@@ -1538,9 +1552,23 @@ export async function loadStaticPayload(
 
   const shotChartHtml = String(sections_html.shot_chart_html ?? "");
   const ppsLineFromHtml = (() => {
-    const match = shotChartHtml.match(/Points per Shot Over Expectation:\s*([^<\n\r]+)/i);
-    if (!match) return "";
-    return `Points per Shot Over Expectation: ${String(match[1] ?? "").trim()}`;
+    const normalizeLine = (line: string) => {
+      const clean = String(line || "").replace(/\s+/g, " ").trim();
+      if (!clean) return "";
+      return clean.toLowerCase().startsWith("points per shot over expectation")
+        ? clean
+        : `Points per Shot Over Expectation: ${clean}`;
+    };
+    const direct = shotChartHtml.match(/Points\s*per\s*Shot\s*Over\s*Expectation\s*:\s*([^<\n\r]+)/i);
+    if (direct) return normalizeLine(`Points per Shot Over Expectation: ${String(direct[1] ?? "").trim()}`);
+    const textOnly = shotChartHtml
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const textMatch = textOnly.match(/(Points\s*per\s*Shot\s*Over\s*Expectation[^.]*?(?:Percentile|N\/A|[+-]?\d+(?:\.\d+)?%?))/i);
+    if (textMatch) return normalizeLine(String(textMatch[1] ?? ""));
+    return "";
   })();
   const ppsLineFromEnriched = (() => {
     const directKeys = [

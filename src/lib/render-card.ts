@@ -46,12 +46,14 @@ function buildSubtitleHtml(
 ): string {
   const bio = payload.bio ?? {};
   const ageValue = num(bio.age_june25 ?? bio.age);
-  const ageDisplay = ageValue === null ? String(bio.age_june25 ?? bio.age ?? "N/A") : ageValue.toFixed(1);
+  const ageDisplay =
+    ageValue === null
+      ? String(bio.age_june25 ?? bio.age ?? "N/A")
+      : ageValue.toFixed(1).replace(/\.0$/, "");
   const bits: string[] = [
     esc(payload.team),
     esc(payload.season),
     `Age: ${esc(ageDisplay)}`,
-    `RSCI: ${esc(String(bio.rsci ?? "N/A"))}`,
     `Position: ${esc(bio.position || "N/A")}`,
   ];
 
@@ -85,6 +87,7 @@ function buildSubtitleHtml(
   bits.push(
     `Statistical Height: <span class="${statHeightClass}">${esc(statHeightText)}</span>`,
   );
+  bits.push(`RSCI: ${esc(String(bio.rsci ?? "UR"))}`);
 
   return bits.join(" | ");
 }
