@@ -275,6 +275,29 @@ const METRIC_BT_ALIASES: Record<LeaderboardMetricKey, string[]> = {
   rimfluence_def: ["rimfluencedef"],
 };
 
+const PERCENT_LIKE_METRICS = new Set<LeaderboardMetricKey>([
+  "fg_pct",
+  "ts_pct",
+  "twop_pct",
+  "rim_pct",
+  "mid_pct",
+  "tp_pct",
+  "ftr",
+  "ast_pct",
+  "to_pct",
+  "stl_pct",
+  "blk_pct",
+  "oreb_pct",
+  "dreb_pct",
+]);
+
+function normalizeMetricScale(key: LeaderboardMetricKey, value: number | null): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (!PERCENT_LIKE_METRICS.has(key)) return value;
+  if (Math.abs(value) <= 1) return value * 100;
+  return value;
+}
+
 function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMetricKey): number | null {
   const normalizedMap = new Map<string, number>();
   for (const [rawKey, rawValue] of Object.entries(btRow)) {
@@ -751,19 +774,32 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
     const currentLooksPlaceholder = currentValue == null || currentValue === 0;
 
     if (hasParsedValue && currentLooksPlaceholder) {
-      mergedValues[key] = parsedValue;
+      mergedValues[key] = normalizeMetricScale(key, parsedValue);
     }
     if (hasParsedPercentile && (currentPercentile == null || currentPercentile === 0 || currentValue === 0)) {
       mergedPercentiles[key] = parsedPercentile;
     }
 
-    const nextValue = mergedValues[key];
+    const nextValue = normalizeMetricScale(key, mergedValues[key] ?? null);
+    mergedValues[key] = nextValue;
     const nextLooksPlaceholder = nextValue === 0 && (currentPercentile == null || currentPercentile === 0);
     if (nextValue == null || !Number.isFinite(Number(nextValue)) || nextLooksPlaceholder) {
-      const fallback = metricValueFromBtRow(btRow, key);
+      const fallback = normalizeMetricScale(key, metricValueFromBtRow(btRow, key));
       if (typeof fallback === "number" && Number.isFinite(fallback)) {
         mergedValues[key] = fallback;
       }
+    }
+
+    const finalValue = mergedValues[key];
+    const finalPercentile = mergedPercentiles[key];
+    const likelyPlaceholderZero =
+      finalValue === 0 &&
+      (finalPercentile == null || finalPercentile === 0) &&
+      !hasParsedValue &&
+      !hasParsedPercentile;
+    if (likelyPlaceholderZero) {
+      mergedValues[key] = null;
+      mergedPercentiles[key] = null;
     }
   }
 

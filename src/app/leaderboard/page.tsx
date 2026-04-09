@@ -231,7 +231,7 @@ function LeaderboardPageInner() {
             sortBy,
             sortMode,
             sortDir,
-            limit: season === "all" ? 20000 : 750,
+            limit: season === "all" ? 50000 : 750,
             minMpg,
             draftedPlus2026: season === "all" && draftedPlus2026Only,
             filters: filters
@@ -294,6 +294,7 @@ function LeaderboardPageInner() {
     setSortBy("ppg");
     setSortDir("desc");
     setSortMode("stat");
+    setDraftedPlus2026Only(false);
   }, [season]);
   useEffect(() => {
     if (season !== "all" && draftedPlus2026Only) {
@@ -360,7 +361,6 @@ function LeaderboardPageInner() {
             <Link href={`/cards?gender=${gender}`} className="text-zinc-300">Player Profiles</Link>
             <Link href={`/roster?gender=${gender}`} className="text-zinc-300">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Transfer Grades</Link>
-            <Link href={`/jason-created-stats?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Jason Created Stats</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${navSeason}`} className="text-red-400">Leaderboard</Link>
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
