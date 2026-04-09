@@ -275,25 +275,18 @@ const METRIC_BT_ALIASES: Record<LeaderboardMetricKey, string[]> = {
   rimfluence_def: ["rimfluencedef"],
 };
 
-const PERCENT_LIKE_METRICS = new Set<LeaderboardMetricKey>([
+const FRACTION_TO_PERCENT_METRICS = new Set<LeaderboardMetricKey>([
   "fg_pct",
   "ts_pct",
   "twop_pct",
   "rim_pct",
   "mid_pct",
   "tp_pct",
-  "ftr",
-  "ast_pct",
-  "to_pct",
-  "stl_pct",
-  "blk_pct",
-  "oreb_pct",
-  "dreb_pct",
 ]);
 
 function normalizeMetricScale(key: LeaderboardMetricKey, value: number | null): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  if (!PERCENT_LIKE_METRICS.has(key)) return value;
+  if (!FRACTION_TO_PERCENT_METRICS.has(key)) return value;
   if (Math.abs(value) <= 1) return value * 100;
   return value;
 }
@@ -991,6 +984,23 @@ export async function queryLeaderboard(params: {
     where.push(`l.conference ilike $${sqlParams.length}`);
   }
 
+  const includePayloadJoin = Number.isFinite(params.season);
+  const fromClause = includePayloadJoin
+    ? `from public.leaderboard_player_stats l
+      left join public.player_payload_index p
+        on p.gender = l.gender
+       and p.season = l.season
+       and p.team = l.team
+       and p.player = l.player`
+    : `from public.leaderboard_player_stats l`;
+  const payloadSelect = includePayloadJoin
+    ? `p.payload_json,
+        p.payload_json -> 'sections_html' ->> 'bt_percentiles_html' as bt_percentiles_html,
+        p.payload_json -> 'sections_html' ->> 'self_creation_html' as self_creation_html,`
+    : `null::jsonb as payload_json,
+        null::text as bt_percentiles_html,
+        null::text as self_creation_html,`;
+
   const rows = await dbQuery<RawLeaderboardRow>(
     `select
         l.gender,
@@ -1008,16 +1018,9 @@ export async function queryLeaderboard(params: {
         l.values,
         l.percentiles,
         l.bt_row,
-        p.payload_json,
-        p.payload_json -> 'sections_html' ->> 'bt_percentiles_html' as bt_percentiles_html,
-        p.payload_json -> 'sections_html' ->> 'self_creation_html' as self_creation_html,
+        ${payloadSelect}
         l.updated_at
-      from public.leaderboard_player_stats l
-      left join public.player_payload_index p
-        on p.gender = l.gender
-       and p.season = l.season
-       and p.team = l.team
-       and p.player = l.player
+      ${fromClause}
       where ${where.length ? where.join(" and ") : "true"}
       order by l.season desc, l.team asc, l.player asc`,
     sqlParams,

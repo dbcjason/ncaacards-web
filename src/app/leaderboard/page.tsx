@@ -231,7 +231,7 @@ function LeaderboardPageInner() {
             sortBy,
             sortMode,
             sortDir,
-            limit: season === "all" ? 50000 : 750,
+            limit: season === "all" ? 25000 : 750,
             minMpg,
             draftedPlus2026: season === "all" && draftedPlus2026Only,
             filters: filters
@@ -245,7 +245,17 @@ function LeaderboardPageInner() {
           }),
           cache: "no-store",
         });
-        const data = (await res.json()) as ApiResp;
+        const rawText = await res.text();
+        let data: ApiResp;
+        try {
+          data = JSON.parse(rawText) as ApiResp;
+        } catch {
+          throw new Error(
+            res.ok
+              ? "Leaderboard returned an invalid response."
+              : `Leaderboard request failed (${res.status}).`,
+          );
+        }
         if (!active) return;
         if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load leaderboard");
         setRows(Array.isArray(data.rows) ? data.rows : []);
