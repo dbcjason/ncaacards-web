@@ -147,6 +147,10 @@ const JASON_CACHE_TTL_MS = 1000 * 60 * 30;
 const jasonStatsCache = new Map<LeaderboardGender, { ts: number; rows: JasonStatsRow[] }>();
 const RSCI_CACHE_TTL_MS = 1000 * 60 * 30;
 const rsciLookupCache = new Map<string, { ts: number; lookup: Record<string, number> }>();
+const LEADERBOARD_QUERY_CACHE_TTL_MS = 1000 * 20;
+const LEADERBOARD_QUERY_CACHE_MAX = 40;
+const leaderboardQueryCache = new Map<string, { ts: number; value: QueryLeaderboardResult }>();
+const leaderboardInflight = new Map<string, Promise<QueryLeaderboardResult>>();
 
 export type WatchlistGrade = {
   label: string;
@@ -158,6 +162,37 @@ export type WatchlistRow = LeaderboardRow & {
   sort_order: number;
   grades: WatchlistGrade[];
 };
+
+type QueryLeaderboardResult = {
+  rows: LeaderboardRow[];
+  total: number;
+  seasons: number[];
+  teams: string[];
+  positions: string[];
+  conferences: string[];
+  metrics: ReadonlyArray<{
+    key: LeaderboardMetricKey;
+    label: string;
+  }>;
+  minMpg: number;
+};
+
+function readQueryCache(key: string): QueryLeaderboardResult | null {
+  const hit = leaderboardQueryCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > LEADERBOARD_QUERY_CACHE_TTL_MS) {
+    leaderboardQueryCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function writeQueryCache(key: string, value: QueryLeaderboardResult): void {
+  leaderboardQueryCache.set(key, { ts: Date.now(), value });
+  if (leaderboardQueryCache.size <= LEADERBOARD_QUERY_CACHE_MAX) return;
+  const oldest = leaderboardQueryCache.keys().next().value;
+  if (oldest) leaderboardQueryCache.delete(oldest);
+}
 
 function safeObject(value: unknown): Record<string, number | null> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -569,9 +604,17 @@ async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsR
       const values: Record<string, number | null> = {
         feel_plus: numericOrNull(row.feel_plus),
         poss_created_100: numericOrNull(
+          row.possessions_created_per_100 ??
+            row.possessions_created_per100 ??
+            row.possessions_created_per_100_poss ??
           row.possessions_created_100 ??
+            row.possessions_created ??
+            row.poss_created_per_100 ??
+            row.poss_created_per100 ??
+            row.poss_created ??
             row.poss_created_100 ??
-            row.posscreated100,
+            row.posscreated100 ??
+            row.possessionscreated100,
         ),
         rimfluence: numericOrNull(row.rimfluence),
         rimfluence_off: numericOrNull(row.rimfluence_off),
@@ -580,9 +623,16 @@ async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsR
       const percentiles: Record<string, number | null> = {
         feel_plus: numericOrNull(row.feel_plus_percentile),
         poss_created_100: numericOrNull(
+          row.possessions_created_per_100_percentile ??
+            row.possessions_created_per100_percentile ??
           row.possessions_created_100_percentile ??
+            row.possessions_created_percentile ??
+            row.poss_created_per_100_percentile ??
+            row.poss_created_per100_percentile ??
+            row.poss_created_percentile ??
             row.poss_created_100_percentile ??
-            row.posscreated100_percentile,
+            row.posscreated100_percentile ??
+            row.possessionscreated100_percentile,
         ),
         rimfluence: numericOrNull(row.rimfluence_percentile),
       };
@@ -845,7 +895,29 @@ export async function queryLeaderboard(params: {
   limit?: number;
   minMpg?: number | null;
   draftedPlus2026?: boolean;
-}) {
+}): Promise<QueryLeaderboardResult> {
+  const cacheKey = JSON.stringify({
+    gender: params.gender,
+    season: params.season ?? null,
+    team: String(params.team ?? ""),
+    player: String(params.player ?? ""),
+    position: String(params.position ?? ""),
+    conference: String(params.conference ?? ""),
+    filters: params.filters ?? [],
+    sortBy: String(params.sortBy ?? ""),
+    sortDir: params.sortDir === "asc" ? "asc" : "desc",
+    sortMode: params.sortMode === "percentile" ? "percentile" : "stat",
+    limit: Number.isFinite(Number(params.limit)) ? Number(params.limit) : 500,
+    minMpg: Number.isFinite(Number(params.minMpg)) ? Number(params.minMpg) : 10,
+    draftedPlus2026: Boolean(params.draftedPlus2026),
+  });
+
+  const cached = readQueryCache(cacheKey);
+  if (cached) return cached;
+  const inflight = leaderboardInflight.get(cacheKey);
+  if (inflight) return inflight;
+
+  const run = (async (): Promise<QueryLeaderboardResult> => {
   const sqlParams: unknown[] = [];
   const where: string[] = [];
   const rawConferenceFilter = String(params.conference ?? "").trim();
@@ -1023,7 +1095,7 @@ export async function queryLeaderboard(params: {
       ? LEADERBOARD_METRICS.filter((metric) => metric.key !== "uasst_dunks_100")
       : LEADERBOARD_METRICS;
 
-  return {
+  const result: QueryLeaderboardResult = {
     rows: limited,
     total: normalized.length,
     seasons,
@@ -1033,6 +1105,16 @@ export async function queryLeaderboard(params: {
     metrics,
     minMpg,
   };
+  writeQueryCache(cacheKey, result);
+  return result;
+  })();
+
+  leaderboardInflight.set(cacheKey, run);
+  try {
+    return await run;
+  } finally {
+    leaderboardInflight.delete(cacheKey);
+  }
 }
 
 export async function fetchWatchlistStats(params: {

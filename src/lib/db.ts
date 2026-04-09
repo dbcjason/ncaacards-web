@@ -18,7 +18,11 @@ function getPool(): DbPool {
     pool = new Pool({
       connectionString: dbUrl,
       ssl: { rejectUnauthorized: false },
-      max: 5,
+      // Supabase shared pooler in session mode has a low client cap.
+      // Keep this tiny per server instance to avoid EMAXCONNSESSION spikes.
+      max: 1,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
     });
   }
   return pool as DbPool;

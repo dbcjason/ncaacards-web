@@ -89,6 +89,8 @@ const JASON_KEYS = [
 ] as const;
 const POSITION_FILTER_OPTIONS = ["PG", "SG", "SF", "PF", "C"] as const;
 const WOMEN_HIDDEN_METRICS = new Set(["uasst_dunks_100"]);
+const PRELOAD_KEY_PREFIX = "leaderboard-preload";
+const PRELOAD_TTL_MS = 1000 * 60 * 10;
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
@@ -188,6 +190,30 @@ function LeaderboardPageInner() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (season === "all") return;
+    const key = `${PRELOAD_KEY_PREFIX}:${gender}:${season}`;
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as { ts?: number; data?: ApiResp };
+      if (!parsed || !parsed.data) return;
+      if (typeof parsed.ts !== "number" || Date.now() - parsed.ts > PRELOAD_TTL_MS) return;
+      const data = parsed.data;
+      if (!data.ok) return;
+      setRows(Array.isArray(data.rows) ? data.rows : []);
+      setTeams(Array.isArray(data.teams) ? data.teams : []);
+      setConferences(Array.isArray(data.conferences) ? data.conferences : []);
+      setMetrics(Array.isArray(data.metrics) ? data.metrics : []);
+      if (Number.isFinite(Number(data.minMpg))) {
+        setMinMpg(Number(data.minMpg));
+      }
+    } catch {
+      // ignore malformed preload payload
+    }
+  }, [gender, season]);
+
+  useEffect(() => {
     let active = true;
     const timer = window.setTimeout(async () => {
       setError("");
@@ -263,6 +289,12 @@ function LeaderboardPageInner() {
       setSeason(String(seasonOptions[0] ?? 2026));
     }
   }, [season, seasonOptions]);
+  useEffect(() => {
+    // When season/all changes, restart in the default ranking view.
+    setSortBy("ppg");
+    setSortDir("desc");
+    setSortMode("stat");
+  }, [season]);
   useEffect(() => {
     if (season !== "all" && draftedPlus2026Only) {
       setDraftedPlus2026Only(false);
@@ -376,36 +408,10 @@ function LeaderboardPageInner() {
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
-            <select className="rounded bg-zinc-800 p-2" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              {metricOptions.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}
-            </select>
-            <select className="rounded bg-zinc-800 p-2" value={sortMode} onChange={(e) => setSortMode(e.target.value === "percentile" ? "percentile" : "stat")}>
-              <option value="stat">Sort by Stat</option>
-              <option value="percentile">Sort by Percentile</option>
-            </select>
-            <select className="rounded bg-zinc-800 p-2" value={sortDir} onChange={(e) => setSortDir(e.target.value === "asc" ? "asc" : "desc")}>
-              <option value="desc">High to Low</option>
-              <option value="asc">Low to High</option>
-            </select>
-            <button
-              type="button"
-              className="rounded bg-zinc-800 p-2 text-left text-sm text-zinc-300"
-              onClick={() =>
-                setFilters((current) => [
-                  ...current,
-                  { id: crypto.randomUUID(), metric: sortBy, comparator: ">=", value: "", mode: sortMode },
-                ])
-              }
-            >
-              Add Filter
-            </button>
-          </div>
-
           {filters.length ? (
             <div className="mt-3 grid grid-cols-1 gap-2">
               {filters.map((filter) => (
-                <div key={filter.id} className="grid grid-cols-1 gap-2 rounded border border-zinc-700 bg-zinc-950 p-2 md:grid-cols-5">
+                <div key={filter.id} className="grid grid-cols-1 gap-2 rounded border border-zinc-700 bg-zinc-950 p-2 md:grid-cols-6">
                   <select
                     className="rounded bg-zinc-800 p-2"
                     value={filter.metric}
@@ -463,6 +469,18 @@ function LeaderboardPageInner() {
                   <button
                     type="button"
                     className="rounded bg-zinc-800 p-2 text-sm text-zinc-300"
+                    onClick={() =>
+                      setFilters((current) => [
+                        ...current,
+                        { id: crypto.randomUUID(), metric: sortBy, comparator: ">=", value: "", mode: sortMode },
+                      ])
+                    }
+                  >
+                    Add Filter
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded bg-zinc-800 p-2 text-sm text-zinc-300"
                     onClick={() => setFilters((current) => current.filter((row) => row.id !== filter.id))}
                   >
                     Remove Filter
@@ -470,7 +488,22 @@ function LeaderboardPageInner() {
                 </div>
               ))}
             </div>
-          ) : null}
+          ) : (
+            <div className="mt-3">
+              <button
+                type="button"
+                className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-300"
+                onClick={() =>
+                  setFilters((current) => [
+                    ...current,
+                    { id: crypto.randomUUID(), metric: sortBy, comparator: ">=", value: "", mode: sortMode },
+                  ])
+                }
+              >
+                Add Filter
+              </button>
+            </div>
+          )}
 
           {error && <div className="mt-3 text-sm text-rose-400">{error}</div>}
 

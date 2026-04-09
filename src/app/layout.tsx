@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
+import { LeaderboardPreloader } from "@/components/leaderboard-preloader";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -57,6 +58,7 @@ async function AppChrome({
           ) : null}
         </div>
       </header>
+      {user ? <LeaderboardPreloader accessScope={user.access_scope} /> : null}
       <main>{children}</main>
     </>
   );
