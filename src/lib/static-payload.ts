@@ -49,6 +49,7 @@ type WorkflowSectionPayload = {
 };
 
 const bundledBioLookupMemo = new Map<string, Promise<Record<string, BundledBioLookupRow>>>();
+const rsciLookupMemo = new Map<string, Promise<Record<string, number>>>();
 type TransferProjectionStatRow = Record<string, number>;
 type TransferProjectionEntry = {
   conference?: string;
@@ -137,6 +138,10 @@ function transferCacheKey(player: string, team: string, season: string | number)
   return `${normPlayer(player)}|${normTeam(team)}|${normSeason(season)}`;
 }
 
+function rsciKey(player: string, team: string, season: string | number): string {
+  return `${normPlayer(player)}|${normTeam(team)}|${normSeason(season)}`;
+}
+
 function numericOrNull(value: unknown): number | null {
   const text = String(value ?? "").trim();
   if (!text) return null;
@@ -156,6 +161,15 @@ function calcAgeOnJune25(dobRaw: unknown, seasonRaw: unknown): number | null {
   const monthDiff = ref.getUTCMonth() - dob.getUTCMonth();
   if (monthDiff < 0 || (monthDiff === 0 && ref.getUTCDate() < dob.getUTCDate())) age -= 1;
   return Number.isFinite(age) ? age : null;
+}
+
+function parseSeasonFromRsciRow(raw: string): string {
+  const text = String(raw || "").trim();
+  const m = text.match(/(20\d{2})\s*[-/]\s*(\d{2})/);
+  if (m) return `20${m[2]}`;
+  const y = text.match(/20\d{2}/);
+  if (y) return y[0];
+  return "";
 }
 
 function conferenceKey(raw: string): string {
@@ -1178,6 +1192,57 @@ async function loadBundledBioFallback(
   };
 }
 
+async function loadRsciLookup(cfg: SourceCfg): Promise<Record<string, number>> {
+  const key = `${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}:rsci`;
+  const cached = rsciLookupMemo.get(key);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const lookup: Record<string, number> = {};
+    const candidates = [
+      process.env.GITHUB_RSCI_CSV_PATH || "",
+      "player_cards_pipeline/data/manual/rsci/rsci_rankings.csv",
+      "player_cards_pipeline/data/manual/rsci_rankings.csv",
+      "rsci_rankings.csv",
+    ].filter(Boolean);
+
+    for (const path of candidates) {
+      try {
+        const text = await fetchRepoText(path, cfg);
+        const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+        if (lines.length < 2) continue;
+        const header = parseCsvLine(lines[0]).map((s) => s.trim().replace(/^\uFEFF/, ""));
+        const rankIdx = findCol(header, ["Rank", "RSCI", "RSCI Rank", "rsci"]);
+        const playerIdx = findCol(header, ["Player", "player_name", "player"]);
+        const teamIdx = findCol(header, ["Team", "team", "school"]);
+        const seasonIdx = findCol(header, ["Season", "year", "season"]);
+        if (rankIdx < 0 || playerIdx < 0) continue;
+
+        for (let i = 1; i < lines.length; i += 1) {
+          const cols = parseCsvLine(lines[i]);
+          const rank = numericOrNull(cols[rankIdx]);
+          const player = String(cols[playerIdx] ?? "").trim();
+          if (!player || typeof rank !== "number" || !Number.isFinite(rank)) continue;
+          const rankRounded = Math.round(rank);
+          if (rankRounded < 1 || rankRounded > 100) continue;
+          const team = teamIdx >= 0 ? String(cols[teamIdx] ?? "").trim() : "";
+          const season = seasonIdx >= 0 ? parseSeasonFromRsciRow(String(cols[seasonIdx] ?? "")) : "";
+          if (season) lookup[rsciKey(player, team, season)] = rankRounded;
+          if (season) lookup[`${normPlayer(player)}||${season}`] = rankRounded;
+          lookup[`${normPlayer(player)}||`] = rankRounded;
+        }
+        if (Object.keys(lookup).length) break;
+      } catch {
+        continue;
+      }
+    }
+    return lookup;
+  })();
+
+  rsciLookupMemo.set(key, promise);
+  return promise;
+}
+
 async function enrichPayloadBio(payload: CardPayload, cfg: SourceCfg, gender: Gender): Promise<CardPayload> {
   const bio = payload.bio ?? {};
   const needsPosition = !String(bio.position ?? "").trim();
@@ -1380,6 +1445,7 @@ export async function loadStaticPayload(
     null;
 
   const bundledBio = await loadBundledBioFallback(season, team, player, gender);
+  const rsciLookup = await loadRsciLookup(cfg);
   const btBio = targetRow ? await loadBtBioFallback(season, team, player, cfg) : {};
   const deltaMaps = await loadHeightProfileDeltaMaps(season, cfg);
   const enrichedHeight =
@@ -1396,6 +1462,12 @@ export async function loadStaticPayload(
     statDelta !== null && listedHeight
       ? inchesToHeightStr((heightToInches(listedHeight) ?? 0) + statDelta)
       : String(bundledBio?.statistical_height || "").trim();
+  const rsciFromManualCsv =
+    rsciLookup[rsciKey(player, team, resolvedSeason)] ??
+    rsciLookup[`${normPlayer(player)}||${resolvedSeason}`] ??
+    rsciLookup[`${normPlayer(player)}||`] ??
+    null;
+
   const bio: Record<string, unknown> = {
     position:
       String(bundledBio?.enriched_position ?? bundledBio?.jason_position ?? "").trim() ||
@@ -1411,7 +1483,11 @@ export async function loadStaticPayload(
       ) ??
       numericOrNull(bundledBio?.age_june25) ??
       "N/A",
-    rsci: numericOrNull(bundledBio?.rsci) ?? numericOrNull(btGet(targetRow ?? {}, ["rsci", "rec rank", "recrank"])) ?? "N/A",
+    rsci:
+      numericOrNull(rsciFromManualCsv) ??
+      numericOrNull(bundledBio?.rsci) ??
+      numericOrNull(btGet(targetRow ?? {}, ["rsci", "rec rank", "recrank"])) ??
+      "N/A",
   };
   if (statisticalHeight) {
     bio.statistical_height = statisticalHeight;

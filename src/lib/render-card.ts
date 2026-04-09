@@ -49,6 +49,7 @@ function buildSubtitleHtml(
     esc(payload.team),
     esc(payload.season),
     `Age: ${esc(String(bio.age_june25 ?? bio.age ?? "N/A"))}`,
+    `RSCI: ${esc(String(bio.rsci ?? "N/A"))}`,
     `Position: ${esc(bio.position || "N/A")}`,
   ];
 
