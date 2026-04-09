@@ -372,6 +372,18 @@ function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMe
       return (dunkAtt / mp) * 100;
     }
   }
+  if (key === "poss_created_100") {
+    const usg = read("usg", "usage", "usagepct", "usg_pct");
+    const toPct = read("topct", "to%", "to_per");
+    const astPct = read("astpct", "ast%", "ast_per");
+    if (typeof usg === "number") {
+      const toComponent = 1 - Math.max(0, (typeof toPct === "number" ? toPct : 0)) / 100;
+      return (usg * Math.max(0, toComponent)) + (typeof astPct === "number" ? astPct * 0.35 : 0);
+    }
+    if (typeof astPct === "number") {
+      return astPct * 0.35;
+    }
+  }
 
   return null;
 }
@@ -594,7 +606,7 @@ async function fetchJasonCsvRows(gender: LeaderboardGender): Promise<JasonStatsR
   for (const csvPath of csvPaths) {
     const url = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${csvPath}`;
     try {
-      const res = await fetch(url, { cache: "no-store", headers });
+      const res = await fetch(url, { cache: "force-cache", headers, next: { revalidate: 3600 } });
       if (!res.ok) {
         lastError = `status ${res.status} @ ${csvPath}`;
         continue;
@@ -698,7 +710,7 @@ async function fetchRsciLookup(): Promise<Record<string, number>> {
   for (const csvPath of csvPaths) {
     const url = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${csvPath}`;
     try {
-      const res = await fetch(url, { cache: "no-store", headers });
+      const res = await fetch(url, { cache: "force-cache", headers, next: { revalidate: 3600 } });
       if (!res.ok) continue;
       const rows = parseCsv(await res.text());
       if (!rows.length) continue;
