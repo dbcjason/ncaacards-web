@@ -149,6 +149,17 @@ function numericOrNull(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseRankValue(value: unknown): number | null {
+  const direct = numericOrNull(value);
+  if (direct !== null) return direct;
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const m = text.match(/\d+/);
+  if (!m) return null;
+  const parsed = Number(m[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function calcAgeOnJune25(dobRaw: unknown, seasonRaw: unknown): number | null {
   const dobText = String(dobRaw ?? "").trim();
   if (!dobText) return null;
@@ -161,17 +172,6 @@ function calcAgeOnJune25(dobRaw: unknown, seasonRaw: unknown): number | null {
   const monthDiff = ref.getUTCMonth() - dob.getUTCMonth();
   if (monthDiff < 0 || (monthDiff === 0 && ref.getUTCDate() < dob.getUTCDate())) age -= 1;
   return Number.isFinite(age) ? age : null;
-}
-
-function calcCurrentAge(dobRaw: unknown): number | null {
-  const dobText = String(dobRaw ?? "").trim();
-  if (!dobText) return null;
-  const dob = new Date(dobText);
-  if (!Number.isFinite(dob.getTime())) return null;
-  const now = new Date();
-  const ageYears = (now.getTime() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.2425);
-  if (!Number.isFinite(ageYears) || ageYears <= 0) return null;
-  return Math.round(ageYears * 10) / 10;
 }
 
 function parseSeasonFromRsciRow(raw: string): string {
@@ -1365,7 +1365,7 @@ async function loadRsciLookup(cfg: SourceCfg): Promise<Record<string, number>> {
 
         for (let i = 1; i < lines.length; i += 1) {
           const cols = parseCsvLine(lines[i]);
-          const rank = numericOrNull(cols[rankIdx]);
+          const rank = parseRankValue(cols[rankIdx]);
           const player = String(cols[playerIdx] ?? "").trim();
           if (!player || typeof rank !== "number" || !Number.isFinite(rank)) continue;
           const rankRounded = Math.round(rank);
@@ -1623,9 +1623,6 @@ export async function loadStaticPayload(
       "N/A",
     height: listedHeight || "N/A",
     age_june25:
-      calcCurrentAge(
-        btGet(targetRow ?? {}, ["dob", "date_of_birth"]),
-      ) ??
       calcAgeOnJune25(
         btGet(targetRow ?? {}, ["dob", "date_of_birth"]),
         btGet(targetRow ?? {}, ["year", "season", "yr"]) || resolvedSeason,

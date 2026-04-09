@@ -211,6 +211,17 @@ function numericOrNull(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseRankValue(value: unknown): number | null {
+  const direct = numericOrNull(value);
+  if (direct !== null) return direct;
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const m = text.match(/\d+/);
+  if (!m) return null;
+  const parsed = Number(m[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function safeAnyObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -735,7 +746,7 @@ async function fetchRsciLookup(): Promise<Record<string, number>> {
       for (const row of rows) {
         const player = String(row.Player ?? row.player_name ?? row.player ?? "").trim();
         if (!player) continue;
-        const rank = numericOrNull(row.Rank ?? row.rsci ?? row.RSCI ?? row.rsci_rank);
+        const rank = parseRankValue(row.Rank ?? row.rsci ?? row.RSCI ?? row.rsci_rank);
         if (typeof rank !== "number" || !Number.isFinite(rank)) continue;
         const rankRounded = Math.round(rank);
         if (rankRounded < 1 || rankRounded > 100) continue;
