@@ -32,7 +32,6 @@ async function AppChrome({
   children: React.ReactNode;
 }) {
   const user = await userPromise;
-  const isPublicUser = user?.id === "public-user";
 
   return (
     <>
@@ -47,13 +46,11 @@ async function AppChrome({
             <div className="flex items-center gap-5 text-sm text-zinc-300">
               {user.access_scope !== "women" && <Link href="/cards?gender=men" className="hover:text-white">Men</Link>}
               {user.access_scope !== "men" && <Link href="/cards?gender=women" className="hover:text-white">Women</Link>}
-              {!isPublicUser && user.role === "admin" && <Link href="/dashboard" className="hover:text-white">Admin Dashboard</Link>}
-              {!isPublicUser && <Link href="/profile" className="hover:text-white">Profile</Link>}
-              {!isPublicUser ? (
-                <form action="/api/auth/logout" method="post">
-                  <button type="submit" className="hover:text-white">Sign Out</button>
-                </form>
-              ) : null}
+              {user.role === "admin" && <Link href="/dashboard" className="hover:text-white">Admin Dashboard</Link>}
+              <Link href="/profile" className="hover:text-white">Profile</Link>
+              <form action="/api/auth/logout" method="post">
+                <button type="submit" className="hover:text-white">Sign Out</button>
+              </form>
             </div>
           ) : null}
         </div>

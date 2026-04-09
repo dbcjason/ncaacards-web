@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { AddToWatchlistDialog } from "@/components/add-to-watchlist-dialog";
 import { seasonsForGender } from "@/lib/ui-options";
 
 type MetricMeta = {
@@ -174,6 +175,11 @@ function LeaderboardPageInner() {
   const [error, setError] = useState("");
   const [minMpg, setMinMpg] = useState(10);
   const [draftedPlus2026Only, setDraftedPlus2026Only] = useState(false);
+  const [watchlistTarget, setWatchlistTarget] = useState<{
+    season: number;
+    team: string;
+    player: string;
+  } | null>(null);
 
   useEffect(() => {
     const g = searchParams.get("gender");
@@ -372,6 +378,7 @@ function LeaderboardPageInner() {
             <Link href={`/roster?gender=${gender}`} className="text-zinc-300">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Transfer Grades</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${navSeason}`} className="text-red-400">Leaderboard</Link>
+            <Link href={`/watchlist?gender=${gender}&season=${navSeason}`} className="text-zinc-300">Watchlist</Link>
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>
@@ -592,7 +599,21 @@ function LeaderboardPageInner() {
               {rows.map((row) => (
                 <tr key={`${row.season}:${row.team}:${row.player}`} className="border-b border-zinc-800 align-top">
                   <td className="sticky left-0 z-20 min-w-[76px] bg-zinc-900 p-2">{row.season}</td>
-                  <td className="sticky left-[76px] z-20 min-w-[210px] bg-zinc-900 p-2 font-medium">{row.player}</td>
+                  <td className="sticky left-[76px] z-20 min-w-[210px] bg-zinc-900 p-2 font-medium">
+                    <button
+                      type="button"
+                      className="cursor-pointer text-left text-zinc-100 underline decoration-zinc-600 underline-offset-2 hover:text-red-300"
+                      onClick={() =>
+                        setWatchlistTarget({
+                          season: Number(row.season) || Number(season) || 2026,
+                          team: row.team,
+                          player: row.player,
+                        })
+                      }
+                    >
+                      {row.player}
+                    </button>
+                  </td>
                   <td className="p-2">{row.team}</td>
                   <td className="p-2">{row.pos || "N/A"}</td>
                   <td className="p-2">{row.height || "N/A"}</td>
@@ -622,6 +643,14 @@ function LeaderboardPageInner() {
           </table>
         </div>
       </div>
+      <AddToWatchlistDialog
+        open={Boolean(watchlistTarget)}
+        gender={gender}
+        season={watchlistTarget?.season ?? (Number(season) || 2026)}
+        team={watchlistTarget?.team ?? ""}
+        player={watchlistTarget?.player ?? ""}
+        onClose={() => setWatchlistTarget(null)}
+      />
     </div>
   );
 }

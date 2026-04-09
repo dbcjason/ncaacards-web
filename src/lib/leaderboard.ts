@@ -88,9 +88,6 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
   { key: "onoff_net", label: "On/Off Net" },
   { key: "feel_plus", label: "Feel+" },
   { key: "poss_created_100", label: "Possessions Created/100" },
-  { key: "rimfluence", label: "Rimfluence" },
-  { key: "rimfluence_off", label: "Off Rimfluence" },
-  { key: "rimfluence_def", label: "Def Rimfluence" },
 ] as const;
 
 export type LeaderboardFilter = {
@@ -373,15 +370,36 @@ function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMe
     }
   }
   if (key === "poss_created_100") {
-    const usg = read("usg", "usage", "usagepct", "usg_pct");
-    const toPct = read("topct", "to%", "to_per");
-    const astPct = read("astpct", "ast%", "ast_per");
-    if (typeof usg === "number") {
-      const toComponent = 1 - Math.max(0, (typeof toPct === "number" ? toPct : 0)) / 100;
-      return (usg * Math.max(0, toComponent)) + (typeof astPct === "number" ? astPct * 0.35 : 0);
+    const stlPer100 = read("stl100", "stl_per_100", "stlper100");
+    const blkPer100 = read("blk100", "blk_per_100", "blkper100");
+    const orebPer100 = read("oreb100", "orb100", "oreb_per_100");
+    const toPer100 = read("to100", "tov100", "to_per_100");
+
+    if (
+      typeof stlPer100 === "number" ||
+      typeof blkPer100 === "number" ||
+      typeof orebPer100 === "number" ||
+      typeof toPer100 === "number"
+    ) {
+      return (
+        (typeof stlPer100 === "number" ? stlPer100 : 0) +
+        (typeof blkPer100 === "number" ? blkPer100 * 0.6 : 0) +
+        (typeof orebPer100 === "number" ? orebPer100 : 0) -
+        (typeof toPer100 === "number" ? toPer100 : 0)
+      );
     }
-    if (typeof astPct === "number") {
-      return astPct * 0.35;
+
+    const spg = read("spg", "stl");
+    const bpg = read("bpg", "blk");
+    const rpg = read("rpg", "oreb");
+    const mpg = read("mpg", "mp", "min_per", "minper");
+    const toPg = read("topg", "to", "tov", "to_pg");
+    if (typeof mpg === "number" && mpg > 0) {
+      const stl100 = typeof spg === "number" ? (spg / mpg) * 100 : 0;
+      const blk100 = typeof bpg === "number" ? (bpg / mpg) * 100 : 0;
+      const oreb100 = typeof rpg === "number" ? (rpg / mpg) * 100 : 0;
+      const to100 = typeof toPg === "number" ? (toPg / mpg) * 100 : 0;
+      return stl100 + (blk100 * 0.6) + oreb100 - to100;
     }
   }
 

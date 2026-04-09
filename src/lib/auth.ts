@@ -33,7 +33,7 @@ export type AuthUser = {
   effective_favorite_conference: string | null;
 };
 
-const PUBLIC_ACCESS_MODE = String(process.env.PUBLIC_ACCESS_MODE ?? "1").trim() !== "0";
+const PUBLIC_ACCESS_MODE = String(process.env.PUBLIC_ACCESS_MODE ?? "0").trim() !== "0";
 
 const PUBLIC_GUEST_USER: AuthUser = {
   id: "public-user",

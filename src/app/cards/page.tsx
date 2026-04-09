@@ -66,7 +66,7 @@ function CardsPageInner() {
   const [compare, setCompare] = useState(false);
   const [teamB, setTeamB] = useState("");
   const [playerB, setPlayerB] = useState("");
-  const [mode, setMode] = useState<"draft" | "transfer">("draft");
+  const [mode, setMode] = useState<"draft" | "transfer">("transfer");
   const [dest, setDest] = useState("SEC");
   const [favoriteTeam, setFavoriteTeam] = useState("");
 
