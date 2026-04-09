@@ -45,6 +45,10 @@ export async function POST(req: NextRequest) {
     url.pathname = nextPath || (user.role === "admin" ? "/dashboard" : "/cards");
     url.search = nextPath ? url.search : "";
     const response = NextResponse.redirect(url, 303);
+    // Clear legacy/stale variants first so old tokens do not override the new session.
+    response.cookies.delete(SESSION_COOKIE_NAME);
+    response.cookies.delete({ name: SESSION_COOKIE_NAME, path: "/", domain: ".dbcjason.com" });
+    response.cookies.delete({ name: SESSION_COOKIE_NAME, path: "/", domain: "dbcjason.com" });
     const cookieBase = {
       httpOnly: true,
       sameSite: "lax",

@@ -256,6 +256,7 @@ function RosterPageInner() {
             <Link href={`/roster?gender=${gender}`} className="text-red-400">Roster Construction</Link>
             <Link href={`/transfer-grades?gender=${gender}&season=${season}`} className="text-zinc-300">Transfer Grades</Link>
             <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">Leaderboard</Link>
+            <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">Watchlist</Link>
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">Home</Link>
         </div>

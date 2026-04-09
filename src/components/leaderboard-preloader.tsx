@@ -43,6 +43,9 @@ async function warmLeaderboard(gender: "men" | "women") {
 
 export function LeaderboardPreloader({ accessScope }: LeaderboardPreloaderProps) {
   useEffect(() => {
+    const enabled = String(process.env.NEXT_PUBLIC_ENABLE_LEADERBOARD_PRELOAD ?? "0").trim() === "1";
+    if (!enabled) return;
+
     const preload = () => {
       if (accessScope !== "women") void warmLeaderboard("men");
       if (accessScope !== "men") void warmLeaderboard("women");
@@ -59,4 +62,3 @@ export function LeaderboardPreloader({ accessScope }: LeaderboardPreloaderProps)
 
   return null;
 }
-

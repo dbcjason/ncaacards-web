@@ -682,6 +682,9 @@ function CardsPageInner() {
             <Link href={`/leaderboard?gender=${gender}&season=${season}`} className="text-zinc-300">
               Leaderboard
             </Link>
+            <Link href={`/watchlist?gender=${gender}&season=${season}`} className="text-zinc-300">
+              Watchlist
+            </Link>
           </div>
           <Link href={`/?gender=${gender}`} className="text-zinc-400">
             Home
