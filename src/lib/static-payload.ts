@@ -183,6 +183,22 @@ function parseSeasonFromRsciRow(raw: string): string {
   return "";
 }
 
+function ordinal(value: number): string {
+  const v = Math.trunc(value);
+  const mod100 = v % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${v}th`;
+  switch (v % 10) {
+    case 1:
+      return `${v}st`;
+    case 2:
+      return `${v}nd`;
+    case 3:
+      return `${v}rd`;
+    default:
+      return `${v}th`;
+  }
+}
+
 function conferenceKey(raw: string): string {
   const s = normText(raw)
     .replaceAll("&", "and")
@@ -344,6 +360,8 @@ const SECTION_JSON_KEYS = [
 const sectionPayloadMemo = new Map<string, Promise<Record<string, string>>>();
 const btRowsMemo = new Map<string, Promise<BtRow[]>>();
 const enrichedLookupMemo = new Map<string, Promise<Record<string, Record<string, unknown>>>>();
+const enrichedPlayersMemo = new Map<string, Promise<Record<string, unknown>[]>>();
+const enrichedPpsLineLookupMemo = new Map<string, Promise<Record<string, string>>>();
 const heightProfileDeltaMemo = new Map<string, Promise<{ byKey: Record<string, number>; byName: Record<string, number>; byPid: Record<string, number> }>>();
 
 function cardCacheKey(player: string, team: string, season: string | number): string {
@@ -900,39 +918,56 @@ async function loadEnrichedLookup(
   if (cached) return cached;
 
   const promise = (async () => {
-    const scriptGender = gender === "women" ? "Women" : "Men";
-    const targetSeason = Number(normSeason(season)) || Number(season);
-    const path = `player_cards_pipeline/data/manual/enriched_players/by_script_season/players_all_${scriptGender}_scriptSeason_${targetSeason}_fromJsonYear_${targetSeason - 1}.json`;
+    const players = await loadEnrichedPlayers(season, gender, cfg);
     const lookup: Record<string, Record<string, unknown>> = {};
-    try {
-      const payload = await fetchRepoJson<{ players?: Record<string, unknown>[] }>(path, cfg);
-      for (const row of payload.players ?? []) {
-        if (!row || typeof row !== "object") continue;
-        const obj = row as Record<string, unknown>;
-        const playerRaw = String(obj.key ?? obj.player ?? obj.name ?? "").trim();
-        const team = String(obj.team ?? obj.school ?? "").trim();
-        if (!playerRaw || !team) continue;
+    for (const obj of players) {
+      if (!obj || typeof obj !== "object") continue;
+      const playerRaw = String(obj.key ?? obj.player ?? obj.name ?? "").trim();
+      const team = String(obj.team ?? obj.school ?? "").trim();
+      if (!playerRaw || !team) continue;
 
-        const aliases = new Set<string>([playerRaw]);
-        if (playerRaw.includes(",")) {
-          const parts = playerRaw.split(",").map((part) => part.trim()).filter(Boolean);
-          if (parts.length >= 2) {
-            aliases.add(`${parts.slice(1).join(" ")} ${parts[0]}`.trim());
-          }
-        }
-
-        for (const alias of aliases) {
-          lookup[cardCacheKey(alias, team, season)] = obj;
+      const aliases = new Set<string>([playerRaw]);
+      if (playerRaw.includes(",")) {
+        const parts = playerRaw.split(",").map((part) => part.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+          aliases.add(`${parts.slice(1).join(" ")} ${parts[0]}`.trim());
         }
       }
-    } catch {
-      return {};
+
+      for (const alias of aliases) {
+        lookup[cardCacheKey(alias, team, season)] = obj;
+      }
     }
 
     return lookup;
   })();
 
   enrichedLookupMemo.set(key, promise);
+  return promise;
+}
+
+async function loadEnrichedPlayers(
+  season: number,
+  gender: Gender,
+  cfg: SourceCfg,
+): Promise<Record<string, unknown>[]> {
+  const key = `${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}:${gender}:${normSeason(season)}`;
+  const cached = enrichedPlayersMemo.get(key);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const scriptGender = gender === "women" ? "Women" : "Men";
+    const targetSeason = Number(normSeason(season)) || Number(season);
+    const path = `player_cards_pipeline/data/manual/enriched_players/by_script_season/players_all_${scriptGender}_scriptSeason_${targetSeason}_fromJsonYear_${targetSeason - 1}.json`;
+    try {
+      const payload = await fetchRepoJson<{ players?: Record<string, unknown>[] }>(path, cfg);
+      return Array.isArray(payload.players) ? payload.players : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  enrichedPlayersMemo.set(key, promise);
   return promise;
 }
 
@@ -967,6 +1002,105 @@ function buildShotsFromEnrichedRow(enrichedRow: Record<string, unknown>): { shot
     }
   }
   return { shots, makes, attempts };
+}
+
+function enrichedPlayerTeamKey(row: Record<string, unknown>): string {
+  const player = normPlayer(String(row.key ?? row.player ?? row.name ?? ""));
+  const team = normTeam(String(row.team ?? row.school ?? ""));
+  return `${player}|${team}`;
+}
+
+function shotInfoKeysAndRows(row: Record<string, unknown>): { keys: string[]; info: unknown[][] } {
+  const keysRaw = nestedValue(row, "shotInfo", "data", "keys");
+  const infoRaw = nestedValue(row, "shotInfo", "data", "info");
+  const keys = Array.isArray(keysRaw) ? keysRaw.map((k) => String(k ?? "")) : [];
+  const info = Array.isArray(infoRaw) ? (infoRaw.filter((entry) => Array.isArray(entry)) as unknown[][]) : [];
+  return { keys, info };
+}
+
+async function loadEnrichedPpsLineLookup(
+  season: number,
+  gender: Gender,
+  cfg: SourceCfg,
+): Promise<Record<string, string>> {
+  const key = `${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}:${gender}:${normSeason(season)}:pps`;
+  const cached = enrichedPpsLineLookupMemo.get(key);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const players = await loadEnrichedPlayers(season, gender, cfg);
+    const lookup: Record<string, string> = {};
+    if (!players.length) return lookup;
+
+    const binPts = new Map<string, number>();
+    const binAtt = new Map<string, number>();
+    for (const row of players) {
+      const { keys, info } = shotInfoKeysAndRows(row);
+      const n = Math.min(keys.length, info.length);
+      for (let i = 0; i < n; i += 1) {
+        const rec = info[i];
+        if (!Array.isArray(rec) || rec.length < 4) continue;
+        const pts = Number(rec[2]);
+        const att = Number(rec[3]);
+        if (!Number.isFinite(pts) || !Number.isFinite(att) || att <= 0) continue;
+        const shotKey = String(keys[i] ?? "");
+        binPts.set(shotKey, (binPts.get(shotKey) ?? 0) + pts);
+        binAtt.set(shotKey, (binAtt.get(shotKey) ?? 0) + att);
+      }
+    }
+
+    const expByKey = new Map<string, number>();
+    for (const [shotKey, att] of binAtt.entries()) {
+      if (att <= 0) continue;
+      const pts = binPts.get(shotKey) ?? 0;
+      expByKey.set(shotKey, pts / att);
+    }
+    if (!expByKey.size) return lookup;
+
+    const pctValues: number[] = [];
+    const rowPct = new Map<string, number>();
+    for (const row of players) {
+      const rowKey = enrichedPlayerTeamKey(row);
+      const { keys, info } = shotInfoKeysAndRows(row);
+      const n = Math.min(keys.length, info.length);
+      let actPts = 0;
+      let attSum = 0;
+      let expPts = 0;
+      for (let i = 0; i < n; i += 1) {
+        const rec = info[i];
+        if (!Array.isArray(rec) || rec.length < 4) continue;
+        const pts = Number(rec[2]);
+        const att = Number(rec[3]);
+        if (!Number.isFinite(pts) || !Number.isFinite(att) || att <= 0) continue;
+        const exp = expByKey.get(String(keys[i] ?? ""));
+        if (exp == null || !Number.isFinite(exp)) continue;
+        actPts += pts;
+        attSum += att;
+        expPts += exp * att;
+      }
+      if (attSum <= 0) continue;
+      const expected = expPts / attSum;
+      if (!Number.isFinite(expected) || expected <= 0) continue;
+      const actual = actPts / attSum;
+      const pct = ((actual - expected) / expected) * 100;
+      if (!Number.isFinite(pct)) continue;
+      rowPct.set(rowKey, pct);
+      pctValues.push(pct);
+    }
+    if (!pctValues.length) return lookup;
+
+    for (const [rowKey, pct] of rowPct.entries()) {
+      const pctile =
+        Math.round((pctValues.filter((value) => value <= pct).length / pctValues.length) * 100) || 0;
+      const bounded = Math.max(1, Math.min(99, pctile));
+      lookup[rowKey] = `Points per Shot Over Expectation: ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% (${ordinal(bounded)} Percentile)`;
+    }
+
+    return lookup;
+  })();
+
+  enrichedPpsLineLookupMemo.set(key, promise);
+  return promise;
 }
 
 async function fetchRepoJson<T>(path: string, cfg: SourceCfg): Promise<T> {
@@ -1441,6 +1575,7 @@ export async function loadStaticPayload(
   const btRows = await loadBtRowsForSeason(season, cfg);
   const enrichedLookup = await loadEnrichedLookup(season, gender, cfg);
   const enrichedRow = enrichedLookup[normalizedSectionKey(player, team, season)];
+  const ppsLookup = await loadEnrichedPpsLineLookup(season, gender, cfg);
   const targetRow =
     btRows.find(
       (row) =>
@@ -1593,8 +1728,10 @@ export async function loadStaticPayload(
     }
     return "";
   })();
+  const ppsLineComputed = enrichedRow ? ppsLookup[enrichedPlayerTeamKey(enrichedRow)] ?? "" : "";
   const ppsLine =
     ppsLineFromEnriched ||
+    ppsLineComputed ||
     ppsLineFromHtml ||
     "Points per Shot Over Expectation: N/A";
 
