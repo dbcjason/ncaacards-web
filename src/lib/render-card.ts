@@ -42,7 +42,7 @@ function normalizeHeightDisplay(value: unknown): string {
 
 function buildSubtitleHtml(
   payload: CardPayload,
-  input: { mode?: string; destinationConference?: string } = {},
+  input: { mode?: string; destinationConference?: string; gender?: string } = {},
 ): string {
   const bio = payload.bio ?? {};
   const ageValue = num(bio.age_june25 ?? bio.age);
@@ -87,7 +87,10 @@ function buildSubtitleHtml(
   bits.push(
     `Statistical Height: <span class="${statHeightClass}">${esc(statHeightText)}</span>`,
   );
-  bits.push(`RSCI: ${esc(String(bio.rsci ?? "UR"))}`);
+  const gender = String(input.gender ?? "").toLowerCase();
+  if (gender !== "women") {
+    bits.push(`RSCI: ${esc(String(bio.rsci ?? "UR"))}`);
+  }
 
   return bits.join(" | ");
 }
