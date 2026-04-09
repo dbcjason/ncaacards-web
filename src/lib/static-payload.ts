@@ -290,6 +290,7 @@ const SECTION_JSON_KEYS = [
   "team_impact_html",
   "shot_diet_html",
   "player_comparisons_html",
+  "draft_projection_html",
 ] as const;
 
 const sectionPayloadMemo = new Map<string, Promise<Record<string, string>>>();
