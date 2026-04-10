@@ -613,7 +613,7 @@ export default function LineupAnalysisPage() {
             </div>
 
             <div className="mt-4 overflow-auto rounded-lg border border-zinc-800">
-              <table className="w-max min-w-full border-collapse text-sm">
+              <table className="w-max border-collapse text-sm">
                 <thead>
                   <tr className="bg-zinc-800 text-zinc-100">
                     <th className="border-b border-zinc-700 p-2 text-left">WOWY Combination</th>
