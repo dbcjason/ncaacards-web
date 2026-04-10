@@ -156,7 +156,7 @@ export default function LeaderboardPage() {
 function LeaderboardPageInner() {
   const searchParams = useSearchParams();
   const [gender, setGender] = useState<"men" | "women">("men");
-  const [season, setSeason] = useState<number>(2026);
+  const [season, setSeason] = useState<number | null>(2026);
   const [teamFilter, setTeamFilter] = useState("");
   const [positionFilter, setPositionFilter] = useState("");
   const [conferenceFilter, setConferenceFilter] = useState("All");
@@ -186,6 +186,8 @@ function LeaderboardPageInner() {
     const seasonParam = Number(searchParams.get("season"));
     if (Number.isFinite(seasonParam) && seasonParam > 2000) {
       setSeason(seasonParam);
+    } else if (String(searchParams.get("season") || "").trim().toLowerCase() === "all") {
+      setSeason(null);
     }
   }, [searchParams]);
 
@@ -362,8 +364,13 @@ function LeaderboardPageInner() {
         <div className="mb-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Player Leaderboard</div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
-            <select className="rounded bg-zinc-800 p-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
-              {SEASONS.map((y) => <option key={y} value={y}>{y}</option>)}
+            <select
+              className="rounded bg-zinc-800 p-2"
+              value={season == null ? "" : String(season)}
+              onChange={(e) => setSeason(e.target.value === "" ? null : Number(e.target.value))}
+            >
+              <option value="">All</option>
+              {SEASONS.map((y) => <option key={y} value={String(y)}>{y}</option>)}
             </select>
             <select className="rounded bg-zinc-800 p-2" value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
               {CLASS_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
