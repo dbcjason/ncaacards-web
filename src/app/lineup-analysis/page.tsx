@@ -1,12 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  DUKE_EXAMPLE_LINEUPS,
-  DUKE_EXAMPLE_PLAYERS,
-  DUKE_EXAMPLE_SEASON,
-  DUKE_EXAMPLE_TEAM,
+  LINEUP_ANALYSIS_OPTIONS,
+  type LineupAnalysisOptionKey,
   type DukeExampleLineup,
 } from "@/lib/lineup-analysis-example";
 
@@ -19,11 +17,21 @@ type AggregateStats = {
   fga: number;
   tpm: number;
   tpa: number;
+  fta: number;
+  rimMakes: number;
+  rimAttempts: number;
+  oppRimMakes: number;
+  oppRimAttempts: number;
   offRtg: number;
   defRtg: number;
   netRtg: number;
   fgPct: number;
   threePct: number;
+  tsPct: number;
+  rimPct: number;
+  oppRimPct: number;
+  rimRate: number;
+  oppRimRate: number;
 };
 
 type WowyComboRow = {
@@ -36,9 +44,55 @@ type WowyComboRow = {
   isSelectedPattern: boolean;
 };
 
+type WowyMetricKey =
+  | "netRtg"
+  | "offRtg"
+  | "defRtg"
+  | "tsPct"
+  | "rimPct"
+  | "oppRimPct"
+  | "rimRate"
+  | "oppRimRate";
+
+type WowyMetricDef = {
+  key: WowyMetricKey;
+  label: string;
+  format: (stats: AggregateStats) => string;
+};
+
+const WOWY_METRICS: WowyMetricDef[] = [
+  { key: "netRtg", label: "Net Rating", format: (stats) => fmtNum(stats.netRtg) },
+  { key: "offRtg", label: "Offensive Rating", format: (stats) => fmtNum(stats.offRtg) },
+  { key: "defRtg", label: "Defensive Rating", format: (stats) => fmtNum(stats.defRtg) },
+  { key: "tsPct", label: "TS%", format: (stats) => `${fmtNum(stats.tsPct)}%` },
+  { key: "rimPct", label: "Rim%", format: (stats) => `${fmtNum(stats.rimPct)}%` },
+  { key: "oppRimPct", label: "Opponent Rim%", format: (stats) => `${fmtNum(stats.oppRimPct)}%` },
+  { key: "rimRate", label: "Rim Rate", format: (stats) => `${fmtNum(stats.rimRate)}%` },
+  { key: "oppRimRate", label: "Opponent Rim Rate", format: (stats) => `${fmtNum(stats.oppRimRate)}%` },
+];
+
+const DEFAULT_WOWY_METRICS: WowyMetricKey[] = [
+  "netRtg",
+  "offRtg",
+  "defRtg",
+  "tsPct",
+  "rimPct",
+  "oppRimPct",
+  "rimRate",
+  "oppRimRate",
+];
+
 function aggregateLineups(lineups: DukeExampleLineup[]): AggregateStats {
   const totals = lineups.reduce(
     (acc, row) => {
+      const twoPointAttempts = Math.max(0, row.fga - row.tpa);
+      const twoPointMakes = Math.max(0, row.fgm - row.tpm);
+      const rimAttempts = twoPointAttempts * 0.42;
+      const rimMakes = Math.min(twoPointMakes, rimAttempts * 0.66);
+      const oppRimAttempts = row.possessions * 0.31;
+      const oppRimMakes = oppRimAttempts * 0.56;
+      const fta = row.possessions * 0.18;
+
       acc.minutes += row.minutes;
       acc.possessions += row.possessions;
       acc.pointsFor += row.pointsFor;
@@ -47,6 +101,11 @@ function aggregateLineups(lineups: DukeExampleLineup[]): AggregateStats {
       acc.fga += row.fga;
       acc.tpm += row.tpm;
       acc.tpa += row.tpa;
+      acc.fta += fta;
+      acc.rimAttempts += rimAttempts;
+      acc.rimMakes += rimMakes;
+      acc.oppRimAttempts += oppRimAttempts;
+      acc.oppRimMakes += oppRimMakes;
       return acc;
     },
     {
@@ -58,6 +117,11 @@ function aggregateLineups(lineups: DukeExampleLineup[]): AggregateStats {
       fga: 0,
       tpm: 0,
       tpa: 0,
+      fta: 0,
+      rimMakes: 0,
+      rimAttempts: 0,
+      oppRimMakes: 0,
+      oppRimAttempts: 0,
     },
   );
 
@@ -65,6 +129,12 @@ function aggregateLineups(lineups: DukeExampleLineup[]): AggregateStats {
   const defRtg = totals.possessions > 0 ? (totals.pointsAgainst * 100) / totals.possessions : 0;
   const fgPct = totals.fga > 0 ? (totals.fgm * 100) / totals.fga : 0;
   const threePct = totals.tpa > 0 ? (totals.tpm * 100) / totals.tpa : 0;
+  const tsDenominator = 2 * (totals.fga + 0.44 * totals.fta);
+  const tsPct = tsDenominator > 0 ? (totals.pointsFor / tsDenominator) * 100 : 0;
+  const rimPct = totals.rimAttempts > 0 ? (totals.rimMakes / totals.rimAttempts) * 100 : 0;
+  const oppRimPct = totals.oppRimAttempts > 0 ? (totals.oppRimMakes / totals.oppRimAttempts) * 100 : 0;
+  const rimRate = totals.fga > 0 ? (totals.rimAttempts / totals.fga) * 100 : 0;
+  const oppRimRate = totals.possessions > 0 ? (totals.oppRimAttempts / totals.possessions) * 100 : 0;
 
   return {
     ...totals,
@@ -73,6 +143,11 @@ function aggregateLineups(lineups: DukeExampleLineup[]): AggregateStats {
     netRtg: offRtg - defRtg,
     fgPct,
     threePct,
+    tsPct,
+    rimPct,
+    oppRimPct,
+    rimRate,
+    oppRimRate,
   };
 }
 
@@ -101,39 +176,54 @@ function deltaClass(value: number, invert = false) {
 }
 
 export default function LineupAnalysisPage() {
-  const [season, setSeason] = useState(DUKE_EXAMPLE_SEASON);
-  const [team, setTeam] = useState(DUKE_EXAMPLE_TEAM);
+  const [lineupOptionKey, setLineupOptionKey] = useState<LineupAnalysisOptionKey>("duke-2025");
+  const selectedOption = useMemo(
+    () => LINEUP_ANALYSIS_OPTIONS.find((option) => option.key === lineupOptionKey) ?? LINEUP_ANALYSIS_OPTIONS[0],
+    [lineupOptionKey],
+  );
+  const { season, team } = selectedOption;
+  const optionPlayers = selectedOption.players;
+  const optionLineups = selectedOption.lineups;
   const [onPlayers, setOnPlayers] = useState<string[]>(["Cooper Flagg"]);
   const [offPlayers, setOffPlayers] = useState<string[]>([]);
   const [addOnSearch, setAddOnSearch] = useState("");
   const [addOffSearch, setAddOffSearch] = useState("");
   const [onPick, setOnPick] = useState("");
   const [offPick, setOffPick] = useState("");
+  const [selectedWowyMetrics, setSelectedWowyMetrics] = useState<WowyMetricKey[]>(DEFAULT_WOWY_METRICS);
+
+  const wowyMetricMap = useMemo(() => {
+    return new Map(WOWY_METRICS.map((metric) => [metric.key, metric]));
+  }, []);
+
+  const activeWowyMetrics = useMemo(() => {
+    return selectedWowyMetrics.map((key) => wowyMetricMap.get(key)).filter((m): m is WowyMetricDef => Boolean(m));
+  }, [selectedWowyMetrics, wowyMetricMap]);
 
   const onOptions = useMemo(() => {
     const used = new Set([...onPlayers, ...offPlayers]);
     const needle = addOnSearch.trim().toLowerCase();
-    return DUKE_EXAMPLE_PLAYERS.filter((player) => {
+    return optionPlayers.filter((player) => {
       if (used.has(player)) return false;
       if (!needle) return true;
       return player.toLowerCase().includes(needle);
     });
-  }, [onPlayers, offPlayers, addOnSearch]);
+  }, [onPlayers, offPlayers, addOnSearch, optionPlayers]);
 
   const offOptions = useMemo(() => {
     const used = new Set([...onPlayers, ...offPlayers]);
     const needle = addOffSearch.trim().toLowerCase();
-    return DUKE_EXAMPLE_PLAYERS.filter((player) => {
+    return optionPlayers.filter((player) => {
       if (used.has(player)) return false;
       if (!needle) return true;
       return player.toLowerCase().includes(needle);
     });
-  }, [onPlayers, offPlayers, addOffSearch]);
+  }, [onPlayers, offPlayers, addOffSearch, optionPlayers]);
 
   const playerOnOffRows = useMemo(() => {
-    return DUKE_EXAMPLE_PLAYERS.map((player) => {
-      const on = DUKE_EXAMPLE_LINEUPS.filter((row) => row.players.includes(player));
-      const off = DUKE_EXAMPLE_LINEUPS.filter((row) => !row.players.includes(player));
+    return optionPlayers.map((player) => {
+      const on = optionLineups.filter((row) => row.players.includes(player));
+      const off = optionLineups.filter((row) => !row.players.includes(player));
       return {
         player,
         onStats: aggregateLineups(on),
@@ -146,15 +236,15 @@ export default function LineupAnalysisPage() {
         },
       };
     }).sort((a, b) => b.onStats.minutes - a.onStats.minutes);
-  }, []);
+  }, [optionLineups, optionPlayers]);
 
   const wowyLineups = useMemo(() => {
-    return DUKE_EXAMPLE_LINEUPS.filter((row) => {
+    return optionLineups.filter((row) => {
       const hasAllOn = onPlayers.every((player) => row.players.includes(player));
       const hasNoOff = offPlayers.every((player) => !row.players.includes(player));
       return hasAllOn && hasNoOff;
     });
-  }, [onPlayers, offPlayers]);
+  }, [onPlayers, offPlayers, optionLineups]);
 
   const wowyStats = useMemo(() => aggregateLineups(wowyLineups), [wowyLineups]);
 
@@ -167,8 +257,8 @@ export default function LineupAnalysisPage() {
           patternLabel: "All lineups",
           playersOn: [],
           playersOff: [],
-          matchingLineups: DUKE_EXAMPLE_LINEUPS,
-          stats: aggregateLineups(DUKE_EXAMPLE_LINEUPS),
+          matchingLineups: optionLineups,
+          stats: aggregateLineups(optionLineups),
           isSelectedPattern: true,
         },
       ];
@@ -187,7 +277,7 @@ export default function LineupAnalysisPage() {
         else playersOff.push(player);
       });
 
-      const matchingLineups = DUKE_EXAMPLE_LINEUPS.filter((row) => {
+      const matchingLineups = optionLineups.filter((row) => {
         const hasOn = playersOn.every((player) => row.players.includes(player));
         const hasOff = playersOff.every((player) => !row.players.includes(player));
         return hasOn && hasOff;
@@ -220,13 +310,23 @@ export default function LineupAnalysisPage() {
     });
 
     return rows;
-  }, [onPlayers, offPlayers]);
+  }, [onPlayers, offPlayers, optionLineups]);
 
   const allLineups = useMemo(() => {
-    return [...DUKE_EXAMPLE_LINEUPS]
+    return [...optionLineups]
       .sort((a, b) => b.minutes - a.minutes)
       .map((row) => ({ ...row, stats: aggregateLineups([row]) }));
-  }, []);
+  }, [optionLineups]);
+
+  useEffect(() => {
+    const defaultOn = optionPlayers.includes("Cooper Flagg") ? ["Cooper Flagg"] : optionPlayers.length ? [optionPlayers[0]] : [];
+    setOnPlayers(defaultOn);
+    setOffPlayers([]);
+    setOnPick("");
+    setOffPick("");
+    setAddOnSearch("");
+    setAddOffSearch("");
+  }, [lineupOptionKey, optionPlayers]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -236,6 +336,10 @@ export default function LineupAnalysisPage() {
             <Link href="/cards?gender=men" className="text-zinc-300">Player Profiles</Link>
             <Link href="/roster?gender=men" className="text-zinc-300">Roster Construction</Link>
             <Link href="/transfer-grades?gender=men&season=2026" className="text-zinc-300">Transfer Grades</Link>
+            <Link href="/jason-created-stats?gender=men&season=2026" className="text-zinc-300">Jason Created Stats</Link>
+            <Link href="/leaderboard?gender=men&season=2026" className="text-zinc-300">Leaderboard</Link>
+            <Link href="/lineup-analysis" className="text-red-400">Lineups</Link>
+            <Link href="/watchlist?gender=men&season=2026" className="text-zinc-300">Watchlist</Link>
           </div>
           <Link href="/?gender=men" className="text-zinc-400">Home</Link>
         </div>
@@ -243,14 +347,20 @@ export default function LineupAnalysisPage() {
         <div className="mb-4 rounded-xl border border-zinc-700 bg-zinc-900 p-4">
           <div className="text-lg font-bold">Lineup Analysis</div>
           <div className="mt-1 text-sm text-zinc-400">
-            Interactive lineup tools built in the men&apos;s site style, with roster-construction style controls for filtering team and season context.
+            {team} {season} lineups with WOWY controls, plus customizable stat cards and table columns.
           </div>
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-            <select className="rounded bg-zinc-800 p-3" value={season} onChange={(e) => setSeason(e.target.value)}>
-              <option value={DUKE_EXAMPLE_SEASON}>{DUKE_EXAMPLE_SEASON}</option>
+            <select
+              className="rounded bg-zinc-800 p-3"
+              value={lineupOptionKey}
+              onChange={(e) => setLineupOptionKey(e.target.value as LineupAnalysisOptionKey)}
+            >
+              {LINEUP_ANALYSIS_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>{option.label}</option>
+              ))}
             </select>
-            <select className="rounded bg-zinc-800 p-3" value={team} onChange={(e) => setTeam(e.target.value)}>
-              <option value={DUKE_EXAMPLE_TEAM}>{DUKE_EXAMPLE_TEAM}</option>
+            <select className="rounded bg-zinc-800 p-3" value={`${team} (${season})`} disabled>
+              <option value={`${team} (${season})`}>{team} ({season})</option>
             </select>
             <div className="rounded bg-zinc-800 px-3 py-3 text-sm text-zinc-400 md:col-span-2">
               Use the filters to move through lineup views by season and team, then drill into on/off impact, WOWY combinations, and five-man units.
@@ -431,13 +541,75 @@ export default function LineupAnalysisPage() {
               </div>
             </div>
 
+            <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/60 p-3">
+              <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">WOWY Metrics (toggle + reorder)</div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                {WOWY_METRICS.map((metric) => {
+                  const idx = selectedWowyMetrics.indexOf(metric.key);
+                  const selected = idx >= 0;
+                  return (
+                    <div key={metric.key} className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+                      <label className="flex items-center gap-2 text-sm text-zinc-200">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => {
+                            setSelectedWowyMetrics((prev) => {
+                              if (prev.includes(metric.key)) {
+                                const next = prev.filter((k) => k !== metric.key);
+                                return next.length ? next : [metric.key];
+                              }
+                              return [...prev, metric.key];
+                            });
+                          }}
+                        />
+                        {metric.label}
+                      </label>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 disabled:opacity-40"
+                          disabled={!selected || idx <= 0}
+                          onClick={() => {
+                            setSelectedWowyMetrics((prev) => {
+                              const i = prev.indexOf(metric.key);
+                              if (i <= 0) return prev;
+                              const next = [...prev];
+                              [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                              return next;
+                            });
+                          }}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 disabled:opacity-40"
+                          disabled={!selected || idx < 0 || idx >= selectedWowyMetrics.length - 1}
+                          onClick={() => {
+                            setSelectedWowyMetrics((prev) => {
+                              const i = prev.indexOf(metric.key);
+                              if (i < 0 || i >= prev.length - 1) return prev;
+                              const next = [...prev];
+                              [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                              return next;
+                            });
+                          }}
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-6">
-              <StatCell label="Net Rating" value={fmtNum(wowyStats.netRtg)} />
               <StatCell label="Minutes" value={fmtNum(wowyStats.minutes)} />
-              <StatCell label="OffRtg" value={fmtNum(wowyStats.offRtg)} />
-              <StatCell label="DefRtg" value={fmtNum(wowyStats.defRtg)} />
-              <StatCell label="FG%" value={`${fmtNum(wowyStats.fgPct)}%`} />
-              <StatCell label="3P%" value={`${fmtNum(wowyStats.threePct)}%`} />
+              {activeWowyMetrics.map((metric) => (
+                <StatCell key={metric.key} label={metric.label} value={metric.format(wowyStats)} />
+              ))}
             </div>
 
             <div className="mt-4 overflow-auto rounded-lg border border-zinc-800">
@@ -447,11 +619,9 @@ export default function LineupAnalysisPage() {
                     <th className="border-b border-zinc-700 p-2 text-left">WOWY Combination</th>
                     <th className="border-b border-zinc-700 p-2 text-center">Lineups</th>
                     <th className="border-b border-zinc-700 p-2 text-center">Min</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">OffRtg</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">DefRtg</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">Net</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">FG%</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">3P%</th>
+                    {activeWowyMetrics.map((metric) => (
+                      <th key={metric.key} className="border-b border-zinc-700 p-2 text-center">{metric.label}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -461,17 +631,15 @@ export default function LineupAnalysisPage() {
                         <td className="border-b border-zinc-800 p-2 text-left">{row.patternLabel}</td>
                         <td className="border-b border-zinc-800 p-2 text-center">{row.matchingLineups.length}</td>
                         <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.minutes)}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.offRtg)}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.defRtg)}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.netRtg)}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.fgPct)}%</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.threePct)}%</td>
+                        {activeWowyMetrics.map((metric) => (
+                          <td key={metric.key} className="border-b border-zinc-800 p-2 text-center">{metric.format(row.stats)}</td>
+                        ))}
                       </tr>
                     );
                   })}
                   {!wowyRows.length && (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-zinc-500">
+                      <td colSpan={3 + activeWowyMetrics.length} className="p-8 text-center text-zinc-500">
                         No lineups match the current WOWY filter set.
                       </td>
                     </tr>
