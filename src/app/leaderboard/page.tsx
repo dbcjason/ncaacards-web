@@ -59,6 +59,7 @@ type OptionItem = {
 };
 
 const CLASS_OPTIONS = ["All", "Freshman", "Sophomore", "Junior", "Senior"];
+const CONFERENCE_OPTIONS_BASE = ["All", "High Major", "Mid/Low Major"] as const;
 const BASE_COLUMNS: Array<{ key: BaseColumnKey; label: string; sortKey: string; align?: "left" | "center" }> = [
   { key: "team", label: "Team", sortKey: "team", align: "left" },
   { key: "class", label: "Class", sortKey: "class", align: "left" },
@@ -158,7 +159,7 @@ function LeaderboardPageInner() {
   const [season, setSeason] = useState<number>(2026);
   const [teamFilter, setTeamFilter] = useState("");
   const [positionFilter, setPositionFilter] = useState("");
-  const [conferenceFilter, setConferenceFilter] = useState("");
+  const [conferenceFilter, setConferenceFilter] = useState("All");
   const [classFilter, setClassFilter] = useState("All");
   const [playerFilter, setPlayerFilter] = useState("");
   const [sortBy, setSortBy] = useState("bpm");
@@ -202,7 +203,7 @@ function LeaderboardPageInner() {
             season,
             team: teamFilter,
             position: positionFilter,
-            conference: conferenceFilter,
+            conference: conferenceFilter === "All" ? "" : conferenceFilter,
             player: playerFilter,
             sortBy,
             sortMode,
@@ -258,6 +259,17 @@ function LeaderboardPageInner() {
     return out;
   }, [metricOptions]);
   const filterMetricKeys = useMemo(() => new Set(filterMetricOptions.map((metric) => metric.key)), [filterMetricOptions]);
+  const conferenceOptions = useMemo(() => {
+    const seen = new Set<string>(CONFERENCE_OPTIONS_BASE as readonly string[]);
+    const out: string[] = [...CONFERENCE_OPTIONS_BASE];
+    for (const conference of conferences) {
+      const value = String(conference || "").trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      out.push(value);
+    }
+    return out;
+  }, [conferences]);
 
   useEffect(() => {
     const defaultOrder = [
@@ -359,7 +371,9 @@ function LeaderboardPageInner() {
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter team" value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} list="leaderboard-teams" />
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter player" value={playerFilter} onChange={(e) => setPlayerFilter(e.target.value)} />
             <input className="rounded bg-zinc-800 p-2" placeholder="Filter position" value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)} list="leaderboard-positions" />
-            <input className="rounded bg-zinc-800 p-2" placeholder="Filter conference" value={conferenceFilter} onChange={(e) => setConferenceFilter(e.target.value)} list="leaderboard-conferences" />
+            <select className="rounded bg-zinc-800 p-2" value={conferenceFilter} onChange={(e) => setConferenceFilter(e.target.value)}>
+              {conferenceOptions.map((conference) => <option key={conference} value={conference}>{conference}</option>)}
+            </select>
             <div className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-400">
               {loading ? "Loading..." : `${filteredRows.length} shown / ${total} matched / min ${minMpg} MPG`}
             </div>
@@ -474,9 +488,6 @@ function LeaderboardPageInner() {
           </datalist>
           <datalist id="leaderboard-positions">
             {positions.map((position) => <option key={position} value={position} />)}
-          </datalist>
-          <datalist id="leaderboard-conferences">
-            {conferences.map((conference) => <option key={conference} value={conference} />)}
           </datalist>
         </div>
 

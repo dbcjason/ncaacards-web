@@ -994,9 +994,10 @@ function sortRows(
       const bucketB = sortMode === "percentile" ? b.percentiles : b.values;
       const aVal = bucketA[sortBy];
       const bVal = bucketB[sortBy];
-      if (typeof aVal === "number" && typeof bVal === "number" && aVal !== bVal) {
-        return (aVal - bVal) * direction;
-      }
+      const missingSentinel = sortDir === "asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+      const aNum = typeof aVal === "number" && Number.isFinite(aVal) ? aVal : missingSentinel;
+      const bNum = typeof bVal === "number" && Number.isFinite(bVal) ? bVal : missingSentinel;
+      if (aNum !== bNum) return (aNum - bNum) * direction;
     }
     if (sortBy === "player") return a.player.localeCompare(b.player) * direction;
     if (sortBy === "team") return a.team.localeCompare(b.team) * direction;
