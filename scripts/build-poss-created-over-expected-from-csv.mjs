@@ -121,7 +121,14 @@ function possCreatedBase100(rowObj) {
   const bpg = readFromRow(rowObj, ["bpg", "blk", "blocks"]);
   const orebPg = readFromRow(rowObj, ["oreb", "orb", "orebpg", "oreb_per_game"]);
   const possessions = readFromRow(rowObj, ["player_possessions", "possessions", "poss", "poss_used", "total_possessions", "possessions_raw_reg_post"]);
-  const toPg = readFromRow(rowObj, ["topg", "tov", "to_pg", "turnovers"]);
+  let toPg = readFromRow(rowObj, ["topg", "tov", "to_pg", "turnovers", "turnovers_per_game"]);
+  if (toPg == null) {
+    const astPg = readFromRow(rowObj, ["ast", "apg", "assists_per_game"]);
+    const ato = readFromRow(rowObj, ["ast/tov", "asttov", "ast_to", "a_to"]);
+    if (astPg != null && ato != null && ato > 0) {
+      toPg = astPg / ato;
+    }
+  }
   if (gp != null && gp > 0 && possessions != null && possessions > 0 && toPg != null) {
     const stl100FromPg = spg != null ? ((spg * gp) / possessions) * 100 : 0;
     const blk100FromPg = bpg != null ? ((bpg * gp) / possessions) * 100 : 0;

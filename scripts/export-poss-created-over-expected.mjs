@@ -59,40 +59,47 @@ function percentile(values, value) {
   return Math.max(0, Math.min(100, Math.round((le / values.length) * 100)));
 }
 
-function readFromBt(btRow, aliases) {
-  const map = new Map();
-  for (const [rawKey, rawValue] of Object.entries(btRow || {})) {
-    const key = normalizeKey(rawKey);
-    const value = toNum(rawValue);
-    if (!key || value == null) continue;
-    map.set(key, value);
-  }
-  for (const alias of aliases) {
-    const aliasKey = normalizeKey(alias);
-    if (map.has(aliasKey)) return map.get(aliasKey);
-    for (const [key, value] of map.entries()) {
-      if (key.includes(aliasKey)) return value;
+function readFromSources(sources, aliases) {
+  for (const source of sources) {
+    const map = new Map();
+    for (const [rawKey, rawValue] of Object.entries(source || {})) {
+      const key = normalizeKey(rawKey);
+      const value = toNum(rawValue);
+      if (!key || value == null) continue;
+      map.set(key, value);
+    }
+    for (const alias of aliases) {
+      const aliasKey = normalizeKey(alias);
+      if (map.has(aliasKey)) return map.get(aliasKey);
     }
   }
   return null;
 }
 
-function possCreatedBase100(btRow) {
-  const stl100 = readFromBt(btRow, ["stl100", "stl_per_100", "stlper100"]);
-  const blk100 = readFromBt(btRow, ["blk100", "blk_per_100", "blkper100", "blocks100", "blocks_per_100"]);
-  const oreb100 = readFromBt(btRow, ["oreb100", "orb100", "oreb_per_100"]);
-  const to100 = readFromBt(btRow, ["to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100"]);
+function possCreatedBase100(btRow, enrichedRow) {
+  const sources = [btRow || {}, enrichedRow || {}];
+  const stl100 = readFromSources(sources, ["stl100", "stl_per_100", "stlper100", "steals100", "steals_per_100"]);
+  const blk100 = readFromSources(sources, ["blk100", "blk_per_100", "blkper100", "blocks100", "blocks_per_100"]);
+  const oreb100 = readFromSources(sources, ["oreb100", "orb100", "oreb_per_100", "offensiverebounds100", "offensiverebounds_per_100"]);
+  const to100 = readFromSources(sources, ["to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100"]);
 
   if ((stl100 != null || blk100 != null || oreb100 != null) && to100 != null) {
     return (blk100 ?? 0) * 0.6 + (stl100 ?? 0) + (oreb100 ?? 0) - (to100 ?? 0);
   }
 
-  const gp = readFromBt(btRow, ["gp", "games", "games_played", "gamesplayed"]);
-  const spg = readFromBt(btRow, ["spg", "stl"]);
-  const bpg = readFromBt(btRow, ["bpg", "blk", "blocks"]);
-  const orebPg = readFromBt(btRow, ["oreb", "orb", "orebpg", "oreb_per_game"]);
-  const possessions = readFromBt(btRow, ["player_possessions", "possessions", "poss", "poss_used", "total_possessions", "possessions_raw_reg_post"]);
-  const toPg = readFromBt(btRow, ["topg", "tov", "to_pg", "turnovers"]);
+  const gp = readFromSources(sources, ["gp", "games", "games_played", "gamesplayed"]);
+  const spg = readFromSources(sources, ["spg", "stl", "steals_per_game"]);
+  const bpg = readFromSources(sources, ["bpg", "blk", "blocks", "blocks_per_game"]);
+  const orebPg = readFromSources(sources, ["oreb", "orb", "orebpg", "oreb_per_game", "offensiverebounds"]);
+  const possessions = readFromSources(sources, ["player_possessions", "possessions", "poss", "poss_used", "total_possessions", "possessions_raw_reg_post"]);
+  let toPg = readFromSources(sources, ["topg", "tov", "to_pg", "turnovers", "turnovers_per_game"]);
+  if (toPg == null) {
+    const astPg = readFromSources(sources, ["ast", "apg", "assists_per_game"]);
+    const ato = readFromSources(sources, ["ast/tov", "asttov", "ast_to", "a_to"]);
+    if (astPg != null && ato != null && ato > 0) {
+      toPg = astPg / ato;
+    }
+  }
   if (gp != null && gp > 0 && possessions != null && possessions > 0 && toPg != null) {
     const stl100FromPg = spg != null ? ((spg * gp) / possessions) * 100 : 0;
     const blk100FromPg = bpg != null ? ((bpg * gp) / possessions) * 100 : 0;
@@ -137,7 +144,7 @@ async function main() {
     }
     const rows = (
       await client.query(
-        `select gender, season, team, player, height, statistical_height, bt_row
+        `select gender, season, team, player, height, statistical_height, bt_row, enriched_row
          from public.leaderboard_player_stats
          where ${where.length ? where.join(" and ") : "true"}`,
         params,
@@ -145,7 +152,7 @@ async function main() {
     ).rows;
 
     const records = rows.map((row) => {
-      const base = possCreatedBase100(row.bt_row || {});
+      const base = possCreatedBase100(row.bt_row || {}, row.enriched_row || {});
       const heightInches = parseHeightToInches(row.statistical_height) ?? parseHeightToInches(row.height);
       return {
         gender: row.gender,
