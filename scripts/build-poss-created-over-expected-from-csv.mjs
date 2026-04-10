@@ -135,6 +135,8 @@ async function main() {
   const inPath = process.env.POSS_BT_CSV || "";
   if (!inPath) throw new Error("Set POSS_BT_CSV to the source CSV path");
   const outPath = process.env.POSS_OUT || path.join(process.cwd(), "poss_created_over_expected.csv");
+  const seasonFilterRaw = String(process.env.POSS_SEASON || "").trim();
+  const seasonFilter = seasonFilterRaw ? Number(seasonFilterRaw) : null;
 
   const text = await fs.readFile(inPath, "utf8");
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
@@ -155,6 +157,7 @@ async function main() {
     const team = teamIdx >= 0 ? String(cols[teamIdx] ?? "").trim() : "";
     const player = playerIdx >= 0 ? String(cols[playerIdx] ?? "").trim() : "";
     if (!player || !team || !Number.isFinite(season)) continue;
+    if (Number.isFinite(seasonFilter) && season !== seasonFilter) continue;
     const base = possCreatedBase100(rowObj);
     const heightText = heightIdx >= 0 ? String(cols[heightIdx] ?? "").trim() : "";
     const statHeightText = statHeightIdx >= 0 ? String(cols[statHeightIdx] ?? "").trim() : "";
