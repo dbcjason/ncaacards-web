@@ -142,6 +142,9 @@ const METRIC_ALIASES = {
   dbpm: ['dbpm', 'dgbpm'],
   net_points: ['net points', 'net_points', 'netrating', 'netrtg', 'net'],
   onoff_net: ['on/off net', 'onoff_net', 'onoff', 'onoffrating', 'onoffrtg'],
+  rimfluence: ['rimfluence'],
+  rimfluence_off: ['rimfluence_off', 'off_rimfluence', 'rimfluenceoff', 'offrimfluence'],
+  rimfluence_def: ['rimfluence_def', 'def_rimfluence', 'rimfluencedef', 'defrimfluence'],
 };
 
 const METRIC_KEYS = Object.keys(METRIC_ALIASES);

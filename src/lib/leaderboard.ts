@@ -1203,6 +1203,29 @@ export async function queryLeaderboard(params: {
     const jasonListedHeight = String(jason?.listed_height ?? "").trim();
     const jasonStatHeight = String(jason?.statistical_height ?? "").trim();
     const jasonHeightDelta = jason?.height_delta_inches;
+    const mergedValues: Record<string, number | null> = {
+      ...row.values,
+      draft_pick: draftPick,
+    };
+    for (const [key, value] of Object.entries(jason?.values ?? {})) {
+      const current = mergedValues[key];
+      const currentValid = typeof current === "number" && Number.isFinite(current);
+      const nextValid = typeof value === "number" && Number.isFinite(value);
+      if (!currentValid && nextValid) {
+        mergedValues[key] = value;
+      }
+    }
+    const mergedPercentiles: Record<string, number | null> = {
+      ...row.percentiles,
+    };
+    for (const [key, value] of Object.entries(jason?.percentiles ?? {})) {
+      const current = mergedPercentiles[key];
+      const currentValid = typeof current === "number" && Number.isFinite(current);
+      const nextValid = typeof value === "number" && Number.isFinite(value);
+      if (!currentValid && nextValid) {
+        mergedPercentiles[key] = value;
+      }
+    }
     return {
       ...row,
       pos: jasonPos || row.pos,
@@ -1213,15 +1236,8 @@ export async function queryLeaderboard(params: {
           ? jasonHeightDelta
           : row.statistical_height_delta,
       rsci: typeof rsciFromCsv === "number" ? rsciFromCsv : row.rsci,
-      values: {
-        ...row.values,
-        draft_pick: draftPick,
-        ...(jason?.values ?? {}),
-      },
-      percentiles: {
-        ...row.percentiles,
-        ...(jason?.percentiles ?? {}),
-      },
+      values: mergedValues,
+      percentiles: mergedPercentiles,
     };
   });
 
