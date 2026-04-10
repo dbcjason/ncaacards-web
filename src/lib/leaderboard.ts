@@ -447,7 +447,7 @@ function metricValueFromBtRow(
     ) {
       const base =
         (typeof stlPer100 === "number" ? stlPer100 : 0) +
-        (typeof blkPer100 === "number" ? blkPer100 * 6 : 0) +
+        (typeof blkPer100 === "number" ? blkPer100 * 0.6 : 0) +
         (typeof orebPer100 === "number" ? orebPer100 : 0) -
         (typeof toPer100 === "number" ? toPer100 : 0);
       return typeof heightAdjustment === "number" && Number.isFinite(heightAdjustment)
@@ -465,7 +465,7 @@ function metricValueFromBtRow(
       const blk100 = typeof bpg === "number" ? (bpg / mpg) * 100 : 0;
       const oreb100 = typeof orebPg === "number" ? (orebPg / mpg) * 100 : 0;
       const to100 = (toPg / mpg) * 100;
-      const base = stl100 + (blk100 * 6) + oreb100 - to100;
+      const base = stl100 + (blk100 * 0.6) + oreb100 - to100;
       return typeof heightAdjustment === "number" && Number.isFinite(heightAdjustment)
         ? base + heightAdjustment
         : base;

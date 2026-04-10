@@ -71,7 +71,7 @@ function computePossCreated100(btRow, heightAdjustment) {
     typeof to100 === 'number'
   ) {
     return (
-      (typeof blk100 === 'number' ? blk100 * 6 : 0) +
+      (typeof blk100 === 'number' ? blk100 * 0.6 : 0) +
       (typeof stl100 === 'number' ? stl100 : 0) +
       (typeof oreb100 === 'number' ? oreb100 : 0) -
       (typeof to100 === 'number' ? to100 : 0) +
@@ -89,7 +89,7 @@ function computePossCreated100(btRow, heightAdjustment) {
     const blkPer100 = typeof bpg === 'number' ? (bpg / mpg) * 100 : 0;
     const orebPer100 = typeof orebPg === 'number' ? (orebPg / mpg) * 100 : 0;
     const toPer100 = (topg / mpg) * 100;
-    return (blkPer100 * 6) + stlPer100 + orebPer100 - toPer100 + heightAdj;
+    return (blkPer100 * 0.6) + stlPer100 + orebPer100 - toPer100 + heightAdj;
   }
   return null;
 }

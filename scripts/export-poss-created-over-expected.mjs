@@ -84,7 +84,7 @@ function possCreatedBase100(btRow) {
   const to100 = readFromBt(btRow, ["to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100"]);
 
   if ((stl100 != null || blk100 != null || oreb100 != null) && to100 != null) {
-    return (blk100 ?? 0) * 6 + (stl100 ?? 0) + (oreb100 ?? 0) - (to100 ?? 0);
+    return (blk100 ?? 0) * 0.6 + (stl100 ?? 0) + (oreb100 ?? 0) - (to100 ?? 0);
   }
 
   const spg = readFromBt(btRow, ["spg", "stl"]);
@@ -97,7 +97,7 @@ function possCreatedBase100(btRow) {
     const blk100FromPg = bpg != null ? (bpg / mpg) * 100 : 0;
     const oreb100FromPg = orebPg != null ? (orebPg / mpg) * 100 : 0;
     const to100FromPg = (toPg / mpg) * 100;
-    return (blk100FromPg * 6) + stl100FromPg + oreb100FromPg - to100FromPg;
+    return (blk100FromPg * 0.6) + stl100FromPg + oreb100FromPg - to100FromPg;
   }
   return null;
 }
