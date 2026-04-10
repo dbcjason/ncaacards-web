@@ -42,6 +42,8 @@ type WowyComboRow = {
   matchingLineups: DukeExampleLineup[];
   stats: AggregateStats;
   isSelectedPattern: boolean;
+  isDifferenceRow?: boolean;
+  diffStats?: Partial<Record<WowyMetricKey | "offPoss", number>>;
 };
 
 type WowyMetricKey =
@@ -173,6 +175,11 @@ function deltaClass(value: number, invert = false) {
   if (Math.abs(value) < eps) return "text-zinc-300";
   const good = invert ? value < 0 : value > 0;
   return good ? "text-emerald-400" : "text-rose-400";
+}
+
+function metricDeltaClass(metric: WowyMetricKey, value: number) {
+  const invert = metric === "defRtg" || metric === "oppRimPct" || metric === "oppRimRate";
+  return deltaClass(value, invert);
 }
 
 export default function LineupAnalysisPage() {
@@ -336,6 +343,36 @@ export default function LineupAnalysisPage() {
       if (cmp === 0 && a.isSelectedPattern !== b.isSelectedPattern) return a.isSelectedPattern ? -1 : 1;
       return wowySortDir === "asc" ? cmp : -cmp;
     });
+
+    if (selected.length === 1) {
+      const selectedPlayer = selected[0];
+      const onRow = rows.find((row) => row.playersOn.includes(selectedPlayer) && !row.playersOff.includes(selectedPlayer));
+      const offRow = rows.find((row) => row.playersOff.includes(selectedPlayer) && !row.playersOn.includes(selectedPlayer));
+      if (onRow && offRow) {
+        const diffStats: Partial<Record<WowyMetricKey | "offPoss", number>> = {
+          offPoss: onRow.stats.possessions - offRow.stats.possessions,
+          netRtg: onRow.stats.netRtg - offRow.stats.netRtg,
+          offRtg: onRow.stats.offRtg - offRow.stats.offRtg,
+          defRtg: onRow.stats.defRtg - offRow.stats.defRtg,
+          tsPct: onRow.stats.tsPct - offRow.stats.tsPct,
+          rimPct: onRow.stats.rimPct - offRow.stats.rimPct,
+          oppRimPct: onRow.stats.oppRimPct - offRow.stats.oppRimPct,
+          rimRate: onRow.stats.rimRate - offRow.stats.rimRate,
+          oppRimRate: onRow.stats.oppRimRate - offRow.stats.oppRimRate,
+        };
+        rows.push({
+          key: "difference-row",
+          patternLabel: "Difference (On - Off)",
+          playersOn: [],
+          playersOff: [],
+          matchingLineups: [],
+          stats: aggregateLineups([]),
+          isSelectedPattern: false,
+          isDifferenceRow: true,
+          diffStats,
+        });
+      }
+    }
 
     return rows;
   }, [onPlayers, offPlayers, optionLineups, wowySortDir, wowySortKey]);
@@ -675,12 +712,39 @@ export default function LineupAnalysisPage() {
                 <tbody>
                   {wowyRows.map((row) => {
                     return (
-                      <tr key={row.key} className={`${row.isSelectedPattern ? "bg-zinc-800/70" : "odd:bg-zinc-900 even:bg-zinc-950"}`}>
+                      <tr
+                        key={row.key}
+                        className={
+                          row.isDifferenceRow
+                            ? "bg-zinc-800/40"
+                            : row.isSelectedPattern
+                              ? "bg-zinc-800/70"
+                              : "odd:bg-zinc-900 even:bg-zinc-950"
+                        }
+                      >
                         <td className="border-b border-zinc-800 p-2 text-left">{row.patternLabel}</td>
-                        <td className="border-b border-zinc-800 p-2 text-left">{fmtNum(row.stats.possessions, 0)}</td>
-                        {activeWowyMetrics.map((metric) => (
-                          <td key={metric.key} className="border-b border-zinc-800 p-2 text-left">{metric.format(row.stats)}</td>
-                        ))}
+                        {row.isDifferenceRow ? (
+                          <>
+                            <td className={`border-b border-zinc-800 p-2 text-left font-semibold ${deltaClass(Number(row.diffStats?.offPoss ?? 0))}`}>
+                              {(Number(row.diffStats?.offPoss ?? 0) >= 0 ? "+" : "") + fmtNum(Number(row.diffStats?.offPoss ?? 0), 0)}
+                            </td>
+                            {activeWowyMetrics.map((metric) => {
+                              const value = Number(row.diffStats?.[metric.key] ?? 0);
+                              return (
+                                <td key={metric.key} className={`border-b border-zinc-800 p-2 text-left font-semibold ${metricDeltaClass(metric.key, value)}`}>
+                                  {(value >= 0 ? "+" : "") + fmtNum(value)}{metric.key.includes("Pct") || metric.key.includes("Rate") ? "%" : ""}
+                                </td>
+                              );
+                            })}
+                          </>
+                        ) : (
+                          <>
+                            <td className="border-b border-zinc-800 p-2 text-left">{fmtNum(row.stats.possessions, 0)}</td>
+                            {activeWowyMetrics.map((metric) => (
+                              <td key={metric.key} className="border-b border-zinc-800 p-2 text-left">{metric.format(row.stats)}</td>
+                            ))}
+                          </>
+                        )}
                       </tr>
                     );
                   })}
