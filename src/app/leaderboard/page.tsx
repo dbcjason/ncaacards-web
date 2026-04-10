@@ -53,6 +53,11 @@ type DisplayColumn =
   | { kind: "base"; key: BaseColumnKey; label: string; sortKey: string; align?: "left" | "center" }
   | { kind: "metric"; key: `metric:${string}`; label: string; sortKey: string; align?: "left" | "center"; metricKey: string };
 
+type OptionItem = {
+  key: string;
+  label: string;
+};
+
 const CLASS_OPTIONS = ["All", "Freshman", "Sophomore", "Junior", "Senior"];
 const BASE_COLUMNS: Array<{ key: BaseColumnKey; label: string; sortKey: string; align?: "left" | "center" }> = [
   { key: "team", label: "Team", sortKey: "team", align: "left" },
@@ -63,6 +68,25 @@ const BASE_COLUMNS: Array<{ key: BaseColumnKey; label: string; sortKey: string; 
   { key: "age", label: "Age", sortKey: "age", align: "left" },
   { key: "rsci", label: "RSCI", sortKey: "rsci", align: "left" },
 ];
+const SPECIAL_FILTER_OPTIONS: OptionItem[] = [
+  { key: "age", label: "Age" },
+  { key: "rsci", label: "RSCI" },
+  { key: "height_inches", label: "Height (in)" },
+  { key: "statistical_height_inches", label: "Stat Height (in)" },
+  { key: "statistical_height_delta", label: "Stat Height Delta (in)" },
+  { key: "minutes_per_game", label: "Minutes/Game" },
+  { key: "draft_pick", label: "Draft Pick" },
+];
+
+function normalizeClassValue(value: string): string {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (/fresh|frosh|\bfr\b|\brf\b/.test(raw)) return "Freshman";
+  if (/soph|\bso\b/.test(raw)) return "Sophomore";
+  if (/junior|\bjr\b/.test(raw)) return "Junior";
+  if (/senior|\bsr\b|\bgr\b|graduate|\bgrad\b/.test(raw)) return "Senior";
+  return String(value || "").trim();
+}
 
 function fmtNumber(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
@@ -222,6 +246,22 @@ function LeaderboardPageInner() {
   }, [conferenceFilter, filters, gender, minMpg, playerFilter, positionFilter, season, sortBy, sortDir, sortMode, teamFilter]);
 
   const metricOptions = useMemo(() => metrics.length ? metrics : [{ key: "bpm", label: "BPM" }], [metrics]);
+  const metricKeys = useMemo(() => new Set(metricOptions.map((metric) => metric.key)), [metricOptions]);
+  const sortOptions = useMemo<OptionItem[]>(
+    () => [...BASE_COLUMNS.map((column) => ({ key: column.sortKey, label: column.label })), ...metricOptions],
+    [metricOptions],
+  );
+  const filterMetricOptions = useMemo<OptionItem[]>(() => {
+    const seen = new Set<string>();
+    const out: OptionItem[] = [];
+    for (const option of [...SPECIAL_FILTER_OPTIONS, ...metricOptions]) {
+      if (seen.has(option.key)) continue;
+      seen.add(option.key);
+      out.push(option);
+    }
+    return out;
+  }, [metricOptions]);
+  const filterMetricKeys = useMemo(() => new Set(filterMetricOptions.map((metric) => metric.key)), [filterMetricOptions]);
 
   useEffect(() => {
     const defaultOrder = [
@@ -267,7 +307,7 @@ function LeaderboardPageInner() {
 
   const filteredRows = useMemo(() => {
     if (classFilter === "All") return rows;
-    return rows.filter((row) => String(row.class || "").trim() === classFilter);
+    return rows.filter((row) => normalizeClassValue(row.class) === classFilter);
   }, [rows, classFilter]);
 
   const onSort = (key: string) => {
@@ -277,9 +317,7 @@ function LeaderboardPageInner() {
     }
     setSortBy(key);
     setSortDir("desc");
-    if (metricOptions.some((metric) => metric.key === key)) {
-      setSortMode("stat");
-    }
+    setSortMode("stat");
   };
 
   const reorderColumns = (sourceKey: string, targetKey: string) => {
@@ -332,10 +370,23 @@ function LeaderboardPageInner() {
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
-            <select className="rounded bg-zinc-800 p-2" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              {metricOptions.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}
+            <select
+              className="rounded bg-zinc-800 p-2"
+              value={sortBy}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSortBy(next);
+                if (!metricKeys.has(next)) setSortMode("stat");
+              }}
+            >
+              {sortOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
             </select>
-            <select className="rounded bg-zinc-800 p-2" value={sortMode} onChange={(e) => setSortMode(e.target.value === "percentile" ? "percentile" : "stat")}>
+            <select
+              className="rounded bg-zinc-800 p-2"
+              value={sortMode}
+              disabled={!metricKeys.has(sortBy)}
+              onChange={(e) => setSortMode(e.target.value === "percentile" && metricKeys.has(sortBy) ? "percentile" : "stat")}
+            >
               <option value="stat">Sort by Stat</option>
               <option value="percentile">Sort by Percentile</option>
             </select>
@@ -349,7 +400,13 @@ function LeaderboardPageInner() {
               onClick={() =>
                 setFilters((current) => [
                   ...current,
-                  { id: crypto.randomUUID(), metric: sortBy, comparator: ">=", value: "", mode: sortMode },
+                  {
+                    id: crypto.randomUUID(),
+                    metric: filterMetricKeys.has(sortBy) ? sortBy : filterMetricOptions[0]?.key ?? "bpm",
+                    comparator: ">=",
+                    value: "",
+                    mode: metricKeys.has(sortBy) ? sortMode : "stat",
+                  },
                 ])
               }
             >
@@ -368,19 +425,36 @@ function LeaderboardPageInner() {
                     value={filter.metric}
                     onChange={(e) =>
                       setFilters((current) =>
-                        current.map((row) => (row.id === filter.id ? { ...row, metric: e.target.value } : row)),
+                        current.map((row) =>
+                          row.id === filter.id
+                            ? {
+                                ...row,
+                                metric: e.target.value,
+                                mode: metricKeys.has(e.target.value) ? row.mode : "stat",
+                              }
+                            : row,
+                        ),
                       )
                     }
                   >
-                    {metricOptions.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}
+                    {filterMetricOptions.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}
                   </select>
                   <select
                     className="rounded bg-zinc-800 p-2"
                     value={filter.mode}
+                    disabled={!metricKeys.has(filter.metric)}
                     onChange={(e) =>
                       setFilters((current) =>
                         current.map((row) =>
-                          row.id === filter.id ? { ...row, mode: e.target.value === "percentile" ? "percentile" : "stat" } : row,
+                          row.id === filter.id
+                            ? {
+                                ...row,
+                                mode:
+                                  e.target.value === "percentile" && metricKeys.has(row.metric)
+                                    ? "percentile"
+                                    : "stat",
+                              }
+                            : row,
                         ),
                       )
                     }

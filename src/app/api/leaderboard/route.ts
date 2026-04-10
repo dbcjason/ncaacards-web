@@ -10,15 +10,24 @@ import {
 function parseFilters(raw: unknown): LeaderboardFilter[] {
   if (!Array.isArray(raw)) return [];
   const out: LeaderboardFilter[] = [];
+  const specialFilterMetrics = new Set([
+    "age",
+    "rsci",
+    "draft_pick",
+    "minutes_per_game",
+    "height_inches",
+    "statistical_height_inches",
+    "statistical_height_delta",
+  ]);
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const metric = String((item as Record<string, unknown>).metric ?? "");
-    const isSpecial = metric === "age" || metric === "rsci" || metric === "draft_pick";
+    const isSpecial = specialFilterMetrics.has(metric);
     if (!isSpecial && !isLeaderboardMetric(metric)) continue;
     const value = Number((item as Record<string, unknown>).value ?? "");
     if (!Number.isFinite(value)) continue;
     out.push({
-      metric,
+      metric: metric as LeaderboardFilter["metric"],
       comparator: String((item as Record<string, unknown>).comparator ?? "") === "<=" ? "<=" : ">=",
       value,
       mode:

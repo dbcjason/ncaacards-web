@@ -94,7 +94,15 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
 ] as const;
 
 export type LeaderboardFilter = {
-  metric: LeaderboardMetricKey | "age" | "rsci" | "draft_pick";
+  metric:
+    | LeaderboardMetricKey
+    | "age"
+    | "rsci"
+    | "draft_pick"
+    | "minutes_per_game"
+    | "height_inches"
+    | "statistical_height_inches"
+    | "statistical_height_delta";
   comparator: ">=" | "<=";
   value: number;
   mode: "stat" | "percentile";
@@ -212,6 +220,44 @@ function numericOrNull(value: unknown): number | null {
   if (typeof value === "string" && value.trim() === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function parseHeightToInches(value: unknown): number | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const feetInches = text.match(/(\d+)\s*'\s*(\d{1,2})/);
+  if (feetInches) {
+    const feet = Number(feetInches[1]);
+    const inches = Number(feetInches[2]);
+    if (Number.isFinite(feet) && Number.isFinite(inches)) return feet * 12 + inches;
+  }
+  const dashed = text.match(/(\d+)\s*[- ]\s*(\d{1,2})/);
+  if (dashed) {
+    const feet = Number(dashed[1]);
+    const inches = Number(dashed[2]);
+    if (Number.isFinite(feet) && Number.isFinite(inches)) return feet * 12 + inches;
+  }
+  const numeric = numericOrNull(text.replace(/[^0-9.-]+/g, ""));
+  return numeric;
+}
+
+function normalizeClassValue(value: unknown): "Freshman" | "Sophomore" | "Junior" | "Senior" | "" {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  if (/fresh|frosh|\bfr\b|\brf\b/.test(raw)) return "Freshman";
+  if (/soph|\bso\b/.test(raw)) return "Sophomore";
+  if (/junior|\bjr\b/.test(raw)) return "Junior";
+  if (/senior|\bsr\b|\bgr\b|graduate|\bgrad\b/.test(raw)) return "Senior";
+  return "";
+}
+
+function classSortRank(value: unknown): number {
+  const normalized = normalizeClassValue(value);
+  if (normalized === "Freshman") return 1;
+  if (normalized === "Sophomore") return 2;
+  if (normalized === "Junior") return 3;
+  if (normalized === "Senior") return 4;
+  return 0;
 }
 
 function parseRankValue(value: unknown): number | null {
@@ -905,6 +951,26 @@ function applyFilters(rows: LeaderboardRow[], filters: LeaderboardFilter[]): Lea
         if (typeof value !== "number" || !Number.isFinite(value)) return false;
         return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
       }
+      if (filter.metric === "minutes_per_game") {
+        const value = row.minutes_per_game;
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
+        return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
+      }
+      if (filter.metric === "height_inches") {
+        const value = parseHeightToInches(row.height);
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
+        return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
+      }
+      if (filter.metric === "statistical_height_inches") {
+        const value = parseHeightToInches(row.statistical_height);
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
+        return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
+      }
+      if (filter.metric === "statistical_height_delta") {
+        const value = row.statistical_height_delta;
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
+        return filter.comparator === "<=" ? value <= filter.value : value >= filter.value;
+      }
       const bucket = filter.mode === "percentile" ? row.percentiles : row.values;
       const value = bucket[filter.metric];
       if (typeof value !== "number" || !Number.isFinite(value)) return false;
@@ -934,9 +1000,29 @@ function sortRows(
     }
     if (sortBy === "player") return a.player.localeCompare(b.player) * direction;
     if (sortBy === "team") return a.team.localeCompare(b.team) * direction;
+    if (sortBy === "class") {
+      const aRank = classSortRank(a.class);
+      const bRank = classSortRank(b.class);
+      if (aRank !== bRank) return (aRank - bRank) * direction;
+      return a.class.localeCompare(b.class) * direction;
+    }
     if (sortBy === "pos") return a.pos.localeCompare(b.pos) * direction;
-    if (sortBy === "height") return a.height.localeCompare(b.height) * direction;
-    if (sortBy === "statistical_height") return a.statistical_height.localeCompare(b.statistical_height) * direction;
+    if (sortBy === "height") {
+      const aVal = parseHeightToInches(a.height);
+      const bVal = parseHeightToInches(b.height);
+      if (typeof aVal === "number" && typeof bVal === "number" && aVal !== bVal) {
+        return (aVal - bVal) * direction;
+      }
+      return a.height.localeCompare(b.height) * direction;
+    }
+    if (sortBy === "statistical_height") {
+      const aVal = parseHeightToInches(a.statistical_height);
+      const bVal = parseHeightToInches(b.statistical_height);
+      if (typeof aVal === "number" && typeof bVal === "number" && aVal !== bVal) {
+        return (aVal - bVal) * direction;
+      }
+      return a.statistical_height.localeCompare(b.statistical_height) * direction;
+    }
     if (sortBy === "age") {
       const aVal = a.age ?? Number.NEGATIVE_INFINITY;
       const bVal = b.age ?? Number.NEGATIVE_INFINITY;
