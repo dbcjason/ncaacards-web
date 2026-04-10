@@ -44,3 +44,22 @@ CREATE TABLE IF NOT EXISTS roster_payloads (
 CREATE INDEX IF NOT EXISTS idx_roster_payloads_lookup
   ON roster_payloads (season, team, add_hash, remove_hash);
 
+CREATE TABLE IF NOT EXISTS lineup_team_options (
+  gender TEXT NOT NULL CHECK (gender IN ('men', 'women')),
+  season INT NOT NULL,
+  option_key TEXT NOT NULL,
+  option_label TEXT NOT NULL,
+  team TEXT NOT NULL,
+  players JSONB NOT NULL DEFAULT '[]'::jsonb,
+  lineups JSONB NOT NULL DEFAULT '[]'::jsonb,
+  lineup_count INT NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (gender, season, option_key)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lineup_team_options_gender_season_team
+  ON lineup_team_options (gender, season, team);
+
+CREATE INDEX IF NOT EXISTS idx_lineup_team_options_lookup
+  ON lineup_team_options (gender, season, option_label);
