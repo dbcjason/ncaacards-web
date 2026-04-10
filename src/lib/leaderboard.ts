@@ -348,7 +348,11 @@ function normalizeMetricScale(key: LeaderboardMetricKey, value: number | null): 
   return value;
 }
 
-function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMetricKey): number | null {
+function metricValueFromBtRow(
+  btRow: Record<string, unknown>,
+  key: LeaderboardMetricKey,
+  heightAdjustment: number | null = null,
+): number | null {
   const normalizedMap = new Map<string, number>();
   for (const [rawKey, rawValue] of Object.entries(btRow)) {
     const normalized = normalizeStatKey(rawKey);
@@ -431,9 +435,9 @@ function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMe
   }
   if (key === "poss_created_100") {
     const stlPer100 = read("stl100", "stl_per_100", "stlper100");
-    const blkPer100 = read("blk100", "blk_per_100", "blkper100");
+    const blkPer100 = read("blk100", "blk_per_100", "blkper100", "blocks100", "blocks_per_100");
     const orebPer100 = read("oreb100", "orb100", "oreb_per_100");
-    const toPer100 = read("to100", "tov100", "to_per_100");
+    const toPer100 = read("to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100");
 
     if (
       typeof stlPer100 === "number" ||
@@ -441,25 +445,30 @@ function metricValueFromBtRow(btRow: Record<string, unknown>, key: LeaderboardMe
       typeof orebPer100 === "number" ||
       typeof toPer100 === "number"
     ) {
-      return (
+      const base =
         (typeof stlPer100 === "number" ? stlPer100 : 0) +
-        (typeof blkPer100 === "number" ? blkPer100 * 0.6 : 0) +
+        (typeof blkPer100 === "number" ? blkPer100 * 6 : 0) +
         (typeof orebPer100 === "number" ? orebPer100 : 0) -
-        (typeof toPer100 === "number" ? toPer100 : 0)
-      );
+        (typeof toPer100 === "number" ? toPer100 : 0);
+      return typeof heightAdjustment === "number" && Number.isFinite(heightAdjustment)
+        ? base + heightAdjustment
+        : base;
     }
 
     const spg = read("spg", "stl");
-    const bpg = read("bpg", "blk");
-    const rpg = read("rpg", "oreb");
+    const bpg = read("bpg", "blk", "blocks");
+    const orebPg = read("oreb", "orb", "orebpg", "oreb_per_game");
     const mpg = read("mpg", "mp", "min_per", "minper");
-    const toPg = read("topg", "to", "tov", "to_pg");
+    const toPg = read("topg", "to", "tov", "to_pg", "turnovers");
     if (typeof mpg === "number" && mpg > 0) {
       const stl100 = typeof spg === "number" ? (spg / mpg) * 100 : 0;
       const blk100 = typeof bpg === "number" ? (bpg / mpg) * 100 : 0;
-      const oreb100 = typeof rpg === "number" ? (rpg / mpg) * 100 : 0;
+      const oreb100 = typeof orebPg === "number" ? (orebPg / mpg) * 100 : 0;
       const to100 = typeof toPg === "number" ? (toPg / mpg) * 100 : 0;
-      return stl100 + (blk100 * 0.6) + oreb100 - to100;
+      const base = stl100 + (blk100 * 6) + oreb100 - to100;
+      return typeof heightAdjustment === "number" && Number.isFinite(heightAdjustment)
+        ? base + heightAdjustment
+        : base;
     }
   }
 
@@ -906,6 +915,14 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
   const payloadStatBase = payloadStatHeightText
     ? payloadStatHeightText.replace(/,\s*[+-]?\d+(?:\.\d+)?\s*in\s*$/i, "").trim()
     : "";
+  const effectiveHeightAdjustment = payloadStatDelta ?? numericOrNull(row.statistical_height_delta);
+  const adjustedPossCreated = normalizeMetricScale(
+    "poss_created_100",
+    metricValueFromBtRow(btRow, "poss_created_100", effectiveHeightAdjustment),
+  );
+  if (typeof adjustedPossCreated === "number" && Number.isFinite(adjustedPossCreated)) {
+    mergedValues.poss_created_100 = adjustedPossCreated;
+  }
 
   return {
     ...row,

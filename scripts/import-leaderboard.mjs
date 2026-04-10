@@ -38,6 +38,62 @@ function normalizeColName(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+function readNumericFromObject(obj, ...aliases) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(obj || {})) {
+    normalized[normalizeColName(key)] = toNum(value);
+  }
+  for (const alias of aliases) {
+    const aliasNorm = normalizeColName(alias);
+    if (!aliasNorm) continue;
+    if (typeof normalized[aliasNorm] === 'number') return normalized[aliasNorm];
+    for (const [key, value] of Object.entries(normalized)) {
+      if (!key || !aliasNorm) continue;
+      if (key.includes(aliasNorm) || aliasNorm.includes(key)) {
+        if (typeof value === 'number') return value;
+      }
+    }
+  }
+  return null;
+}
+
+function computePossCreated100(btRow, heightAdjustment) {
+  const stl100 = readNumericFromObject(btRow, 'stl100', 'stl_per_100', 'stlper100');
+  const blk100 = readNumericFromObject(btRow, 'blk100', 'blk_per_100', 'blkper100', 'blocks100', 'blocks_per_100');
+  const oreb100 = readNumericFromObject(btRow, 'oreb100', 'orb100', 'oreb_per_100');
+  const to100 = readNumericFromObject(btRow, 'to100', 'tov100', 'to_per_100', 'turnovers100', 'turnovers_per_100');
+  const heightAdj = typeof heightAdjustment === 'number' && Number.isFinite(heightAdjustment) ? heightAdjustment : 0;
+
+  if (
+    typeof stl100 === 'number' ||
+    typeof blk100 === 'number' ||
+    typeof oreb100 === 'number' ||
+    typeof to100 === 'number'
+  ) {
+    return (
+      (typeof blk100 === 'number' ? blk100 * 6 : 0) +
+      (typeof stl100 === 'number' ? stl100 : 0) +
+      (typeof oreb100 === 'number' ? oreb100 : 0) -
+      (typeof to100 === 'number' ? to100 : 0) +
+      heightAdj
+    );
+  }
+
+  const spg = readNumericFromObject(btRow, 'spg', 'stl');
+  const bpg = readNumericFromObject(btRow, 'bpg', 'blk', 'blocks');
+  const orebPg = readNumericFromObject(btRow, 'oreb', 'orb', 'orebpg', 'oreb_per_game');
+  const mpg = readNumericFromObject(btRow, 'mpg', 'mp', 'min_per', 'minper');
+  const topg = readNumericFromObject(btRow, 'topg', 'to', 'tov', 'to_pg', 'turnovers');
+  if (typeof mpg === 'number' && mpg > 0) {
+    const stlPer100 = typeof spg === 'number' ? (spg / mpg) * 100 : 0;
+    const blkPer100 = typeof bpg === 'number' ? (bpg / mpg) * 100 : 0;
+    const orebPer100 = typeof orebPg === 'number' ? (orebPg / mpg) * 100 : 0;
+    const toPer100 = typeof topg === 'number' ? (topg / mpg) * 100 : 0;
+    return (blkPer100 * 6) + stlPer100 + orebPer100 - toPer100 + heightAdj;
+  }
+  return null;
+}
+
 function normalizeKey(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -136,6 +192,20 @@ const METRIC_ALIASES = {
   blk_pct: ['blk_per', 'blk%'],
   oreb_pct: ['orb_per', 'oreb%'],
   dreb_pct: ['drb_per', 'dreb%'],
+  feel_plus: ['feel_plus', 'feel+'],
+  poss_created_100: [
+    'possessions_created_per_100',
+    'possessions_created_per100',
+    'possessions_created_per_100_poss',
+    'possessions_created_100',
+    'possessions_created',
+    'poss_created_per_100',
+    'poss_created_per100',
+    'poss_created',
+    'poss_created_100',
+    'posscreated100',
+    'possessionscreated100',
+  ],
   bpm: ['gbpm', 'bpm'],
   rapm: ['rapm', 'epm', 'rpm'],
   obpm: ['obpm', 'ogbpm'],
@@ -263,6 +333,10 @@ async function loadGenderRows(source) {
     ).trim();
     const statisticalHeightDelta =
       toNum(heightProfile.height_delta_inches) ?? toNum(bioExtras.statistical_height_delta);
+    const computedPossCreated = computePossCreated100(btRow, statisticalHeightDelta);
+    if (typeof computedPossCreated === 'number' && Number.isFinite(computedPossCreated)) {
+      values.poss_created_100 = computedPossCreated;
+    }
 
     rows.push({
       gender: source.gender,
