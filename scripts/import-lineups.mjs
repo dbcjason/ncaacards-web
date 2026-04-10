@@ -145,6 +145,14 @@ async function buildDataset(files) {
           fga: 0,
           tpm: 0,
           tpa: 0,
+          oppFgm: 0,
+          oppFga: 0,
+          oppTpm: 0,
+          oppTpa: 0,
+          stl: 0,
+          blk: 0,
+          oreb: 0,
+          oppOreb: 0,
           totalSeconds: 0,
           offRimAtt: 0,
           offRimMakes: 0,
@@ -160,6 +168,14 @@ async function buildDataset(files) {
       current.fga += toNum(row["teamStats.fieldGoals.attempted"]);
       current.tpm += toNum(row["teamStats.threePointers.made"]);
       current.tpa += toNum(row["teamStats.threePointers.attempted"]);
+      current.oppFgm += toNum(row["opponentStats.fieldGoals.made"]);
+      current.oppFga += toNum(row["opponentStats.fieldGoals.attempted"]);
+      current.oppTpm += toNum(row["opponentStats.threePointers.made"]);
+      current.oppTpa += toNum(row["opponentStats.threePointers.attempted"]);
+      current.stl += toNum(row["teamStats.steals"]);
+      current.blk += toNum(row["teamStats.blocks"]);
+      current.oreb += toNum(row["teamStats.offensiveRebounds"]);
+      current.oppOreb += toNum(row["opponentStats.offensiveRebounds"]);
       current.totalSeconds += toNum(row.totalSeconds);
 
       current.offRimAtt +=
@@ -210,6 +226,14 @@ async function buildDataset(files) {
         fga: Math.round(row.fga),
         tpm: Math.round(row.tpm),
         tpa: Math.round(row.tpa),
+        oppFgm: Math.round(row.oppFgm),
+        oppFga: Math.round(row.oppFga),
+        oppTpm: Math.round(row.oppTpm),
+        oppTpa: Math.round(row.oppTpa),
+        stl: Math.round(row.stl),
+        blk: Math.round(row.blk),
+        oreb: Math.round(row.oreb),
+        oppOreb: Math.round(row.oppOreb),
         offRimRate,
         offRimPct,
         defRimRate,

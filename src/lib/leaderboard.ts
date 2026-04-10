@@ -88,6 +88,9 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
   { key: "onoff_net", label: "On/Off Net" },
   { key: "feel_plus", label: "Feel+" },
   { key: "poss_created_100", label: "Possessions Created/100" },
+  { key: "rimfluence", label: "Rimfluence" },
+  { key: "rimfluence_off", label: "Off Rimfluence" },
+  { key: "rimfluence_def", label: "Def Rimfluence" },
 ] as const;
 
 export type LeaderboardFilter = {

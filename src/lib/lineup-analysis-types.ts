@@ -9,6 +9,14 @@ export type LineupRow = {
   fga: number;
   tpm: number;
   tpa: number;
+  oppFgm?: number;
+  oppFga?: number;
+  oppTpm?: number;
+  oppTpa?: number;
+  stl?: number;
+  blk?: number;
+  oreb?: number;
+  oppOreb?: number;
   offRimRate?: number;
   offRimPct?: number;
   defRimRate?: number;

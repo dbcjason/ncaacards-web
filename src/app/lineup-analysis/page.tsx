@@ -17,6 +17,14 @@ type AggregateStats = {
   fga: number;
   tpm: number;
   tpa: number;
+  oppFgm: number;
+  oppFga: number;
+  oppTpm: number;
+  oppTpa: number;
+  stl: number;
+  blk: number;
+  oreb: number;
+  oppOreb: number;
   fta: number;
   rimMakes: number;
   rimAttempts: number;
@@ -32,24 +40,27 @@ type AggregateStats = {
   oppRimPct: number;
   rimRate: number;
   oppRimRate: number;
+  oppThreePct: number;
+  threeRate: number;
+  oppThreeRate: number;
+  stl100: number;
+  blk100: number;
+  oreb100: number;
+  oppOreb100: number;
 };
 
 type WowyMetricKey =
-  | "minutes"
-  | "pointsFor"
-  | "pointsAgainst"
-  | "fgm"
-  | "fga"
-  | "tpm"
-  | "tpa"
-  | "fta"
-  | "fgPct"
   | "threePct"
+  | "oppThreePct"
+  | "threeRate"
+  | "oppThreeRate"
+  | "stl100"
+  | "blk100"
+  | "oreb100"
+  | "oppOreb100"
+  | "fgPct"
+  | "fta"
   | "tsPct"
-  | "rimMakes"
-  | "rimAttempts"
-  | "oppRimMakes"
-  | "oppRimAttempts"
   | "rimPct"
   | "oppRimPct"
   | "rimRate"
@@ -81,25 +92,20 @@ const WOWY_METRICS: WowyMetricDef[] = [
   { key: "netRtg", label: "Net Rating" },
   { key: "offRtg", label: "Offensive Rating" },
   { key: "defRtg", label: "Defensive Rating" },
+  { key: "threePct", label: "3P%", isPercent: true },
+  { key: "oppThreePct", label: "Opp 3P%", isPercent: true },
+  { key: "threeRate", label: "3P Rate", isPercent: true },
+  { key: "oppThreeRate", label: "Opp 3P Rate", isPercent: true },
+  { key: "stl100", label: "STL/100" },
+  { key: "blk100", label: "BLK/100" },
+  { key: "oreb100", label: "OREB/100" },
+  { key: "oppOreb100", label: "Opp OREB/100" },
   { key: "tsPct", label: "TS%", isPercent: true },
   { key: "fgPct", label: "FG%", isPercent: true },
-  { key: "threePct", label: "3P%", isPercent: true },
   { key: "rimPct", label: "Rim%", isPercent: true },
   { key: "oppRimPct", label: "Opponent Rim%", isPercent: true },
   { key: "rimRate", label: "Rim Rate", isPercent: true },
   { key: "oppRimRate", label: "Opponent Rim Rate", isPercent: true },
-  { key: "minutes", label: "Minutes" },
-  { key: "pointsFor", label: "Points For", digits: 0 },
-  { key: "pointsAgainst", label: "Points Against", digits: 0 },
-  { key: "fgm", label: "FGM", digits: 0 },
-  { key: "fga", label: "FGA", digits: 0 },
-  { key: "tpm", label: "3PM", digits: 0 },
-  { key: "tpa", label: "3PA", digits: 0 },
-  { key: "fta", label: "FTA", digits: 0 },
-  { key: "rimMakes", label: "Rim Makes", digits: 0 },
-  { key: "rimAttempts", label: "Rim Attempts", digits: 0 },
-  { key: "oppRimMakes", label: "Opp Rim Makes", digits: 0 },
-  { key: "oppRimAttempts", label: "Opp Rim Attempts", digits: 0 },
 ];
 
 const DEFAULT_WOWY_METRICS: WowyMetricKey[] = WOWY_METRICS.map((metric) => metric.key);
@@ -122,6 +128,14 @@ function aggregateLineups(lineups: LineupRow[]): AggregateStats {
       acc.fga += row.fga;
       acc.tpm += row.tpm;
       acc.tpa += row.tpa;
+      acc.oppFgm += Number(row.oppFgm ?? 0);
+      acc.oppFga += Number(row.oppFga ?? 0);
+      acc.oppTpm += Number(row.oppTpm ?? 0);
+      acc.oppTpa += Number(row.oppTpa ?? 0);
+      acc.stl += Number(row.stl ?? 0);
+      acc.blk += Number(row.blk ?? 0);
+      acc.oreb += Number(row.oreb ?? 0);
+      acc.oppOreb += Number(row.oppOreb ?? 0);
       acc.fta += fta;
       acc.rimAttempts += rimAttempts;
       acc.rimMakes += rimMakes;
@@ -138,6 +152,14 @@ function aggregateLineups(lineups: LineupRow[]): AggregateStats {
       fga: 0,
       tpm: 0,
       tpa: 0,
+      oppFgm: 0,
+      oppFga: 0,
+      oppTpm: 0,
+      oppTpa: 0,
+      stl: 0,
+      blk: 0,
+      oreb: 0,
+      oppOreb: 0,
       fta: 0,
       rimMakes: 0,
       rimAttempts: 0,
@@ -154,6 +176,13 @@ function aggregateLineups(lineups: LineupRow[]): AggregateStats {
   const tsPct = tsDenominator > 0 ? (totals.pointsFor / tsDenominator) * 100 : 0;
   const rimPct = totals.rimAttempts > 0 ? (totals.rimMakes / totals.rimAttempts) * 100 : 0;
   const oppRimPct = totals.oppRimAttempts > 0 ? (totals.oppRimMakes / totals.oppRimAttempts) * 100 : 0;
+  const oppThreePct = totals.oppTpa > 0 ? (totals.oppTpm * 100) / totals.oppTpa : 0;
+  const threeRate = totals.fga > 0 ? (totals.tpa * 100) / totals.fga : 0;
+  const oppThreeRate = totals.oppFga > 0 ? (totals.oppTpa * 100) / totals.oppFga : 0;
+  const stl100 = totals.possessions > 0 ? (totals.stl * 100) / totals.possessions : 0;
+  const blk100 = totals.possessions > 0 ? (totals.blk * 100) / totals.possessions : 0;
+  const oreb100 = totals.possessions > 0 ? (totals.oreb * 100) / totals.possessions : 0;
+  const oppOreb100 = totals.possessions > 0 ? (totals.oppOreb * 100) / totals.possessions : 0;
   const rimRate = totals.fga > 0 ? (totals.rimAttempts / totals.fga) * 100 : 0;
   const oppRimRate = totals.possessions > 0 ? (totals.oppRimAttempts / totals.possessions) * 100 : 0;
 
@@ -167,6 +196,13 @@ function aggregateLineups(lineups: LineupRow[]): AggregateStats {
     tsPct,
     rimPct,
     oppRimPct,
+    oppThreePct,
+    threeRate,
+    oppThreeRate,
+    stl100,
+    blk100,
+    oreb100,
+    oppOreb100,
     rimRate,
     oppRimRate,
   };
@@ -209,11 +245,11 @@ function deltaClass(value: number, invert = false) {
 function metricDeltaClass(metric: WowyMetricKey, value: number) {
   const invert =
     metric === "defRtg" ||
-    metric === "pointsAgainst" ||
+    metric === "oppThreePct" ||
+    metric === "oppThreeRate" ||
+    metric === "oppOreb100" ||
     metric === "oppRimPct" ||
-    metric === "oppRimRate" ||
-    metric === "oppRimMakes" ||
-    metric === "oppRimAttempts";
+    metric === "oppRimRate";
   return deltaClass(value, invert);
 }
 
