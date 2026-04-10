@@ -229,17 +229,6 @@ async function buildDataset(files) {
 }
 
 async function main() {
-  const dbUrl =
-    env("SUPABASE_DB_URL") ||
-    env("DIRECT_DATABASE_URL") ||
-    env("DATABASE_URL") ||
-    env("POSTGRES_URL");
-  if (!dbUrl) {
-    throw new Error(
-      "Missing database URL. Set SUPABASE_DB_URL, DIRECT_DATABASE_URL, DATABASE_URL, or POSTGRES_URL.",
-    );
-  }
-
   const gender = env("LINEUPS_IMPORT_GENDER", "men").toLowerCase() === "women" ? "women" : "men";
   const season = Number(env("LINEUPS_IMPORT_SEASON", "2026")) || 2026;
   const files = await discoverInputFiles();
@@ -249,7 +238,32 @@ async function main() {
 
   console.log(`Discovered ${files.length} lineup CSV file(s). Building aggregated team payloads...`);
   const options = await buildDataset(files);
-  console.log(`Prepared ${options.length} team option row(s). Writing to DB...`);
+  console.log(`Prepared ${options.length} team option row(s).`);
+
+  const outputJsonPath =
+    env("LINEUPS_OUTPUT_JSON") ||
+    path.resolve(process.cwd(), "public", "data", `lineups-${gender}-${season}.json`);
+  await fs.mkdir(path.dirname(outputJsonPath), { recursive: true });
+  await fs.writeFile(
+    outputJsonPath,
+    JSON.stringify({ gender, season, options }),
+    "utf8",
+  );
+  console.log(`Wrote hosted fallback JSON: ${outputJsonPath}`);
+
+  const dbUrl =
+    env("SUPABASE_DB_URL") ||
+    env("DIRECT_DATABASE_URL") ||
+    env("DATABASE_URL") ||
+    env("POSTGRES_URL");
+  if (!dbUrl) {
+    console.warn(
+      "No DB URL provided; skipped DB upsert. Fallback JSON is ready for API usage.",
+    );
+    return;
+  }
+
+  console.log("Writing lineup dataset to DB...");
 
   const client = new Client({
     connectionString: dbUrl,

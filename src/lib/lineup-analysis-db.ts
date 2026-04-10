@@ -1,4 +1,8 @@
 import { dbQuery, dbQueryOne } from "@/lib/db";
+import {
+  getFallbackLineupOptionByKey,
+  getFallbackLineupOptions,
+} from "@/lib/lineup-analysis-fallback";
 import type {
   LineupGender,
   LineupOptionPayload,
@@ -50,21 +54,28 @@ export async function queryLineupOptions(params: {
 }): Promise<LineupOptionSummary[]> {
   const gender = parseLineupGender(params.gender);
   const season = safeSeason(params.season);
-  const rows = await dbQuery<OptionSummaryRow>(
-    `select option_key, option_label, season, team, lineup_count
-       from lineup_team_options
-      where gender = $1 and season = $2
-      order by option_label asc`,
-    [gender, season],
-  );
+  try {
+    const rows = await dbQuery<OptionSummaryRow>(
+      `select option_key, option_label, season, team, lineup_count
+         from lineup_team_options
+        where gender = $1 and season = $2
+        order by option_label asc`,
+      [gender, season],
+    );
 
-  return rows.map((row) => ({
-    key: String(row.option_key ?? ""),
-    label: String(row.option_label ?? ""),
-    season: String(row.season ?? season),
-    team: String(row.team ?? ""),
-    lineupCount: Number(row.lineup_count ?? 0) || 0,
-  }));
+    if (!rows.length) {
+      return await getFallbackLineupOptions(gender, season);
+    }
+    return rows.map((row) => ({
+      key: String(row.option_key ?? ""),
+      label: String(row.option_label ?? ""),
+      season: String(row.season ?? season),
+      team: String(row.team ?? ""),
+      lineupCount: Number(row.lineup_count ?? 0) || 0,
+    }));
+  } catch {
+    return await getFallbackLineupOptions(gender, season);
+  }
 }
 
 export async function queryLineupOptionData(params: {
@@ -77,21 +88,27 @@ export async function queryLineupOptionData(params: {
   const key = String(params.key ?? "").trim();
   if (!key) return null;
 
-  const row = await dbQueryOne<OptionDataRow>(
-    `select option_key, option_label, season, team, players, lineups
-       from lineup_team_options
-      where gender = $1 and season = $2 and option_key = $3
-      limit 1`,
-    [gender, season, key],
-  );
-  if (!row) return null;
+  try {
+    const row = await dbQueryOne<OptionDataRow>(
+      `select option_key, option_label, season, team, players, lineups
+         from lineup_team_options
+        where gender = $1 and season = $2 and option_key = $3
+        limit 1`,
+      [gender, season, key],
+    );
+    if (!row) {
+      return await getFallbackLineupOptionByKey(gender, season, key);
+    }
 
-  return {
-    key: String(row.option_key ?? ""),
-    label: String(row.option_label ?? ""),
-    season: String(row.season ?? season),
-    team: String(row.team ?? ""),
-    players: safePlayers(row.players),
-    lineups: safeLineups(row.lineups),
-  };
+    return {
+      key: String(row.option_key ?? ""),
+      label: String(row.option_label ?? ""),
+      season: String(row.season ?? season),
+      team: String(row.team ?? ""),
+      players: safePlayers(row.players),
+      lineups: safeLineups(row.lineups),
+    };
+  } catch {
+    return await getFallbackLineupOptionByKey(gender, season, key);
+  }
 }
