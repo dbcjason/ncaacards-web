@@ -588,6 +588,28 @@ function normalizePlayerName(value: unknown): string {
   return normalizeTextKey(value);
 }
 
+function normalizeConferenceKey(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function isHighMajorConference(value: unknown): boolean {
+  const key = normalizeConferenceKey(value);
+  return (
+    key === "acc" ||
+    key === "sec" ||
+    key === "big12" ||
+    key === "b12" ||
+    key === "bigeast" ||
+    key === "bigeastconference" ||
+    key === "bigten" ||
+    key === "big10" ||
+    key === "b10" ||
+    key === "b1g"
+  );
+}
+
 function rsciLookupKey(player: string, team: string, season: number | string): string {
   return `${normalizePlayerName(player)}::${normalizeTeamName(team)}::${String(season).trim()}`;
 }
@@ -915,13 +937,12 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
   const payloadStatBase = payloadStatHeightText
     ? payloadStatHeightText.replace(/,\s*[+-]?\d+(?:\.\d+)?\s*in\s*$/i, "").trim()
     : "";
-  const effectiveHeightAdjustment = payloadStatDelta ?? numericOrNull(row.statistical_height_delta);
-  const adjustedPossCreated = normalizeMetricScale(
+  const computedPossCreated = normalizeMetricScale(
     "poss_created_100",
-    metricValueFromBtRow(btRow, "poss_created_100", effectiveHeightAdjustment),
+    metricValueFromBtRow(btRow, "poss_created_100"),
   );
-  if (typeof adjustedPossCreated === "number" && Number.isFinite(adjustedPossCreated)) {
-    mergedValues.poss_created_100 = adjustedPossCreated;
+  if (typeof computedPossCreated === "number" && Number.isFinite(computedPossCreated)) {
+    mergedValues.poss_created_100 = computedPossCreated;
   }
 
   return {
@@ -1058,6 +1079,104 @@ function sortRows(
   return out;
 }
 
+function fitLine(samples: Array<{ x: number; y: number }>): { slope: number; intercept: number } | null {
+  if (samples.length < 2) return null;
+  let sumX = 0;
+  let sumY = 0;
+  let sumXX = 0;
+  let sumXY = 0;
+  for (const sample of samples) {
+    sumX += sample.x;
+    sumY += sample.y;
+    sumXX += sample.x * sample.x;
+    sumXY += sample.x * sample.y;
+  }
+  const n = samples.length;
+  const denom = (n * sumXX) - (sumX * sumX);
+  if (!Number.isFinite(denom) || Math.abs(denom) < 1e-9) return null;
+  const slope = ((n * sumXY) - (sumX * sumY)) / denom;
+  const intercept = (sumY - (slope * sumX)) / n;
+  if (!Number.isFinite(slope) || !Number.isFinite(intercept)) return null;
+  return { slope, intercept };
+}
+
+function percentileValue(values: number[], value: number): number {
+  if (!values.length || !Number.isFinite(value)) return 0;
+  let le = 0;
+  for (const current of values) {
+    if (current <= value) le += 1;
+  }
+  return Math.max(0, Math.min(100, Math.round((le / values.length) * 100)));
+}
+
+function applyPossCreatedOverExpected(rows: LeaderboardRow[]): LeaderboardRow[] {
+  const out = rows.map((row) => ({
+    ...row,
+    values: { ...row.values },
+    percentiles: { ...row.percentiles },
+  }));
+
+  const groups = new Map<string, number[]>();
+  for (let i = 0; i < out.length; i += 1) {
+    const key = `${out[i].gender}:${out[i].season}`;
+    const bucket = groups.get(key) ?? [];
+    bucket.push(i);
+    groups.set(key, bucket);
+  }
+
+  for (const indexes of groups.values()) {
+    const samples: Array<{ x: number; y: number }> = [];
+    for (const idx of indexes) {
+      const row = out[idx];
+      const base = row.values?.poss_created_100;
+      const x =
+        parseHeightToInches(row.statistical_height) ??
+        parseHeightToInches(row.height);
+      if (typeof base !== "number" || !Number.isFinite(base)) continue;
+      if (typeof x !== "number" || !Number.isFinite(x)) continue;
+      samples.push({ x, y: base });
+    }
+    const fit = fitLine(samples);
+    const overValues: number[] = [];
+
+    for (const idx of indexes) {
+      const row = out[idx];
+      const base = row.values?.poss_created_100;
+      const x =
+        parseHeightToInches(row.statistical_height) ??
+        parseHeightToInches(row.height);
+      if (
+        !fit ||
+        typeof base !== "number" ||
+        !Number.isFinite(base) ||
+        typeof x !== "number" ||
+        !Number.isFinite(x)
+      ) {
+        row.values.poss_created_100 = null;
+        row.percentiles.poss_created_100 = null;
+        continue;
+      }
+      const expected = (fit.slope * x) + fit.intercept;
+      const over = base - expected;
+      row.values.poss_created_100 = Number.isFinite(over) ? over : null;
+      if (typeof row.values.poss_created_100 === "number") {
+        overValues.push(row.values.poss_created_100);
+      }
+    }
+
+    for (const idx of indexes) {
+      const row = out[idx];
+      const over = row.values?.poss_created_100;
+      if (typeof over !== "number" || !Number.isFinite(over)) {
+        row.percentiles.poss_created_100 = null;
+        continue;
+      }
+      row.percentiles.poss_created_100 = percentileValue(overValues, over);
+    }
+  }
+  return out;
+}
+
 export async function queryLeaderboard(params: {
   gender: LeaderboardGenderFilter;
   season?: number | null;
@@ -1099,7 +1218,6 @@ export async function queryLeaderboard(params: {
   const where: string[] = [];
   const rawConferenceFilter = String(params.conference ?? "").trim();
   const conferenceFilterKey = rawConferenceFilter.toLowerCase();
-  const highMajorConferences = new Set(["ACC", "Big 12", "Big East", "Big Ten", "SEC"]);
 
   if (params.gender !== "all") {
     sqlParams.push(params.gender);
@@ -1258,17 +1376,18 @@ export async function queryLeaderboard(params: {
       percentiles: mergedPercentiles,
     };
   });
+  normalized = applyPossCreatedOverExpected(normalized);
 
   if (conferenceFilterKey === "high major") {
     normalized = normalized.filter((row) => {
       if (normalizeTeamName(row.team) === "gonzaga") return true;
-      return highMajorConferences.has(String(row.conference || "").trim());
+      return isHighMajorConference(row.conference);
     });
   } else if (conferenceFilterKey === "mid/low major") {
     normalized = normalized.filter((row) => {
-      const conference = String(row.conference || "").trim();
       if (normalizeTeamName(row.team) === "gonzaga") return false;
-      return conference.length > 0 && !highMajorConferences.has(conference);
+      const conference = String(row.conference || "").trim();
+      return conference.length > 0 && !isHighMajorConference(conference);
     });
   }
   if (params.draftedPlus2026) {

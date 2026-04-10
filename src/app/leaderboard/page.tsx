@@ -363,7 +363,7 @@ function LeaderboardPageInner() {
 
         <div className="mb-3 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
           <div className="mb-2 text-lg font-bold">Player Leaderboard</div>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-8">
             <select
               className="rounded bg-zinc-800 p-2"
               value={season == null ? "" : String(season)}
@@ -381,8 +381,22 @@ function LeaderboardPageInner() {
             <select className="rounded bg-zinc-800 p-2" value={conferenceFilter} onChange={(e) => setConferenceFilter(e.target.value)}>
               {conferenceOptions.map((conference) => <option key={conference} value={conference}>{conference}</option>)}
             </select>
+            <div className="flex items-center gap-2 rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-300">
+              <span className="whitespace-nowrap text-zinc-400">Min MPG</span>
+              <input
+                type="number"
+                min={0}
+                step="0.5"
+                className="w-full rounded bg-zinc-900 px-2 py-1 text-zinc-100"
+                value={Number.isFinite(minMpg) ? String(minMpg) : "0"}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setMinMpg(Number.isFinite(next) && next >= 0 ? next : 0);
+                }}
+              />
+            </div>
             <div className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-400">
-              {loading ? "Loading..." : `${filteredRows.length} shown / ${total} matched / min ${minMpg} MPG`}
+              {loading ? "Loading..." : `${filteredRows.length} shown / ${total} matched`}
             </div>
           </div>
 
