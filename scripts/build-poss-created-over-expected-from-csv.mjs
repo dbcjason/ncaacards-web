@@ -101,7 +101,7 @@ function readFromRow(rowObj, aliases) {
     const aliasKey = normalizeKey(alias);
     if (map.has(aliasKey)) return toNum(map.get(aliasKey));
     for (const [key, value] of map.entries()) {
-      if (key.includes(aliasKey) || aliasKey.includes(key)) return toNum(value);
+      if (key.includes(aliasKey)) return toNum(value);
     }
   }
   return null;
@@ -112,7 +112,7 @@ function possCreatedBase100(rowObj) {
   const blk100 = readFromRow(rowObj, ["blk100", "blk_per_100", "blkper100", "blocks100", "blocks_per_100"]);
   const oreb100 = readFromRow(rowObj, ["oreb100", "orb100", "oreb_per_100"]);
   const to100 = readFromRow(rowObj, ["to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100"]);
-  if (stl100 != null || blk100 != null || oreb100 != null || to100 != null) {
+  if ((stl100 != null || blk100 != null || oreb100 != null) && to100 != null) {
     return (blk100 ?? 0) * 6 + (stl100 ?? 0) + (oreb100 ?? 0) - (to100 ?? 0);
   }
 
@@ -120,12 +120,12 @@ function possCreatedBase100(rowObj) {
   const bpg = readFromRow(rowObj, ["bpg", "blk", "blocks"]);
   const orebPg = readFromRow(rowObj, ["oreb", "orb", "orebpg", "oreb_per_game"]);
   const mpg = readFromRow(rowObj, ["mpg", "mp", "min_per", "minper"]);
-  const toPg = readFromRow(rowObj, ["topg", "to", "tov", "to_pg", "turnovers"]);
-  if (mpg != null && mpg > 0) {
+  const toPg = readFromRow(rowObj, ["topg", "tov", "to_pg", "turnovers"]);
+  if (mpg != null && mpg > 0 && toPg != null) {
     const stl100FromPg = spg != null ? (spg / mpg) * 100 : 0;
     const blk100FromPg = bpg != null ? (bpg / mpg) * 100 : 0;
     const oreb100FromPg = orebPg != null ? (orebPg / mpg) * 100 : 0;
-    const to100FromPg = toPg != null ? (toPg / mpg) * 100 : 0;
+    const to100FromPg = (toPg / mpg) * 100;
     return (blk100FromPg * 6) + stl100FromPg + oreb100FromPg - to100FromPg;
   }
   return null;

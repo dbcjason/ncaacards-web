@@ -49,7 +49,7 @@ function readNumericFromObject(obj, ...aliases) {
     if (typeof normalized[aliasNorm] === 'number') return normalized[aliasNorm];
     for (const [key, value] of Object.entries(normalized)) {
       if (!key || !aliasNorm) continue;
-      if (key.includes(aliasNorm) || aliasNorm.includes(key)) {
+      if (key.includes(aliasNorm)) {
         if (typeof value === 'number') return value;
       }
     }
@@ -65,9 +65,9 @@ function computePossCreated100(btRow, heightAdjustment) {
   const heightAdj = typeof heightAdjustment === 'number' && Number.isFinite(heightAdjustment) ? heightAdjustment : 0;
 
   if (
-    typeof stl100 === 'number' ||
-    typeof blk100 === 'number' ||
-    typeof oreb100 === 'number' ||
+    (typeof stl100 === 'number' ||
+      typeof blk100 === 'number' ||
+      typeof oreb100 === 'number') &&
     typeof to100 === 'number'
   ) {
     return (
@@ -83,12 +83,12 @@ function computePossCreated100(btRow, heightAdjustment) {
   const bpg = readNumericFromObject(btRow, 'bpg', 'blk', 'blocks');
   const orebPg = readNumericFromObject(btRow, 'oreb', 'orb', 'orebpg', 'oreb_per_game');
   const mpg = readNumericFromObject(btRow, 'mpg', 'mp', 'min_per', 'minper');
-  const topg = readNumericFromObject(btRow, 'topg', 'to', 'tov', 'to_pg', 'turnovers');
-  if (typeof mpg === 'number' && mpg > 0) {
+  const topg = readNumericFromObject(btRow, 'topg', 'tov', 'to_pg', 'turnovers');
+  if (typeof mpg === 'number' && mpg > 0 && typeof topg === 'number') {
     const stlPer100 = typeof spg === 'number' ? (spg / mpg) * 100 : 0;
     const blkPer100 = typeof bpg === 'number' ? (bpg / mpg) * 100 : 0;
     const orebPer100 = typeof orebPg === 'number' ? (orebPg / mpg) * 100 : 0;
-    const toPer100 = typeof topg === 'number' ? (topg / mpg) * 100 : 0;
+    const toPer100 = (topg / mpg) * 100;
     return (blkPer100 * 6) + stlPer100 + orebPer100 - toPer100 + heightAdj;
   }
   return null;

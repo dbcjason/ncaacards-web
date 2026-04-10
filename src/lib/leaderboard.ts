@@ -87,7 +87,7 @@ export const LEADERBOARD_METRICS: ReadonlyArray<{
   { key: "net_points", label: "Net Points" },
   { key: "onoff_net", label: "On/Off Net" },
   { key: "feel_plus", label: "Feel+" },
-  { key: "poss_created_100", label: "Possessions Created/100" },
+  { key: "poss_created_100", label: "Possessiosn Created OE" },
   { key: "rimfluence", label: "Rimfluence" },
   { key: "rimfluence_off", label: "Off Rimfluence" },
   { key: "rimfluence_def", label: "Def Rimfluence" },
@@ -371,7 +371,7 @@ function metricValueFromBtRow(
     const aliasNorm = normalizeStatKey(alias);
     for (const [mapKey, mapVal] of normalizedMap.entries()) {
       if (!aliasNorm || !mapKey) continue;
-      if (mapKey.includes(aliasNorm) || aliasNorm.includes(mapKey)) {
+      if (mapKey.includes(aliasNorm)) {
         return mapVal;
       }
     }
@@ -384,7 +384,7 @@ function metricValueFromBtRow(
       if (typeof direct === "number" && Number.isFinite(direct)) return direct;
       for (const [mapKey, mapVal] of normalizedMap.entries()) {
         if (!mapKey || !aliasNorm) continue;
-        if (mapKey.includes(aliasNorm) || aliasNorm.includes(mapKey)) return mapVal;
+        if (mapKey.includes(aliasNorm)) return mapVal;
       }
     }
     return null;
@@ -440,9 +440,9 @@ function metricValueFromBtRow(
     const toPer100 = read("to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100");
 
     if (
-      typeof stlPer100 === "number" ||
-      typeof blkPer100 === "number" ||
-      typeof orebPer100 === "number" ||
+      (typeof stlPer100 === "number" ||
+        typeof blkPer100 === "number" ||
+        typeof orebPer100 === "number") &&
       typeof toPer100 === "number"
     ) {
       const base =
@@ -459,12 +459,12 @@ function metricValueFromBtRow(
     const bpg = read("bpg", "blk", "blocks");
     const orebPg = read("oreb", "orb", "orebpg", "oreb_per_game");
     const mpg = read("mpg", "mp", "min_per", "minper");
-    const toPg = read("topg", "to", "tov", "to_pg", "turnovers");
-    if (typeof mpg === "number" && mpg > 0) {
+    const toPg = read("topg", "tov", "to_pg", "turnovers");
+    if (typeof mpg === "number" && mpg > 0 && typeof toPg === "number") {
       const stl100 = typeof spg === "number" ? (spg / mpg) * 100 : 0;
       const blk100 = typeof bpg === "number" ? (bpg / mpg) * 100 : 0;
       const oreb100 = typeof orebPg === "number" ? (orebPg / mpg) * 100 : 0;
-      const to100 = typeof toPg === "number" ? (toPg / mpg) * 100 : 0;
+      const to100 = (toPg / mpg) * 100;
       const base = stl100 + (blk100 * 6) + oreb100 - to100;
       return typeof heightAdjustment === "number" && Number.isFinite(heightAdjustment)
         ? base + heightAdjustment
