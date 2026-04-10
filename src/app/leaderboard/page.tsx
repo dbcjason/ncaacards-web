@@ -247,10 +247,6 @@ function LeaderboardPageInner() {
 
   const metricOptions = useMemo(() => metrics.length ? metrics : [{ key: "bpm", label: "BPM" }], [metrics]);
   const metricKeys = useMemo(() => new Set(metricOptions.map((metric) => metric.key)), [metricOptions]);
-  const sortOptions = useMemo<OptionItem[]>(
-    () => [...BASE_COLUMNS.map((column) => ({ key: column.sortKey, label: column.label })), ...metricOptions],
-    [metricOptions],
-  );
   const filterMetricOptions = useMemo<OptionItem[]>(() => {
     const seen = new Set<string>();
     const out: OptionItem[] = [];
@@ -369,34 +365,11 @@ function LeaderboardPageInner() {
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
-            <select
-              className="rounded bg-zinc-800 p-2"
-              value={sortBy}
-              onChange={(e) => {
-                const next = e.target.value;
-                setSortBy(next);
-                if (!metricKeys.has(next)) setSortMode("stat");
-              }}
-            >
-              {sortOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-            </select>
-            <select
-              className="rounded bg-zinc-800 p-2"
-              value={sortMode}
-              disabled={!metricKeys.has(sortBy)}
-              onChange={(e) => setSortMode(e.target.value === "percentile" && metricKeys.has(sortBy) ? "percentile" : "stat")}
-            >
-              <option value="stat">Sort by Stat</option>
-              <option value="percentile">Sort by Percentile</option>
-            </select>
-            <select className="rounded bg-zinc-800 p-2" value={sortDir} onChange={(e) => setSortDir(e.target.value === "asc" ? "asc" : "desc")}>
-              <option value="desc">High to Low</option>
-              <option value="asc">Low to High</option>
-            </select>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="text-xs text-zinc-500">Tip: click a column header to sort and drag headers (except Player) to reorder.</div>
             <button
               type="button"
-              className="rounded bg-zinc-800 p-2 text-left text-sm text-zinc-300"
+              className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-300"
               onClick={() =>
                 setFilters((current) => [
                   ...current,
@@ -414,10 +387,8 @@ function LeaderboardPageInner() {
             </button>
           </div>
 
-          <div className="mt-2 text-xs text-zinc-500">Tip: drag any table header (except Player) to reorder columns.</div>
-
           {filters.length ? (
-            <div className="mt-3 grid grid-cols-1 gap-2">
+            <div className="mt-2 grid grid-cols-1 gap-2">
               {filters.map((filter) => (
                 <div key={filter.id} className="grid grid-cols-1 gap-2 rounded border border-zinc-700 bg-zinc-950 p-2 md:grid-cols-5">
                   <select
