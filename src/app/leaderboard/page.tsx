@@ -179,6 +179,7 @@ function LeaderboardPageInner() {
   const [minMpg, setMinMpg] = useState(10);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
 
   useEffect(() => {
     const g = searchParams.get("gender");
@@ -540,8 +541,15 @@ function LeaderboardPageInner() {
             </thead>
             <tbody>
               {filteredRows.map((row) => (
-                <tr key={`${row.season}:${row.team}:${row.player}`} className="border-b border-zinc-800 align-top">
-                  <td className="sticky left-0 z-10 bg-zinc-900 p-2 font-medium">{row.player}</td>
+                <tr
+                  key={`${row.season}:${row.team}:${row.player}`}
+                  className={`border-b border-zinc-800 align-top cursor-pointer ${selectedRowKey === `${row.season}:${row.team}:${row.player}` ? "bg-[#8ea6c5] text-[#081829]" : ""}`}
+                  onClick={() => {
+                    const rowKey = `${row.season}:${row.team}:${row.player}`;
+                    setSelectedRowKey((current) => (current === rowKey ? null : rowKey));
+                  }}
+                >
+                  <td className={`sticky left-0 z-10 p-2 font-medium ${selectedRowKey === `${row.season}:${row.team}:${row.player}` ? "bg-[#8ea6c5]" : "bg-zinc-900"}`}>{row.player}</td>
                   {displayColumns.map((column) => {
                     if (column.key === "team") return <td key={column.key} className="p-2">{row.team}</td>;
                     if (column.key === "class") return <td key={column.key} className="p-2">{row.class || "N/A"}</td>;
