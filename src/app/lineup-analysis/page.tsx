@@ -235,7 +235,7 @@ export default function LineupAnalysisPage() {
           netRtg: aggregateLineups(on).netRtg - aggregateLineups(off).netRtg,
         },
       };
-    }).sort((a, b) => b.onStats.minutes - a.onStats.minutes);
+    }).sort((a, b) => b.onStats.possessions - a.onStats.possessions);
   }, [optionLineups, optionPlayers]);
 
   const wowyLineups = useMemo(() => {
@@ -306,7 +306,7 @@ export default function LineupAnalysisPage() {
 
     rows.sort((a, b) => {
       if (a.isSelectedPattern !== b.isSelectedPattern) return a.isSelectedPattern ? -1 : 1;
-      return b.stats.minutes - a.stats.minutes;
+      return b.stats.possessions - a.stats.possessions;
     });
 
     return rows;
@@ -377,7 +377,7 @@ export default function LineupAnalysisPage() {
                   <thead>
                     <tr className="bg-zinc-800 text-zinc-100">
                       <th className="border-b border-zinc-700 p-2 text-left">Player</th>
-                      <th className="border-b border-zinc-700 p-2 text-center">On Min</th>
+                      <th className="border-b border-zinc-700 p-2 text-center">On Off Poss</th>
                       <th className="border-b border-zinc-700 p-2 text-center">OffRtg Diff</th>
                       <th className="border-b border-zinc-700 p-2 text-center">DefRtg Diff</th>
                       <th className="border-b border-zinc-700 p-2 text-center">Net Diff</th>
@@ -389,7 +389,7 @@ export default function LineupAnalysisPage() {
                     {playerOnOffRows.map((row) => (
                       <tr key={row.player} className="odd:bg-zinc-900 even:bg-zinc-950">
                         <td className="border-b border-zinc-800 p-2 text-left font-medium">{row.player}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.onStats.minutes)}</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.onStats.possessions, 0)}</td>
                         <td className={`border-b border-zinc-800 p-2 text-center font-semibold ${deltaClass(row.deltas.offRtg)}`}>
                           {row.deltas.offRtg >= 0 ? "+" : ""}{fmtNum(row.deltas.offRtg)}
                         </td>
@@ -606,7 +606,7 @@ export default function LineupAnalysisPage() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-6">
-              <StatCell label="Minutes" value={fmtNum(wowyStats.minutes)} />
+              <StatCell label="Off Poss" value={fmtNum(wowyStats.possessions, 0)} />
               {activeWowyMetrics.map((metric) => (
                 <StatCell key={metric.key} label={metric.label} value={metric.format(wowyStats)} />
               ))}
@@ -617,7 +617,7 @@ export default function LineupAnalysisPage() {
                 <thead>
                   <tr className="bg-zinc-800 text-zinc-100">
                     <th className="border-b border-zinc-700 p-2 text-left">WOWY Combination</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">Min</th>
+                    <th className="border-b border-zinc-700 p-2 text-center">Off Poss</th>
                     {activeWowyMetrics.map((metric) => (
                       <th key={metric.key} className="border-b border-zinc-700 p-2 text-center">{metric.label}</th>
                     ))}
@@ -628,7 +628,7 @@ export default function LineupAnalysisPage() {
                     return (
                       <tr key={row.key} className={`${row.isSelectedPattern ? "bg-zinc-800/70" : "odd:bg-zinc-900 even:bg-zinc-950"}`}>
                         <td className="border-b border-zinc-800 p-2 text-left">{row.patternLabel}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.minutes)}</td>
+                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.possessions, 0)}</td>
                         {activeWowyMetrics.map((metric) => (
                           <td key={metric.key} className="border-b border-zinc-800 p-2 text-center">{metric.format(row.stats)}</td>
                         ))}
