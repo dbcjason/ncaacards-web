@@ -543,13 +543,13 @@ function LeaderboardPageInner() {
               {filteredRows.map((row) => (
                 <tr
                   key={`${row.season}:${row.team}:${row.player}`}
-                  className={`border-b border-zinc-800 align-top cursor-pointer ${selectedRowKey === `${row.season}:${row.team}:${row.player}` ? "bg-[#8ea6c5] text-[#081829]" : ""}`}
+                  className={`border-b border-zinc-800 align-top cursor-pointer ${selectedRowKey === `${row.season}:${row.team}:${row.player}` ? "bg-[#374151] text-[#f3f4f6]" : ""}`}
                   onClick={() => {
                     const rowKey = `${row.season}:${row.team}:${row.player}`;
                     setSelectedRowKey((current) => (current === rowKey ? null : rowKey));
                   }}
                 >
-                  <td className={`sticky left-0 z-10 p-2 font-medium ${selectedRowKey === `${row.season}:${row.team}:${row.player}` ? "bg-[#8ea6c5]" : "bg-zinc-900"}`}>{row.player}</td>
+                  <td className={`sticky left-0 z-10 p-2 font-medium ${selectedRowKey === `${row.season}:${row.team}:${row.player}` ? "bg-[#374151]" : "bg-zinc-900"}`}>{row.player}</td>
                   {displayColumns.map((column) => {
                     if (column.key === "team") return <td key={column.key} className="p-2">{row.team}</td>;
                     if (column.key === "class") return <td key={column.key} className="p-2">{row.class || "N/A"}</td>;
