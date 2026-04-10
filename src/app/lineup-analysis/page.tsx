@@ -191,6 +191,8 @@ export default function LineupAnalysisPage() {
   const [onPick, setOnPick] = useState("");
   const [offPick, setOffPick] = useState("");
   const [selectedWowyMetrics, setSelectedWowyMetrics] = useState<WowyMetricKey[]>(DEFAULT_WOWY_METRICS);
+  const [wowySortKey, setWowySortKey] = useState<"offPoss" | WowyMetricKey>("offPoss");
+  const [wowySortDir, setWowySortDir] = useState<"asc" | "desc">("desc");
 
   const wowyMetricMap = useMemo(() => {
     return new Map(WOWY_METRICS.map((metric) => [metric.key, metric]));
@@ -305,12 +307,47 @@ export default function LineupAnalysisPage() {
     }
 
     rows.sort((a, b) => {
-      if (a.isSelectedPattern !== b.isSelectedPattern) return a.isSelectedPattern ? -1 : 1;
-      return b.stats.possessions - a.stats.possessions;
+      let cmp = 0;
+      if (wowySortKey === "offPoss") {
+        cmp = a.stats.possessions - b.stats.possessions;
+      } else {
+        const getMetricValue = (stats: AggregateStats, key: WowyMetricKey) => {
+          switch (key) {
+            case "netRtg":
+              return stats.netRtg;
+            case "offRtg":
+              return stats.offRtg;
+            case "defRtg":
+              return stats.defRtg;
+            case "tsPct":
+              return stats.tsPct;
+            case "rimPct":
+              return stats.rimPct;
+            case "oppRimPct":
+              return stats.oppRimPct;
+            case "rimRate":
+              return stats.rimRate;
+            case "oppRimRate":
+              return stats.oppRimRate;
+          }
+        };
+        cmp = getMetricValue(a.stats, wowySortKey) - getMetricValue(b.stats, wowySortKey);
+      }
+      if (cmp === 0 && a.isSelectedPattern !== b.isSelectedPattern) return a.isSelectedPattern ? -1 : 1;
+      return wowySortDir === "asc" ? cmp : -cmp;
     });
 
     return rows;
-  }, [onPlayers, offPlayers, optionLineups]);
+  }, [onPlayers, offPlayers, optionLineups, wowySortDir, wowySortKey]);
+
+  const onWowySort = (key: "offPoss" | WowyMetricKey) => {
+    if (wowySortKey === key) {
+      setWowySortDir((current) => (current === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setWowySortKey(key);
+    setWowySortDir("desc");
+  };
 
   const allLineups = useMemo(() => {
     return [...optionLineups]
@@ -617,9 +654,21 @@ export default function LineupAnalysisPage() {
                 <thead>
                   <tr className="bg-zinc-800 text-zinc-100">
                     <th className="border-b border-zinc-700 p-2 text-left">WOWY Combination</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">Off Poss</th>
+                    <th
+                      className="cursor-pointer border-b border-zinc-700 p-2 text-left"
+                      onClick={() => onWowySort("offPoss")}
+                    >
+                      Off Poss{wowySortKey === "offPoss" ? (wowySortDir === "desc" ? " ▼" : " ▲") : ""}
+                    </th>
                     {activeWowyMetrics.map((metric) => (
-                      <th key={metric.key} className="border-b border-zinc-700 p-2 text-center">{metric.label}</th>
+                      <th
+                        key={metric.key}
+                        className="cursor-pointer border-b border-zinc-700 p-2 text-left"
+                        onClick={() => onWowySort(metric.key)}
+                      >
+                        {metric.label}
+                        {wowySortKey === metric.key ? (wowySortDir === "desc" ? " ▼" : " ▲") : ""}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -628,9 +677,9 @@ export default function LineupAnalysisPage() {
                     return (
                       <tr key={row.key} className={`${row.isSelectedPattern ? "bg-zinc-800/70" : "odd:bg-zinc-900 even:bg-zinc-950"}`}>
                         <td className="border-b border-zinc-800 p-2 text-left">{row.patternLabel}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.possessions, 0)}</td>
+                        <td className="border-b border-zinc-800 p-2 text-left">{fmtNum(row.stats.possessions, 0)}</td>
                         {activeWowyMetrics.map((metric) => (
-                          <td key={metric.key} className="border-b border-zinc-800 p-2 text-center">{metric.format(row.stats)}</td>
+                          <td key={metric.key} className="border-b border-zinc-800 p-2 text-left">{metric.format(row.stats)}</td>
                         ))}
                       </tr>
                     );
