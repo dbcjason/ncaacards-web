@@ -130,6 +130,7 @@ export type LeaderboardRow = {
 type RawLeaderboardRow = Omit<LeaderboardRow, "values" | "percentiles"> & {
   values: unknown;
   percentiles: unknown;
+  enriched_row?: unknown;
   payload_json?: unknown;
   grade_boxes_html?: string | null;
   bt_row?: unknown;
@@ -434,10 +435,18 @@ function metricValueFromBtRow(
     }
   }
   if (key === "poss_created_100") {
-    const stlPer100 = read("stl100", "stl_per_100", "stlper100");
-    const blkPer100 = read("blk100", "blk_per_100", "blkper100", "blocks100", "blocks_per_100");
-    const orebPer100 = read("oreb100", "orb100", "oreb_per_100");
-    const toPer100 = read("to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100");
+    const readExact = (...aliasesToRead: string[]) => {
+      for (const alias of aliasesToRead) {
+        const aliasNorm = normalizeStatKey(alias);
+        const direct = normalizedMap.get(aliasNorm);
+        if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+      }
+      return null;
+    };
+    const stlPer100 = readExact("stl100", "stl_per_100", "stlper100", "steals100", "steals_per_100");
+    const blkPer100 = readExact("blk100", "blk_per_100", "blkper100", "blocks100", "blocks_per_100");
+    const orebPer100 = readExact("oreb100", "orb100", "oreb_per_100", "offensiverebounds100", "offensiverebounds_per_100");
+    const toPer100 = readExact("to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100");
 
     if (
       (typeof stlPer100 === "number" ||
@@ -455,11 +464,11 @@ function metricValueFromBtRow(
         : base;
     }
 
-    const spg = read("spg", "stl");
-    const bpg = read("bpg", "blk", "blocks");
-    const orebPg = read("oreb", "orb", "orebpg", "oreb_per_game");
-    const mpg = read("mpg", "mp", "min_per", "minper");
-    const toPg = read("topg", "tov", "to_pg", "turnovers");
+    const spg = readExact("spg", "stl", "steals");
+    const bpg = readExact("bpg", "blk", "blocks");
+    const orebPg = readExact("oreb", "orb", "orebpg", "oreb_per_game", "offensiverebounds");
+    const mpg = readExact("mpg", "mp", "min_per", "minper", "minutes_per_game");
+    const toPg = readExact("topg", "tov", "to_pg", "turnovers", "turnovers_per_game");
     if (typeof mpg === "number" && mpg > 0 && typeof toPg === "number") {
       const stl100 = typeof spg === "number" ? (spg / mpg) * 100 : 0;
       const blk100 = typeof bpg === "number" ? (bpg / mpg) * 100 : 0;
@@ -472,6 +481,87 @@ function metricValueFromBtRow(
     }
   }
 
+  return null;
+}
+
+function readExactNumericFromObjects(
+  objects: Array<Record<string, unknown>>,
+  aliases: string[],
+): number | null {
+  for (const obj of objects) {
+    const normalizedMap = new Map<string, number>();
+    for (const [rawKey, rawValue] of Object.entries(obj || {})) {
+      const normalized = normalizeStatKey(rawKey);
+      if (!normalized) continue;
+      const value = numericOrNull(rawValue);
+      if (typeof value === "number" && Number.isFinite(value)) normalizedMap.set(normalized, value);
+    }
+    for (const alias of aliases) {
+      const aliasNorm = normalizeStatKey(alias);
+      const direct = normalizedMap.get(aliasNorm);
+      if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+    }
+  }
+  return null;
+}
+
+function computePossCreatedBase100(
+  btRow: Record<string, unknown>,
+  enrichedRow?: Record<string, unknown>,
+): number | null {
+  const sources = [btRow, enrichedRow ?? {}];
+  const stl100 = readExactNumericFromObjects(sources, ["stl100", "stl_per_100", "stlper100", "steals100", "steals_per_100"]);
+  const blk100 = readExactNumericFromObjects(sources, ["blk100", "blk_per_100", "blkper100", "blocks100", "blocks_per_100"]);
+  const oreb100 = readExactNumericFromObjects(sources, ["oreb100", "orb100", "oreb_per_100", "offensiverebounds100", "offensiverebounds_per_100"]);
+  const tov100 = readExactNumericFromObjects(sources, ["to100", "tov100", "to_per_100", "turnovers100", "turnovers_per_100"]);
+  if (
+    (typeof stl100 === "number" || typeof blk100 === "number" || typeof oreb100 === "number") &&
+    typeof tov100 === "number"
+  ) {
+    return (typeof blk100 === "number" ? blk100 * 0.6 : 0) + (stl100 ?? 0) + (oreb100 ?? 0) - tov100;
+  }
+
+  const gp = readExactNumericFromObjects(sources, ["gp", "games", "games_played", "gamesplayed"]);
+  const stlPg = readExactNumericFromObjects(sources, ["stl", "spg", "steals_per_game", "stealspg"]);
+  const blkPg = readExactNumericFromObjects(sources, ["blk", "bpg", "blocks_per_game", "blockspg"]);
+  const orebPg = readExactNumericFromObjects(sources, ["oreb", "orb", "oreb_per_game", "offensiverebounds"]);
+  const possessions = readExactNumericFromObjects(
+    sources,
+    [
+      "player_possessions",
+      "possessions",
+      "poss",
+      "poss_used",
+      "total_possessions",
+      "possessions_raw_reg_post",
+    ],
+  );
+  let tovPg = readExactNumericFromObjects(sources, ["topg", "tov", "to_pg", "turnovers", "turnovers_per_game"]);
+  if (typeof tovPg !== "number") {
+    const astPg = readExactNumericFromObjects(sources, ["ast", "apg", "assists_per_game"]);
+    const ato = readExactNumericFromObjects(sources, ["asttov", "ast_to", "a_to", "ast/tov"]);
+    if (typeof astPg === "number" && typeof ato === "number" && ato > 0) {
+      tovPg = astPg / ato;
+    }
+  }
+
+  if (
+    typeof gp === "number" &&
+    gp > 0 &&
+    typeof possessions === "number" &&
+    possessions > 0 &&
+    typeof tovPg === "number"
+  ) {
+    const stlTotal = (stlPg ?? 0) * gp;
+    const blkTotal = (blkPg ?? 0) * gp;
+    const orebTotal = (orebPg ?? 0) * gp;
+    const tovTotal = tovPg * gp;
+    const stlPer100 = (stlTotal / possessions) * 100;
+    const blkPer100 = (blkTotal / possessions) * 100;
+    const orebPer100 = (orebTotal / possessions) * 100;
+    const tovPer100 = (tovTotal / possessions) * 100;
+    return (blkPer100 * 0.6) + stlPer100 + orebPer100 - tovPer100;
+  }
   return null;
 }
 
@@ -864,6 +954,7 @@ export function isLeaderboardMetric(raw?: string): raw is LeaderboardMetricKey {
 
 function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
   const btRow = safeAnyObject(row.bt_row);
+  const enrichedRow = safeAnyObject(row.enriched_row);
   const payload = safeAnyObject(row.payload_json);
   const payloadBio = safeAnyObject(payload.bio);
   const sourceValues = safeObject(row.values);
@@ -937,10 +1028,7 @@ function normalizeRow(row: RawLeaderboardRow): LeaderboardRow {
   const payloadStatBase = payloadStatHeightText
     ? payloadStatHeightText.replace(/,\s*[+-]?\d+(?:\.\d+)?\s*in\s*$/i, "").trim()
     : "";
-  const computedPossCreated = normalizeMetricScale(
-    "poss_created_100",
-    metricValueFromBtRow(btRow, "poss_created_100"),
-  );
+  const computedPossCreated = normalizeMetricScale("poss_created_100", computePossCreatedBase100(btRow, enrichedRow));
   if (typeof computedPossCreated === "number" && Number.isFinite(computedPossCreated)) {
     mergedValues.poss_created_100 = computedPossCreated;
   }
@@ -1284,6 +1372,7 @@ export async function queryLeaderboard(params: {
         l.values,
         l.percentiles,
         l.bt_row,
+        l.enriched_row,
         ${payloadSelect}
         l.updated_at
       ${fromClause}

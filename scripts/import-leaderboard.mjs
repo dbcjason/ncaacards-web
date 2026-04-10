@@ -57,11 +57,24 @@ function readNumericFromObject(obj, ...aliases) {
   return null;
 }
 
-function computePossCreated100(btRow, heightAdjustment) {
-  const stl100 = readNumericFromObject(btRow, 'stl100', 'stl_per_100', 'stlper100');
-  const blk100 = readNumericFromObject(btRow, 'blk100', 'blk_per_100', 'blkper100', 'blocks100', 'blocks_per_100');
-  const oreb100 = readNumericFromObject(btRow, 'oreb100', 'orb100', 'oreb_per_100');
-  const to100 = readNumericFromObject(btRow, 'to100', 'tov100', 'to_per_100', 'turnovers100', 'turnovers_per_100');
+function computePossCreated100(btRow, enrichedRow, heightAdjustment) {
+  const readExact = (...aliases) => {
+    for (const source of [btRow || {}, enrichedRow || {}]) {
+      const normalized = {};
+      for (const [key, value] of Object.entries(source)) {
+        normalized[normalizeColName(key)] = toNum(value);
+      }
+      for (const alias of aliases) {
+        const aliasNorm = normalizeColName(alias);
+        if (typeof normalized[aliasNorm] === 'number') return normalized[aliasNorm];
+      }
+    }
+    return null;
+  };
+  const stl100 = readExact('stl100', 'stl_per_100', 'stlper100', 'steals100', 'steals_per_100');
+  const blk100 = readExact('blk100', 'blk_per_100', 'blkper100', 'blocks100', 'blocks_per_100');
+  const oreb100 = readExact('oreb100', 'orb100', 'oreb_per_100', 'offensiverebounds100', 'offensiverebounds_per_100');
+  const to100 = readExact('to100', 'tov100', 'to_per_100', 'turnovers100', 'turnovers_per_100');
   const heightAdj = typeof heightAdjustment === 'number' && Number.isFinite(heightAdjustment) ? heightAdjustment : 0;
 
   if (
@@ -79,16 +92,30 @@ function computePossCreated100(btRow, heightAdjustment) {
     );
   }
 
-  const spg = readNumericFromObject(btRow, 'spg', 'stl');
-  const bpg = readNumericFromObject(btRow, 'bpg', 'blk', 'blocks');
-  const orebPg = readNumericFromObject(btRow, 'oreb', 'orb', 'orebpg', 'oreb_per_game');
-  const mpg = readNumericFromObject(btRow, 'mpg', 'mp', 'min_per', 'minper');
-  const topg = readNumericFromObject(btRow, 'topg', 'tov', 'to_pg', 'turnovers');
-  if (typeof mpg === 'number' && mpg > 0 && typeof topg === 'number') {
-    const stlPer100 = typeof spg === 'number' ? (spg / mpg) * 100 : 0;
-    const blkPer100 = typeof bpg === 'number' ? (bpg / mpg) * 100 : 0;
-    const orebPer100 = typeof orebPg === 'number' ? (orebPg / mpg) * 100 : 0;
-    const toPer100 = (topg / mpg) * 100;
+  const gp = readExact('gp', 'games', 'games_played', 'gamesplayed');
+  const spg = readExact('spg', 'stl', 'steals', 'steals_per_game');
+  const bpg = readExact('bpg', 'blk', 'blocks', 'blocks_per_game');
+  const orebPg = readExact('oreb', 'orb', 'orebpg', 'oreb_per_game', 'offensiverebounds');
+  const possessions = readExact('player_possessions', 'possessions', 'poss', 'poss_used', 'total_possessions', 'possessions_raw_reg_post');
+  let topg = readExact('topg', 'tov', 'to_pg', 'turnovers', 'turnovers_per_game');
+  if (typeof topg !== 'number') {
+    const astPg = readExact('ast', 'apg', 'assists_per_game');
+    const ato = readExact('ast/tov', 'asttov', 'ast_to', 'a_to');
+    if (typeof astPg === 'number' && typeof ato === 'number' && ato > 0) {
+      topg = astPg / ato;
+    }
+  }
+  if (
+    typeof gp === 'number' &&
+    gp > 0 &&
+    typeof possessions === 'number' &&
+    possessions > 0 &&
+    typeof topg === 'number'
+  ) {
+    const stlPer100 = typeof spg === 'number' ? ((spg * gp) / possessions) * 100 : 0;
+    const blkPer100 = typeof bpg === 'number' ? ((bpg * gp) / possessions) * 100 : 0;
+    const orebPer100 = typeof orebPg === 'number' ? ((orebPg * gp) / possessions) * 100 : 0;
+    const toPer100 = ((topg * gp) / possessions) * 100;
     return (blkPer100 * 0.6) + stlPer100 + orebPer100 - toPer100 + heightAdj;
   }
   return null;
@@ -333,7 +360,7 @@ async function loadGenderRows(source) {
     ).trim();
     const statisticalHeightDelta =
       toNum(heightProfile.height_delta_inches) ?? toNum(bioExtras.statistical_height_delta);
-    const computedPossCreated = computePossCreated100(btRow, statisticalHeightDelta);
+    const computedPossCreated = computePossCreated100(btRow, enrichedRow, statisticalHeightDelta);
     if (typeof computedPossCreated === 'number' && Number.isFinite(computedPossCreated)) {
       values.poss_created_100 = computedPossCreated;
     }

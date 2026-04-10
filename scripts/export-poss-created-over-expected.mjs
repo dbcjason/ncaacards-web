@@ -87,16 +87,17 @@ function possCreatedBase100(btRow) {
     return (blk100 ?? 0) * 0.6 + (stl100 ?? 0) + (oreb100 ?? 0) - (to100 ?? 0);
   }
 
+  const gp = readFromBt(btRow, ["gp", "games", "games_played", "gamesplayed"]);
   const spg = readFromBt(btRow, ["spg", "stl"]);
   const bpg = readFromBt(btRow, ["bpg", "blk", "blocks"]);
   const orebPg = readFromBt(btRow, ["oreb", "orb", "orebpg", "oreb_per_game"]);
-  const mpg = readFromBt(btRow, ["mpg", "mp", "min_per", "minper"]);
+  const possessions = readFromBt(btRow, ["player_possessions", "possessions", "poss", "poss_used", "total_possessions", "possessions_raw_reg_post"]);
   const toPg = readFromBt(btRow, ["topg", "tov", "to_pg", "turnovers"]);
-  if (mpg != null && mpg > 0 && toPg != null) {
-    const stl100FromPg = spg != null ? (spg / mpg) * 100 : 0;
-    const blk100FromPg = bpg != null ? (bpg / mpg) * 100 : 0;
-    const oreb100FromPg = orebPg != null ? (orebPg / mpg) * 100 : 0;
-    const to100FromPg = (toPg / mpg) * 100;
+  if (gp != null && gp > 0 && possessions != null && possessions > 0 && toPg != null) {
+    const stl100FromPg = spg != null ? ((spg * gp) / possessions) * 100 : 0;
+    const blk100FromPg = bpg != null ? ((bpg * gp) / possessions) * 100 : 0;
+    const oreb100FromPg = orebPg != null ? ((orebPg * gp) / possessions) * 100 : 0;
+    const to100FromPg = ((toPg * gp) / possessions) * 100;
     return (blk100FromPg * 0.6) + stl100FromPg + oreb100FromPg - to100FromPg;
   }
   return null;
