@@ -191,12 +191,9 @@ export default function LineupAnalysisPage() {
   const { season, team } = selectedOption;
   const optionPlayers = selectedOption.players;
   const optionLineups = selectedOption.lineups;
-  const [onPlayers, setOnPlayers] = useState<string[]>(["Cooper Flagg"]);
-  const [offPlayers, setOffPlayers] = useState<string[]>([]);
-  const [addOnSearch, setAddOnSearch] = useState("");
-  const [addOffSearch, setAddOffSearch] = useState("");
-  const [onPick, setOnPick] = useState("");
-  const [offPick, setOffPick] = useState("");
+  const [selectedPlayers, setSelectedPlayers] = useState<string[]>(["Cooper Flagg"]);
+  const [addPlayerSearch, setAddPlayerSearch] = useState("");
+  const [addPlayerPick, setAddPlayerPick] = useState("");
   const [selectedWowyMetrics, setSelectedWowyMetrics] = useState<WowyMetricKey[]>(DEFAULT_WOWY_METRICS);
   const [wowySortKey, setWowySortKey] = useState<"offPoss" | WowyMetricKey>("offPoss");
   const [wowySortDir, setWowySortDir] = useState<"asc" | "desc">("desc");
@@ -209,25 +206,15 @@ export default function LineupAnalysisPage() {
     return selectedWowyMetrics.map((key) => wowyMetricMap.get(key)).filter((m): m is WowyMetricDef => Boolean(m));
   }, [selectedWowyMetrics, wowyMetricMap]);
 
-  const onOptions = useMemo(() => {
-    const used = new Set([...onPlayers, ...offPlayers]);
-    const needle = addOnSearch.trim().toLowerCase();
+  const addPlayerOptions = useMemo(() => {
+    const used = new Set(selectedPlayers);
+    const needle = addPlayerSearch.trim().toLowerCase();
     return optionPlayers.filter((player) => {
       if (used.has(player)) return false;
       if (!needle) return true;
       return player.toLowerCase().includes(needle);
     });
-  }, [onPlayers, offPlayers, addOnSearch, optionPlayers]);
-
-  const offOptions = useMemo(() => {
-    const used = new Set([...onPlayers, ...offPlayers]);
-    const needle = addOffSearch.trim().toLowerCase();
-    return optionPlayers.filter((player) => {
-      if (used.has(player)) return false;
-      if (!needle) return true;
-      return player.toLowerCase().includes(needle);
-    });
-  }, [onPlayers, offPlayers, addOffSearch, optionPlayers]);
+  }, [selectedPlayers, addPlayerSearch, optionPlayers]);
 
   const playerOnOffRows = useMemo(() => {
     return optionPlayers.map((player) => {
@@ -249,16 +236,14 @@ export default function LineupAnalysisPage() {
 
   const wowyLineups = useMemo(() => {
     return optionLineups.filter((row) => {
-      const hasAllOn = onPlayers.every((player) => row.players.includes(player));
-      const hasNoOff = offPlayers.every((player) => !row.players.includes(player));
-      return hasAllOn && hasNoOff;
+      return selectedPlayers.every((player) => row.players.includes(player));
     });
-  }, [onPlayers, offPlayers, optionLineups]);
+  }, [selectedPlayers, optionLineups]);
 
   const wowyStats = useMemo(() => aggregateLineups(wowyLineups), [wowyLineups]);
 
   const wowyRows = useMemo<WowyComboRow[]>(() => {
-    const selected = [...onPlayers, ...offPlayers];
+    const selected = [...selectedPlayers];
     if (!selected.length) {
       return [
         {
@@ -273,7 +258,6 @@ export default function LineupAnalysisPage() {
       ];
     }
 
-    const selectedOn = new Set(onPlayers);
     const rows: WowyComboRow[] = [];
     const combos = 1 << selected.length;
 
@@ -292,15 +276,8 @@ export default function LineupAnalysisPage() {
         return hasOn && hasOff;
       });
 
-      const patternLabel = selected
-        .map((player) => `${player} ${playersOn.includes(player) ? "On" : "Off"}`)
-        .join(" • ");
-
-      const isSelectedPattern =
-        playersOn.length === onPlayers.length &&
-        playersOff.length === offPlayers.length &&
-        playersOn.every((player) => selectedOn.has(player)) &&
-        playersOff.every((player) => !selectedOn.has(player));
+      const patternLabel = selected.map((player) => `${player} ${playersOn.includes(player) ? "On" : "Off"}`).join(" • ");
+      const isSelectedPattern = playersOff.length === 0;
 
       rows.push({
         key: `${mask}`,
@@ -344,13 +321,12 @@ export default function LineupAnalysisPage() {
       return wowySortDir === "asc" ? cmp : -cmp;
     });
 
-    if (selected.length === 1) {
+    if (selectedPlayers.length === 1) {
       const selectedPlayer = selected[0];
       const onRow = rows.find((row) => row.playersOn.includes(selectedPlayer) && !row.playersOff.includes(selectedPlayer));
       const offRow = rows.find((row) => row.playersOff.includes(selectedPlayer) && !row.playersOn.includes(selectedPlayer));
       if (onRow && offRow) {
         const diffStats: Partial<Record<WowyMetricKey | "offPoss", number>> = {
-          offPoss: onRow.stats.possessions - offRow.stats.possessions,
           netRtg: onRow.stats.netRtg - offRow.stats.netRtg,
           offRtg: onRow.stats.offRtg - offRow.stats.offRtg,
           defRtg: onRow.stats.defRtg - offRow.stats.defRtg,
@@ -375,7 +351,7 @@ export default function LineupAnalysisPage() {
     }
 
     return rows;
-  }, [onPlayers, offPlayers, optionLineups, wowySortDir, wowySortKey]);
+  }, [selectedPlayers, optionLineups, wowySortDir, wowySortKey]);
 
   const onWowySort = (key: "offPoss" | WowyMetricKey) => {
     if (wowySortKey === key) {
@@ -386,6 +362,26 @@ export default function LineupAnalysisPage() {
     setWowySortDir("desc");
   };
 
+  const renderWowyCombination = (row: WowyComboRow) => {
+    if (row.isDifferenceRow) return row.patternLabel;
+    if (!selectedPlayers.length) return "All lineups";
+    return (
+      <span>
+        {selectedPlayers.map((player, idx) => {
+          const isOn = row.playersOn.includes(player);
+          return (
+            <span key={`${row.key}-${player}`}>
+              <span className={isOn ? "text-emerald-400" : "text-rose-400"}>
+                {player} {isOn ? "On" : "Off"}
+              </span>
+              {idx < selectedPlayers.length - 1 ? <span className="text-zinc-500"> • </span> : null}
+            </span>
+          );
+        })}
+      </span>
+    );
+  };
+
   const allLineups = useMemo(() => {
     return [...optionLineups]
       .sort((a, b) => b.minutes - a.minutes)
@@ -394,12 +390,9 @@ export default function LineupAnalysisPage() {
 
   useEffect(() => {
     const defaultOn = optionPlayers.includes("Cooper Flagg") ? ["Cooper Flagg"] : optionPlayers.length ? [optionPlayers[0]] : [];
-    setOnPlayers(defaultOn);
-    setOffPlayers([]);
-    setOnPick("");
-    setOffPick("");
-    setAddOnSearch("");
-    setAddOffSearch("");
+    setSelectedPlayers(defaultOn);
+    setAddPlayerPick("");
+    setAddPlayerSearch("");
   }, [lineupOptionKey, optionPlayers]);
 
   return (
@@ -521,96 +514,48 @@ export default function LineupAnalysisPage() {
 
           <section className="rounded-xl border border-zinc-700 bg-zinc-900 p-4">
             <div className="mb-3 text-lg font-bold">WOWY Explorer</div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3">
               <div className="flex gap-2">
                 <div className="w-full space-y-2">
                   <input
                     className="w-full rounded bg-zinc-800 p-2 text-sm"
                     placeholder="Search player"
-                    value={addOnSearch}
-                    onChange={(e) => setAddOnSearch(e.target.value)}
+                    value={addPlayerSearch}
+                    onChange={(e) => setAddPlayerSearch(e.target.value)}
                   />
-                  <select className="w-full rounded bg-zinc-800 p-3" value={onPick} onChange={(e) => setOnPick(e.target.value)}>
-                    <option value="">Select player to force ON</option>
-                    {onOptions.map((player) => <option key={player} value={player}>{player}</option>)}
+                  <select className="w-full rounded bg-zinc-800 p-3" value={addPlayerPick} onChange={(e) => setAddPlayerPick(e.target.value)}>
+                    <option value="">Select player</option>
+                    {addPlayerOptions.map((player) => <option key={player} value={player}>{player}</option>)}
                   </select>
                 </div>
                 <button
                   className="rounded bg-emerald-700 px-3 py-2 text-sm"
                   type="button"
                   onClick={() => {
-                    if (!onPick) return;
-                    setOnPlayers((prev) => [...prev, onPick]);
-                    setOnPick("");
-                    setAddOnSearch("");
+                    if (!addPlayerPick) return;
+                    setSelectedPlayers((prev) => [...prev, addPlayerPick]);
+                    setAddPlayerPick("");
+                    setAddPlayerSearch("");
                   }}
                 >
                   Add
                 </button>
               </div>
 
-              <div className="flex gap-2">
-                <div className="w-full space-y-2">
-                  <input
-                    className="w-full rounded bg-zinc-800 p-2 text-sm"
-                    placeholder="Search player"
-                    value={addOffSearch}
-                    onChange={(e) => setAddOffSearch(e.target.value)}
-                  />
-                  <select className="w-full rounded bg-zinc-800 p-3" value={offPick} onChange={(e) => setOffPick(e.target.value)}>
-                    <option value="">Select player to force OFF</option>
-                    {offOptions.map((player) => <option key={player} value={player}>{player}</option>)}
-                  </select>
-                </div>
-                <button
-                  className="rounded bg-rose-700 px-3 py-2 text-sm"
-                  type="button"
-                  onClick={() => {
-                    if (!offPick) return;
-                    setOffPlayers((prev) => [...prev, offPick]);
-                    setOffPick("");
-                    setAddOffSearch("");
-                  }}
-                >
-                  Add
-                </button>
-              </div>
-
-              <div className="rounded bg-zinc-950/60 p-3 md:col-span-2">
-                <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">Current WOWY Filters</div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div>
-                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-zinc-500">On</div>
-                    <div className="flex flex-wrap gap-2">
-                      {onPlayers.map((player) => (
-                        <button
-                          key={player}
-                          type="button"
-                          className="rounded bg-emerald-700 px-2 py-1 text-xs"
-                          onClick={() => setOnPlayers((prev) => prev.filter((x) => x !== player))}
-                        >
-                          {player} ×
-                        </button>
-                      ))}
-                      {!onPlayers.length && <span className="text-sm text-zinc-500">No required on-players</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-zinc-500">Off</div>
-                    <div className="flex flex-wrap gap-2">
-                      {offPlayers.map((player) => (
-                        <button
-                          key={player}
-                          type="button"
-                          className="rounded bg-rose-700 px-2 py-1 text-xs"
-                          onClick={() => setOffPlayers((prev) => prev.filter((x) => x !== player))}
-                        >
-                          {player} ×
-                        </button>
-                      ))}
-                      {!offPlayers.length && <span className="text-sm text-zinc-500">No required off-players</span>}
-                    </div>
-                  </div>
+              <div className="rounded bg-zinc-950/60 p-3">
+                <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">Selected Players</div>
+                <div className="flex flex-wrap gap-2">
+                  {selectedPlayers.map((player) => (
+                    <button
+                      key={player}
+                      type="button"
+                      className="rounded bg-emerald-700 px-2 py-1 text-xs"
+                      onClick={() => setSelectedPlayers((prev) => prev.filter((x) => x !== player))}
+                    >
+                      {player} ×
+                    </button>
+                  ))}
+                  {!selectedPlayers.length && <span className="text-sm text-zinc-500">No players selected</span>}
                 </div>
               </div>
             </div>
@@ -722,12 +667,10 @@ export default function LineupAnalysisPage() {
                               : "odd:bg-zinc-900 even:bg-zinc-950"
                         }
                       >
-                        <td className="border-b border-zinc-800 p-2 text-left">{row.patternLabel}</td>
+                        <td className="border-b border-zinc-800 p-2 text-left">{renderWowyCombination(row)}</td>
                         {row.isDifferenceRow ? (
                           <>
-                            <td className={`border-b border-zinc-800 p-2 text-left font-semibold ${deltaClass(Number(row.diffStats?.offPoss ?? 0))}`}>
-                              {(Number(row.diffStats?.offPoss ?? 0) >= 0 ? "+" : "") + fmtNum(Number(row.diffStats?.offPoss ?? 0), 0)}
-                            </td>
+                            <td className="border-b border-zinc-800 p-2 text-left text-zinc-500">—</td>
                             {activeWowyMetrics.map((metric) => {
                               const value = Number(row.diffStats?.[metric.key] ?? 0);
                               return (
