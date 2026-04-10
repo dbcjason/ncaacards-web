@@ -87,10 +87,10 @@ function aggregateLineups(lineups: DukeExampleLineup[]): AggregateStats {
     (acc, row) => {
       const twoPointAttempts = Math.max(0, row.fga - row.tpa);
       const twoPointMakes = Math.max(0, row.fgm - row.tpm);
-      const rimAttempts = twoPointAttempts * 0.42;
-      const rimMakes = Math.min(twoPointMakes, rimAttempts * 0.66);
-      const oppRimAttempts = row.possessions * 0.31;
-      const oppRimMakes = oppRimAttempts * 0.56;
+      const rimAttempts = twoPointAttempts * (typeof row.offRimRate === "number" ? row.offRimRate : 0.42);
+      const rimMakes = rimAttempts * (typeof row.offRimPct === "number" ? row.offRimPct : 0.66);
+      const oppRimAttempts = row.possessions * (typeof row.defRimRate === "number" ? row.defRimRate : 0.31);
+      const oppRimMakes = oppRimAttempts * (typeof row.defRimPct === "number" ? row.defRimPct : 0.56);
       const fta = row.possessions * 0.18;
 
       acc.minutes += row.minutes;
@@ -617,7 +617,6 @@ export default function LineupAnalysisPage() {
                 <thead>
                   <tr className="bg-zinc-800 text-zinc-100">
                     <th className="border-b border-zinc-700 p-2 text-left">WOWY Combination</th>
-                    <th className="border-b border-zinc-700 p-2 text-center">Lineups</th>
                     <th className="border-b border-zinc-700 p-2 text-center">Min</th>
                     {activeWowyMetrics.map((metric) => (
                       <th key={metric.key} className="border-b border-zinc-700 p-2 text-center">{metric.label}</th>
@@ -629,7 +628,6 @@ export default function LineupAnalysisPage() {
                     return (
                       <tr key={row.key} className={`${row.isSelectedPattern ? "bg-zinc-800/70" : "odd:bg-zinc-900 even:bg-zinc-950"}`}>
                         <td className="border-b border-zinc-800 p-2 text-left">{row.patternLabel}</td>
-                        <td className="border-b border-zinc-800 p-2 text-center">{row.matchingLineups.length}</td>
                         <td className="border-b border-zinc-800 p-2 text-center">{fmtNum(row.stats.minutes)}</td>
                         {activeWowyMetrics.map((metric) => (
                           <td key={metric.key} className="border-b border-zinc-800 p-2 text-center">{metric.format(row.stats)}</td>
@@ -639,7 +637,7 @@ export default function LineupAnalysisPage() {
                   })}
                   {!wowyRows.length && (
                     <tr>
-                      <td colSpan={3 + activeWowyMetrics.length} className="p-8 text-center text-zinc-500">
+                      <td colSpan={2 + activeWowyMetrics.length} className="p-8 text-center text-zinc-500">
                         No lineups match the current WOWY filter set.
                       </td>
                     </tr>
