@@ -121,6 +121,34 @@ function normPlayer(v: string): string {
     .trim();
 }
 
+function teamTokens(v: string): Set<string> {
+  const aliases: Record<string, string> = {
+    st: "state",
+    u: "university",
+    univ: "university",
+    ole: "mississippi",
+    miss: "mississippi",
+  };
+  const tokens = String(v || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => aliases[token] || token);
+  return new Set(tokens);
+}
+
+function teamTokenOverlap(a: string, b: string): number {
+  const ta = teamTokens(a);
+  const tb = teamTokens(b);
+  if (!ta.size || !tb.size) return 0;
+  let overlap = 0;
+  for (const token of ta) {
+    if (tb.has(token)) overlap += 1;
+  }
+  return overlap;
+}
+
 function normText(v: string): string {
   return String(v || "").toLowerCase().trim();
 }
@@ -1104,6 +1132,16 @@ async function loadEnrichedPpsLineLookup(
 }
 
 async function fetchRepoJson<T>(path: string, cfg: SourceCfg): Promise<T> {
+  if (
+    path.includes("player_cards_pipeline/data/cache/section_payloads/") ||
+    path.includes("player_cards_pipeline/data/cache/transfer_projection/")
+  ) {
+    const rawUrl = `https://raw.githubusercontent.com/${cfg.dataOwner}/${cfg.dataRepo}/${cfg.dataRef}/${path}`;
+    const res = await fetch(rawUrl, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Payload fetch failed (${res.status})`);
+    return (await res.json()) as T;
+  }
+
   const encodedPath = path
     .split("/")
     .filter((part) => part.length > 0)
@@ -1493,6 +1531,14 @@ export async function loadTransferProjectionHtml(
     );
     if (fallbackRows.length === 1) {
       row = fallbackRows[0];
+    } else if (fallbackRows.length > 1) {
+      row =
+        fallbackRows
+          .map((candidate) => ({
+            candidate,
+            score: teamTokenOverlap(String(candidate.team ?? ""), team),
+          }))
+          .sort((a, b) => b.score - a.score)[0]?.candidate ?? undefined;
     }
   }
   if (!row?.projections) {
