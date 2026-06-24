@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getCurrentUser } from "@/lib/auth";
-import { LeaderboardPreloader } from "@/components/leaderboard-preloader";
+import { getCurrentUser, isPublicGuestUser } from "@/lib/auth";
+import { WatchlistSessionPreloader } from "@/components/watchlist-session-preloader";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -32,6 +32,7 @@ async function AppChrome({
   children: React.ReactNode;
 }) {
   const user = await userPromise;
+  const publicGuest = isPublicGuestUser(user);
 
   return (
     <>
@@ -46,16 +47,30 @@ async function AppChrome({
             <div className="flex items-center gap-5 text-sm text-zinc-300">
               {user.access_scope !== "women" && <Link href="/cards?gender=men" className="hover:text-white">Men</Link>}
               {user.access_scope !== "men" && <Link href="/cards?gender=women" className="hover:text-white">Women</Link>}
-              {user.role === "admin" && <Link href="/dashboard" className="hover:text-white">Admin Dashboard</Link>}
-              <Link href="/profile" className="hover:text-white">Profile</Link>
-              <form action="/api/auth/logout" method="post">
-                <button type="submit" className="hover:text-white">Sign Out</button>
-              </form>
+              {!publicGuest && user.role === "admin" && <Link href="/dashboard" className="hover:text-white">Admin Dashboard</Link>}
+              {!publicGuest && <Link href="/profile" className="hover:text-white">Profile</Link>}
+              {!publicGuest && (
+                <form action="/api/auth/logout" method="post">
+                  <button type="submit" className="hover:text-white">Sign Out</button>
+                </form>
+              )}
             </div>
           ) : null}
         </div>
       </header>
-      {user ? <LeaderboardPreloader accessScope={user.access_scope} /> : null}
+      {user ? (
+        <WatchlistSessionPreloader
+          accessScope={user.access_scope}
+          favoriteConference={
+            String(
+              user.effective_favorite_conference ||
+                user.favorite_conference ||
+                user.organization_favorite_conference ||
+                "SEC",
+            )
+          }
+        />
+      ) : null}
       <main>{children}</main>
     </>
   );
