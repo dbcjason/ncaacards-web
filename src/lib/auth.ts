@@ -33,7 +33,7 @@ export type AuthUser = {
   effective_favorite_conference: string | null;
 };
 
-const PUBLIC_ACCESS_MODE = String(process.env.PUBLIC_ACCESS_MODE ?? "0").trim() !== "0";
+const PUBLIC_ACCESS_MODE = String(process.env.PUBLIC_ACCESS_MODE ?? "1").trim() !== "0";
 
 const PUBLIC_GUEST_USER: AuthUser = {
   id: "public-user",
@@ -54,6 +54,10 @@ const PUBLIC_GUEST_USER: AuthUser = {
   effective_favorite_team: null,
   effective_favorite_conference: null,
 };
+
+export function isPublicGuestUser(user: AuthUser | null | undefined): boolean {
+  return Boolean(user && user.id === PUBLIC_GUEST_USER.id);
+}
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16);
