@@ -50,7 +50,7 @@ function getSourceCfg(gender: Gender): SourceCfg {
       btCsvPath:
         process.env.GITHUB_BT_CSV_PATH_WOMEN ||
         process.env.GITHUB_BT_CSV_PATH ||
-        "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
+        "player_cards_pipeline/data/bt/bt_advstats_2010_2027.csv",
       bartPrefix: (process.env.GITHUB_BART_PREFIX_WOMEN || "ncaaw").trim(),
     };
   }
@@ -64,7 +64,7 @@ function getSourceCfg(gender: Gender): SourceCfg {
       "player_cards_pipeline/data/bt/raw_playerstat_json/{season}_pbp_playerstat_array.json",
     btCsvPath:
       process.env.GITHUB_BT_CSV_PATH ||
-      "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
+      "player_cards_pipeline/data/bt/bt_advstats_2010_2027.csv",
     bartPrefix: (process.env.GITHUB_BART_PREFIX || "").trim(),
   };
 }
@@ -72,6 +72,8 @@ function getSourceCfg(gender: Gender): SourceCfg {
 function btCsvCandidates(cfg: SourceCfg): string[] {
   return [
     cfg.btCsvPath,
+  "player_cards_pipeline/data/bt/bt_advstats_2010_2027.csv",
+  "player_cards_pipeline/data/bt/bt_advstats_2027.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2010_2026.csv",
   "player_cards_pipeline/data/bt/bt_advstats_2019_2025.csv",
