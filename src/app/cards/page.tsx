@@ -59,8 +59,8 @@ function CardsPageInner() {
     const g = searchParams.get("gender");
     setGender(g === "women" ? "women" : "men");
   }, [searchParams]);
-  const [season, setSeason] = useState(2026);
-  const [seasonB, setSeasonB] = useState(2026);
+  const [season, setSeason] = useState(2027);
+  const [seasonB, setSeasonB] = useState(2027);
   const [team, setTeam] = useState("");
   const [player, setPlayer] = useState("");
   const [compare, setCompare] = useState(false);
