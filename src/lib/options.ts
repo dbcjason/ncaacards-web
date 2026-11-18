@@ -50,7 +50,7 @@ function getSourceCfg(gender: Gender): SourceCfg {
       btCsvPath:
         process.env.GITHUB_BT_CSV_PATH_WOMEN ||
         process.env.GITHUB_BT_CSV_PATH ||
-        "player_cards_pipeline/data/bt/bt_advstats_2010_2027.csv",
+        "player_cards_pipeline/data/bt/bt_advstats_2019_2026.csv",
       bartPrefix: (process.env.GITHUB_BART_PREFIX_WOMEN || "ncaaw").trim(),
     };
   }
