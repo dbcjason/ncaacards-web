@@ -539,7 +539,8 @@ function CardsPageInner() {
     return toCanvas(cardRoot, {
       cacheBust: true,
       backgroundColor: "#09090b",
-      pixelRatio: 1,
+      // Render at 2x so downloaded/copied cards stay sharp when shared or enlarged.
+      pixelRatio: 2,
       width,
       height,
       canvasWidth: width,
@@ -869,34 +870,41 @@ function CardsPageInner() {
         )}
 
         {resultHtml ? (
-          <div className="mt-5 rounded border border-zinc-800 bg-zinc-950 p-1">
-            <div className="mb-3 flex flex-wrap gap-2 px-2 pt-2">
-              <button
-                type="button"
-                className="site-button"
-                onClick={handleDownloadImage}
-                disabled={exportBusy !== ""}
-              >
-                {exportBusy === "download" ? "Downloading..." : "Download Image"}
-              </button>
-              <button
-                type="button"
-                className="site-button-secondary"
-                onClick={handleCopyImage}
-                disabled={exportBusy !== ""}
-              >
-                {exportBusy === "clipboard" ? "Copying..." : "Save Image to Clipboard"}
-              </button>
-              {compare && resultHtmlB ? (
-                <div className="self-center text-xs text-zinc-500">
-                  Export includes both profiles side by side.
+          <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-start">
+            <aside className="order-1 flex shrink-0 flex-row gap-2 lg:sticky lg:top-4 lg:w-44 lg:flex-col">
+              <div className="rounded border border-zinc-800 bg-zinc-900 p-3">
+                <div className="text-sm font-semibold text-zinc-100">Export card</div>
+                <div className="mt-1 text-xs leading-5 text-zinc-500">
+                  PNG export is rendered at 2x resolution.
                 </div>
-              ) : null}
-            </div>
-            {exportError ? (
-              <div className="mb-3 px-2 text-sm text-rose-400">{exportError}</div>
-            ) : null}
-            <div className={`grid gap-1 ${compare && resultHtmlB ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1"}`}>
+                <div className="mt-3 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    className="site-button w-full"
+                    onClick={handleDownloadImage}
+                    disabled={exportBusy !== ""}
+                  >
+                    {exportBusy === "download" ? "Downloading..." : "Download PNG"}
+                  </button>
+                  <button
+                    type="button"
+                    className="site-button-secondary w-full"
+                    onClick={handleCopyImage}
+                    disabled={exportBusy !== ""}
+                  >
+                    {exportBusy === "clipboard" ? "Copying..." : "Copy PNG"}
+                  </button>
+                </div>
+                {compare && resultHtmlB ? (
+                  <div className="mt-3 text-xs leading-5 text-zinc-500">
+                    Includes both profiles side by side.
+                  </div>
+                ) : null}
+              </div>
+              {exportError ? <div className="text-sm text-rose-400">{exportError}</div> : null}
+            </aside>
+            <div className="order-2 min-w-0 flex-1 rounded border border-zinc-800 bg-zinc-950 p-1">
+              <div className={`grid gap-1 ${compare && resultHtmlB ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1"}`}>
               <div className={compare && resultHtmlB ? "h-[1500px] overflow-hidden rounded" : "rounded"}>
                 <iframe
                   ref={iframeRefA}
@@ -919,6 +927,7 @@ function CardsPageInner() {
                   />
                 </div>
               )}
+              </div>
             </div>
           </div>
         ) : (
